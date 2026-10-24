@@ -1,7 +1,11 @@
 @echo off
 rem Служебный режим: открыть браузер, когда приложение уже запустится.
-rem Вызывается из блока [4/4] строкой: start "" /b "%~f0" --open-browser
-if /i "%~1"=="--open-browser" goto open_browser_when_ready
+rem Вызывается из блока [4/4] строкой: start "" /b cmd /c call "%~f0" --open-browser <порт>
+if /i "%~1"=="--open-browser" (
+    set "OPEN_PORT=%~2"
+    if not defined OPEN_PORT set "OPEN_PORT=8501"
+    goto open_browser_when_ready
+)
 
 chcp 65001 >nul
 setlocal EnableExtensions
@@ -119,8 +123,28 @@ rem  * --browser.gatherUsageStats=false выключает телеметрию.
 rem Браузер откроем сами, когда сервер начнёт отвечать (блок в конце файла).
 rem "python -m streamlit run app.py" — то же самое, что "streamlit run app.py",
 rem но надёжнее: не зависит от того, что оказалось в PATH первым.
-echo [4/4] Запускаю приложение...
-echo   Адрес:  http://localhost:8501
+rem
+rem Важно: если 8501 занят (например, Docker-контейнером или другим
+rem Streamlit), берём следующий свободный порт и открываем браузер именно
+rem на нём. Иначе bat открывал бы 8501 и показывал чужое приложение.
+set "PORT=8501"
+
+:find_free_port
+netstat -ano | findstr ":%PORT% " | findstr "LISTENING" >nul 2>nul
+if errorlevel 1 goto port_selected
+set /a PORT+=1
+if %PORT% GTR 8510 goto no_free_port
+goto find_free_port
+
+:no_free_port
+echo [ОШИБКА] Не найдено свободных портов в диапазоне 8501-8510.
+echo Остановите Docker-контейнер или другое приложение Streamlit и запустите снова.
+pause
+exit /b 1
+
+:port_selected
+echo [4/4] Запускаю приложение на порту %PORT%...
+echo   Адрес:  http://localhost:%PORT%
 echo   Браузер откроется сам, как только приложение загрузится.
 echo   Если окно браузера не появилось - откройте адрес вручную.
 echo   Стоп:   Ctrl+C в этом окне
@@ -128,8 +152,8 @@ echo.
 
 rem Запускаем служебный блок открытия браузера в фоне (он дождётся сервера).
 rem Важно: именно "cmd /c call", иначе start оставляет лишний cmd с приглашением.
-start "" /b cmd /c call "%~f0" --open-browser
-python -m streamlit run app.py --server.headless=true --browser.gatherUsageStats=false
+start "" /b cmd /c call "%~f0" --open-browser %PORT%
+python -m streamlit run app.py --server.headless=true --server.port=%PORT% --browser.gatherUsageStats=false
 
 if errorlevel 1 (
     echo.
@@ -160,13 +184,13 @@ if not exist "%SystemRoot%\System32\curl.exe" (
 )
 rem До 60 секунд проверяем, отвечает ли сервер.
 for /l %%i in (1,1,60) do (
-    "%SystemRoot%\System32\curl.exe" -s -o nul --max-time 2 "http://localhost:8501"
+    "%SystemRoot%\System32\curl.exe" -s -o nul --max-time 2 "http://localhost:%OPEN_PORT%"
     if not errorlevel 1 goto open_browser_now
     ping -n 2 127.0.0.1 >nul 2>nul
 )
 
 :open_browser_now
 echo.
-echo   Открываю браузер: http://localhost:8501
-start "" "http://localhost:8501"
+echo   Открываю браузер: http://localhost:%OPEN_PORT%
+start "" "http://localhost:%OPEN_PORT%"
 exit /b
