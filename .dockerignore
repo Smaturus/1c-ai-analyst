@@ -1,0 +1,55 @@
+# Git / IDE / OS
+.git
+.gitignore
+.github
+.vscode
+.idea
+Thumbs.db
+.DS_Store
+
+# Виртуальное окружение и кеши Python
+.venv
+__pycache__
+*.py[cod]
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.tools
+.acl-recovery
+.browser_profile
+
+# Локальные базы и выгрузки 1С — в образ не попадают (лицензия/размер)
+1c_base
+1c_export
+utdemo
+*.1CD
+*.cfl
+*.1CL
+тест.xlsx
+*.xlsx
+
+# Секреты: ключи LLM передаются через environment/.env на хосте
+.env
+.env.*
+!.env.example
+
+# Служебные документы, тесты и CI не нужны в runtime-образе
+tests
+docs/*
+!docs/intent_schema.json
+progress.md
+CHANGELOG.md
+README.md
+pyproject.toml
+pytest.ini
+start_app.bat
+smoke_test.py
+smoke_llm.py
+promt_1_publishing.md
+promp_2_ci.txt
+Промпт_для_нового_чата.md
+
+# Сам Docker-контекст в образ не копируем
+Dockerfile
+docker-compose.yml
+.dockerignore

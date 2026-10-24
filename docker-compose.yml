@@ -1,0 +1,30 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: 1c-ai-analyst:0.5.0
+    container_name: 1c-ai-analyst
+    ports:
+      - "8501:8501"
+    environment:
+      # values are taken from the shell or from .env (docker compose reads it
+      # for interpolation); без ключа приложение работает в офлайн-режиме.
+      LLM_PROVIDER: ${LLM_PROVIDER:-none}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8501/_stcore/health', timeout=3).read()"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    # Для своих данных можно примонтировать CSV-витрину вместо демо-файла:
+    # volumes:
+    #   - ./sample_data.csv:/app/sample_data.csv:ro

@@ -106,6 +106,49 @@ python -m streamlit run app.py
 
 Проверка LLM-слоя отдельно (нужен pydantic): [`smoke_llm.py`](smoke_llm.py) — 86 проверок.
 
+## Запуск в Docker
+
+В образ попадают только код и синтетический `sample_data.csv`; реальные
+выгрузки 1С, `.env`, `.venv` и кеши исключены через [`.dockerignore`](.dockerignore).
+Сборка и запуск:
+
+```powershell
+cd D:\1C_data_assistant
+docker build -t 1c-ai-analyst:0.5.0 .
+docker run --rm -p 8501:8501 --name 1c-ai-analyst 1c-ai-analyst:0.5.0
+```
+
+Интерфейс: http://localhost:8501. Без ключа LLM приложение работает в
+офлайн-режиме детерминированных правил.
+
+Через Docker Compose:
+
+```powershell
+# при необходимости: Copy-Item .env.example .env и заполните LLM_*
+docker compose up --build -d
+docker compose logs -f app
+docker compose down
+```
+
+Переменные `LLM_PROVIDER`/`LLM_API_KEY`/`LLM_MODEL`/`LLM_BASE_URL` можно задать
+в `.env` (compose подхватывает его для подстановки) или в переменных окружения
+хоста. Проверка состояния контейнера:
+
+```powershell
+docker inspect --format '{{.State.Health.Status}}' 1c-ai-analyst
+```
+
+Важно: в Linux-контейнере нет 1С/COM/`pywin32`, поэтому выгрузку из 1С
+(`onec_source.py`) выполняйте на Windows-хосте, а готовый CSV/Excel
+загружайте в UI кнопкой **«Загрузить свой файл»**. Либо примонтируйте свой
+файл с именем `sample_data.csv` и той же схемой:
+
+```powershell
+docker run --rm -p 8501:8501 `
+  -v "D:\1C_data_assistant\sample_data.csv:/app/sample_data.csv:ro" `
+  1c-ai-analyst:0.5.0
+```
+
 ## Как запустить тесты
 
 Unit-тесты лежат в [`tests/`](tests/) и не требуют ни реальных выгрузок, ни
@@ -187,6 +230,9 @@ D:\1C_data_assistant
 ├─ llm_agent.py              # Pydantic DSL + промпт + LLM/правила
 ├─ app.py                    # Streamlit UI + графики Altair
 ├─ start_app.bat             # запуск в один клик (venv + зависимости + браузер)
+├─ Dockerfile                # образ Streamlit-приложения (Python 3.12)
+├─ docker-compose.yml        # запуск контейнера на порту 8501
+├─ .dockerignore             # что не попадает в образ
 ├─ smoke_test.py             # проверка демо-данных/интентов
 ├─ smoke_llm.py              # проверка LLM-слоя (Pydantic)
 ├─ tests/
