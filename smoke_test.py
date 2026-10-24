@@ -1,19 +1,19 @@
-"""Смоук-тест MVP на реальной выгрузке ``тест.xlsx``.
+"""Смоук-тест MVP на синтетическом демо-датасете.
 
 Запуск::
 
     python smoke_test.py
 
-Скрипт проверяет контракт загрузчика (схема, контрольные суммы, обработку
-``Итого``), прогоняет все 5 интентов и печатает результаты так, как их увидит
-пользователь в Streamlit.
+Скрипт не использует реальные выгрузки 1С/Excel: ``sample_data.csv``
+генерируется ``generate_synthetic_data.py`` и содержит только вымышленные
+данные. Проверяются схема витрины, контрольные суммы генератора, все 5
+интентов, DSL-диспетчер и негативные сценарии.
 """
 
 from __future__ import annotations
 
 import json
 import sys
-import warnings
 from pathlib import Path
 
 import pandas as pd
@@ -28,18 +28,16 @@ from analytics import (
     get_top_bottom_products,
     get_total,
 )
-from data_loader import OUTPUT_COLUMNS, load_and_clean_1c_report
+from generate_synthetic_data import (
+    NEGATIVE_SHARE,
+    ROWS,
+    SAMPLE_CSV,
+    generate_sample_data,
+)
+from onec_source import SAMPLE_COLUMNS, load_sample_vitrina
 
-REPORT_PATH = "тест.xlsx"
-
-# Контрольные суммы из строки «Итого» исходного файла: строки данных должны
-# давать ровно те же значения, иначе «Итого» не удалено или удалено дважды.
-EXPECTED_ROWS = 821
-EXPECTED_REVENUE_NET = 19_313_936.63
-EXPECTED_QUANTITY = 10_878.0
-EXPECTED_PRODUCTS = 96
-EXPECTED_COUNTERPARTIES = 40
-EXPECTED_UNDATED_ROWS = 250
+EXPECTED = generate_sample_data()
+"""Эталон, сгенерированный в памяти с тем же семенем (600 строк)."""
 
 
 def _check(condition: bool, message: str) -> None:
@@ -49,77 +47,87 @@ def _check(condition: bool, message: str) -> None:
     print(f"  OK  {message}")
 
 
+def _ensure_sample_file() -> None:
+    """Сгенерировать ``sample_data.csv``, если его нет в рабочей копии."""
+    if not SAMPLE_CSV.is_file():
+        print("  [info] sample_data.csv отсутствует — генерирую заново")
+        generate_sample_data().to_csv(SAMPLE_CSV, index=False, encoding="utf-8")
+
+
 def main() -> int:
     pd.set_option("display.width", 160)
     pd.set_option("display.max_columns", 20)
+    _ensure_sample_file()
 
     print("=" * 100)
-    print("1. ЗАГРУЗКА И ОЧИСТКА")
+    print("1. СИНТЕТИЧЕСКИЙ ДАТАСЕТ sample_data.csv")
     print("=" * 100)
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        df = load_and_clean_1c_report(REPORT_PATH)
-    for item in caught:
-        print(f"  [warning] {item.message}")
+    vitrina = load_sample_vitrina(str(SAMPLE_CSV))
+    print(vitrina.head(5).to_string(index=False))
     print()
-    print(df.head(5).to_string())
-    print()
-    print(df.dtypes.to_string())
+    print(vitrina.dtypes.to_string())
     print()
 
-    _check(list(df.columns) == list(OUTPUT_COLUMNS), "схема колонок соответствует контракту")
-    _check(len(df) == EXPECTED_ROWS, f"строк данных: {len(df)} (ожидалось {EXPECTED_ROWS})")
+    _check(list(vitrina.columns) == list(SAMPLE_COLUMNS), "схема колонок соответствует контракту")
+    _check(len(vitrina) == ROWS, f"строк данных: {len(vitrina)} (ожидалось {ROWS})")
+    _check(str(vitrina["date"].dtype).startswith("datetime64"), f"тип date: {vitrina['date'].dtype}")
+    _check(int(vitrina["date"].isna().sum()) == 0, "в демо-данных нет строк без даты")
     _check(
-        abs(float(df["revenue"].sum()) - EXPECTED_REVENUE_NET) < 0.01,
-        f"выручка без НДС совпала с «Итого»: {df['revenue'].sum():,.2f}",
+        vitrina["date"].min().date().isoformat() == "2023-01-01"
+        and vitrina["date"].max().date().year == 2024,
+        f"период данных: {vitrina['date'].min():%d.%m.%Y} – {vitrina['date'].max():%d.%m.%Y}",
     )
     _check(
-        abs(float(df["quantity"].sum()) - EXPECTED_QUANTITY) < 0.01,
-        f"количество совпало с «Итого»: {df['quantity'].sum():,.2f}",
-    )
-    _check(df["product"].nunique() == EXPECTED_PRODUCTS, f"товаров: {df['product'].nunique()}")
-    _check(
-        df["counterparty"].nunique() == EXPECTED_COUNTERPARTIES,
-        f"контрагентов: {df['counterparty'].nunique()}",
+        abs(float(vitrina["revenue"].sum()) - float(EXPECTED["revenue"].sum())) < 0.01,
+        f"выручка совпала с генератором: {vitrina['revenue'].sum():,.2f}",
     )
     _check(
-        int(df["date"].isna().sum()) == EXPECTED_UNDATED_ROWS,
-        f"строк без даты: {int(df['date'].isna().sum())}",
+        abs(float(vitrina["quantity"].sum()) - float(EXPECTED["quantity"].sum())) < 0.01,
+        f"количество совпало с генератором: {vitrina['quantity'].sum():,.2f}",
     )
     _check(
-        str(df["date"].dtype).startswith("datetime64"),
-        f"тип date: {df['date'].dtype}",
+        vitrina["product"].nunique() == EXPECTED["product"].nunique(),
+        f"товаров: {vitrina['product'].nunique()}",
     )
     _check(
-        (df["revenue"] < 0).any(),
-        f"отрицательные суммы сохранены (строк: {int((df['revenue'] < 0).sum())})",
+        vitrina["counterparty"].nunique() == EXPECTED["counterparty"].nunique(),
+        f"контрагентов: {vitrina['counterparty'].nunique()}",
     )
     _check(
-        not df["product"].astype(str).str.contains(";").any(),
-        "в product не осталось склеенных значений",
+        vitrina["product_group"].nunique() == EXPECTED["product_group"].nunique(),
+        f"товарных групп: {vitrina['product_group'].nunique()}",
+    )
+    negative_count = int((vitrina["revenue"] < 0).sum())
+    expected_negative = round(ROWS * NEGATIVE_SHARE)
+    _check(
+        negative_count == expected_negative,
+        f"возвратов: {negative_count} (ожидалось {expected_negative}, {NEGATIVE_SHARE:.0%})",
     )
     _check(
-        not df["counterparty"].astype(str).str.contains(";").any(),
-        "в counterparty не осталось склеенных значений",
+        (vitrina.loc[vitrina["revenue"] < 0, "quantity"] < 0).all(),
+        "у возвратов отрицательны и количество, и выручка",
     )
-    _check("Итого" not in set(df["product"]), "строка «Итого» удалена")
+    _check(
+        (vitrina.loc[vitrina["revenue"] >= 0, "quantity"] > 0).all(),
+        "у обычных строк количество положительно",
+    )
 
     print()
     print("=" * 100)
-    print("2. ИНТЕНТ 1: ТОП/АНТИТОП ТОВАРОВ (за весь период)")
+    print("2. ИНТЕНТ 1: ТОП/АНТИТОП ТОВАРОВ")
     print("=" * 100)
-    top = get_top_bottom_products(df, metric="revenue", limit=5, ascending=False)
-    print("Лучшие 5 по выручке:")
+    top = get_top_bottom_products(vitrina, metric="revenue", limit=5, ascending=False)
+    bottom = get_top_bottom_products(vitrina, metric="revenue", limit=5, ascending=True)
     print(top.to_string(index=False))
-    print()
-    bottom = get_top_bottom_products(df, metric="revenue", limit=5, ascending=True)
-    print("Худшие 5 по выручке:")
-    print(bottom.to_string(index=False))
     _check(len(top) == 5 and len(bottom) == 5, "limit соблюдён")
     _check(top["revenue"].is_monotonic_decreasing, "топ отсортирован по убыванию")
     _check(bottom["revenue"].is_monotonic_increasing, "антитоп отсортирован по возрастанию")
     _check(
-        abs(float(get_top_bottom_products(df, limit=10_000)["revenue"].sum()) - float(df["revenue"].sum())) < 0.01,
+        abs(
+            float(get_top_bottom_products(vitrina, limit=10_000)["revenue"].sum())
+            - float(vitrina["revenue"].sum())
+        )
+        < 0.01,
         "сумма всех товарных строк равна общей выручке",
     )
 
@@ -127,19 +135,17 @@ def main() -> int:
     print("=" * 100)
     print("3. ИНТЕНТ 3: ВРЕМЕННОЙ РЯД ПО МЕСЯЦАМ")
     print("=" * 100)
-    series = get_timeseries(df, freq="M")
-    print(series.head(8).to_string(index=False))
+    series = get_timeseries(vitrina, freq="M")
+    print(series.head(5).to_string(index=False))
     print("...")
     print(series.tail(3).to_string(index=False))
-    dated_revenue = float(df.loc[df["date"].notna(), "revenue"].sum())
-    _check(len(series) > 24, f"месяцев в ряду: {len(series)}")
+    _check(len(series) == 24, f"месяцев в ряду: {len(series)}")
     _check(
-        abs(float(series["revenue"].sum()) - dated_revenue) < 0.01,
-        f"сумма ряда равна выручке строк с датой: {series['revenue'].sum():,.2f}",
+        abs(float(series["revenue"].sum()) - float(vitrina["revenue"].sum())) < 0.01,
+        f"сумма ряда равна выручке витрины: {series['revenue'].sum():,.2f}",
     )
     _check(series["period"].is_monotonic_increasing, "ряд отсортирован по времени")
-
-    quarterly = get_timeseries(df, freq="Q", metric="quantity")
+    quarterly = get_timeseries(vitrina, freq="Q", metric="quantity")
     _check(quarterly["period"].is_monotonic_increasing, "квартальный ряд в порядке")
 
     print()
@@ -147,7 +153,7 @@ def main() -> int:
     print("4. ИНТЕНТ 2: ДИНАМИКА КОНТРАГЕНТОВ (2023 -> 2024)")
     print("=" * 100)
     dynamics = get_counterparty_dynamics(
-        df,
+        vitrina,
         ("2023-01-01", "2023-12-31"),
         ("2024-01-01", "2024-12-31"),
         top_n=8,
@@ -158,19 +164,19 @@ def main() -> int:
         set(dynamics["direction"].astype(str)) <= {"up", "down", "flat", "new", "lost"},
         "direction размечен допустимыми значениями",
     )
-    check_delta = (dynamics["period2_value"] - dynamics["period1_value"] - dynamics["delta"]).abs().max()
+    check_delta = (
+        dynamics["period2_value"] - dynamics["period1_value"] - dynamics["delta"]
+    ).abs().max()
     _check(check_delta < 1e-6, "delta согласована с разницей периодов")
 
     print()
     print("=" * 100)
-    print("5. ИНТЕНТ 4: СРЕЗ ПО ТОВАРНЫМ ГРУППАМ (янв 2024 -> фев 2024)")
+    print("5. ИНТЕНТ 4: СРЕЗ ПО ТОВАРНЫМ ГРУППАМ (2023 H1 -> H2)")
     print("=" * 100)
-    print("ВНИМАНИЕ: в выгрузке нет колонки «товарная группа», группа выведена")
-    print("эвристикой (первое слово товара).")
     groups = get_group_dynamics(
-        df,
-        ("2024-01-01", "2024-01-31"),
-        ("2024-02-01", "2024-02-29"),
+        vitrina,
+        ("2023-01-01", "2023-06-30"),
+        ("2023-07-01", "2023-12-31"),
         only_drops=True,
         top_n=8,
     )
@@ -179,21 +185,23 @@ def main() -> int:
         groups.empty or (groups["delta"] < 0).all(),
         "only_drops оставил только падающие группы",
     )
+    _check(
+        groups.empty or set(groups.iloc[:, 0]).issubset(set(vitrina["product_group"])),
+        "групповая динамика идёт по товарным группам витрины",
+    )
 
     print()
     print("=" * 100)
     print("6. ИНТЕНТ 5: ОБЩАЯ СУММА ЗА ПЕРИОД")
     print("=" * 100)
-    total_all = get_total(df)
-    print("Весь файл:")
+    total_all = get_total(vitrina)
+    total_2024 = get_total(vitrina, start_date="2024-01-01", end_date="2024-12-31")
     print(total_all.to_string(index=False))
-    total_2024 = get_total(df, start_date="2024-01-01", end_date="2024-12-31")
     print()
-    print("Только 2024 год:")
     print(total_2024.to_string(index=False))
     _check(
-        abs(float(total_all.iloc[0]["revenue"]) - float(df["revenue"].sum())) < 0.01,
-        "итог по всему файлу совпадает с суммой строк",
+        abs(float(total_all.iloc[0]["revenue"]) - float(vitrina["revenue"].sum())) < 0.01,
+        "итог по всей витрине совпадает с суммой строк",
     )
     _check(
         float(total_2024.iloc[0]["revenue"]) < float(total_all.iloc[0]["revenue"]),
@@ -204,11 +212,11 @@ def main() -> int:
     print("=" * 100)
     print("7. ДИАГНОСТИКА КАЧЕСТВА ДАННЫХ")
     print("=" * 100)
-    print(get_data_quality(df).to_string(index=False))
+    print(get_data_quality(vitrina).to_string(index=False))
 
     print()
     print("=" * 100)
-    print("8. ДИСПЕТЧЕР JSON-DSL (как это будет вызывать LangChain-инструмент)")
+    print("8. ДИСПЕТЧЕР JSON-DSL")
     print("=" * 100)
     dsl_payloads = [
         {"intent": "total", "params": {"start_date": "2024-01-01", "end_date": "2024-12-31"}},
@@ -224,19 +232,20 @@ def main() -> int:
         },
     ]
     for payload in dsl_payloads:
-        result = dispatch_intent(payload["intent"], df, payload["params"])
+        result = dispatch_intent(payload["intent"], vitrina, payload["params"])
         print(f"  {payload['intent']:22s} -> {result.shape[0]} строк, колонки {list(result.columns)}")
-    _check(set(INTENT_REGISTRY) == {p["intent"] for p in dsl_payloads}, "все 5 интентов доступны через диспетчер")
-
+    _check(
+        set(INTENT_REGISTRY) == {p["intent"] for p in dsl_payloads},
+        "все 5 интентов доступны через диспетчер",
+    )
     try:
-        dispatch_intent("unknown_intent", df)
+        dispatch_intent("unknown_intent", vitrina)
     except ValueError as exc:
         print(f"  OK  неизвестный интент: {exc}")
     else:
         raise AssertionError("не поднялась ошибка для неизвестного интента")
-
     try:
-        dispatch_intent("total", df, {"limit": 5})
+        dispatch_intent("total", vitrina, {"limit": 5})
     except ValueError as exc:
         print(f"  OK  лишний параметр: {exc}")
     else:
@@ -244,15 +253,28 @@ def main() -> int:
 
     print()
     print("=" * 100)
-    print("9. НЕГАТИВНЫЕ ПРОВЕРКИ (ошибки должны быть понятными)")
+    print("9. НЕГАТИВНЫЕ ПРОВЕРКИ И РЕГРЕССИИ")
     print("=" * 100)
     for label, call in (
-        ("неизвестная метрика", lambda: get_top_bottom_products(df, metric="profit")),
-        ("limit <= 0", lambda: get_top_bottom_products(df, limit=0)),
-        ("битая дата", lambda: get_timeseries(df, start_date="вчера")),
-        ("начало позже конца", lambda: get_counterparty_dynamics(df, ("2024-12-31", "2024-01-01"), ("2024-01-01", "2024-01-31"))),
-        ("неизвестная частота", lambda: get_timeseries(df, freq="century")),
-        ("нет колонки-группы", lambda: get_group_dynamics(df, ("2024-01-01", "2024-01-31"), ("2024-02-01", "2024-02-29"), group_by="nope")),
+        ("неизвестная метрика", lambda: get_top_bottom_products(vitrina, metric="profit")),
+        ("limit <= 0", lambda: get_top_bottom_products(vitrina, limit=0)),
+        ("битая дата", lambda: get_timeseries(vitrina, start_date="вчера")),
+        (
+            "начало позже конца",
+            lambda: get_counterparty_dynamics(
+                vitrina, ("2024-12-31", "2024-01-01"), ("2024-01-01", "2024-01-31")
+            ),
+        ),
+        ("неизвестная частота", lambda: get_timeseries(vitrina, freq="century")),
+        (
+            "нет колонки-группы",
+            lambda: get_group_dynamics(
+                vitrina,
+                ("2024-01-01", "2024-01-31"),
+                ("2024-02-01", "2024-02-29"),
+                group_by="nope",
+            ),
+        ),
     ):
         try:
             call()
@@ -261,28 +283,15 @@ def main() -> int:
         else:
             raise AssertionError(f"не поднялась ошибка: {label}")
 
-    empty = get_top_bottom_products(df, start_date="2030-01-01", end_date="2030-12-31")
+    empty = get_top_bottom_products(vitrina, start_date="2030-01-01", end_date="2030-12-31")
     _check(empty.empty, "пустой период даёт пустой DataFrame, а не исключение")
 
-    print()
-    print("=" * 100)
-    print("10. РЕГРЕССИИ, НАЙДЕННЫЕ НА РЕВЬЮ")
-    print("=" * 100)
-
-    from data_loader import load_and_clean_1c_report as _load
-
-    gross = _load(REPORT_PATH, revenue_mode="gross")
-    _check(
-        abs(float(gross["revenue"].sum()) - 22_957_182.97) < 0.01,
-        f"revenue_mode='gross' даёт выручку с НДС: {gross['revenue'].sum():,.2f}",
-    )
-
     all_groups = get_group_dynamics(
-        df, ("2023-01-01", "2023-06-30"), ("2023-07-01", "2023-12-31")
+        vitrina, ("2023-01-01", "2023-06-30"), ("2023-07-01", "2023-12-31")
     )
     total_drops = int((all_groups["delta"] < 0).sum())
     limited = get_group_dynamics(
-        df,
+        vitrina,
         ("2023-01-01", "2023-06-30"),
         ("2023-07-01", "2023-12-31"),
         only_drops=True,
@@ -312,9 +321,9 @@ def main() -> int:
         "отрицательная база: delta=+50, direction=up, delta_pct=NaN",
     )
 
-    counts = get_timeseries(df, freq="M", agg="count")
+    counts = get_timeseries(vitrina, freq="M", agg="count")
     _check(
-        int(counts["revenue"].sum()) == int(df["date"].notna().sum()),
+        int(counts["revenue"].sum()) == int(vitrina["date"].notna().sum()),
         f"agg='count' считает записи: {int(counts['revenue'].sum())}",
     )
 
@@ -335,12 +344,26 @@ def main() -> int:
         group_by=permuted,
     )
     jan_value = float(grouped.set_index("product_group").loc["jan", "period1_value"])
-    _check(jan_value == 10.0, f"Series групп выравнивается по индексу (январь у 'jan' = {jan_value})")
+    _check(
+        jan_value == 10.0,
+        f"Series групп выравнивается по индексу (январь у 'jan' = {jan_value})",
+    )
 
     for label, call in (
-        ("порт top: start>end", lambda: get_top_bottom_products(df, start_date="2024-12-31", end_date="2024-01-01")),
-        ("порт ts: start>end", lambda: get_timeseries(df, start_date="2024-12-31", end_date="2024-01-01")),
-        ("порт total: start>end", lambda: get_total(df, start_date="2024-12-31", end_date="2024-01-01")),
+        (
+            "порт top: start>end",
+            lambda: get_top_bottom_products(
+                vitrina, start_date="2024-12-31", end_date="2024-01-01"
+            ),
+        ),
+        (
+            "порт ts: start>end",
+            lambda: get_timeseries(vitrina, start_date="2024-12-31", end_date="2024-01-01"),
+        ),
+        (
+            "порт total: start>end",
+            lambda: get_total(vitrina, start_date="2024-12-31", end_date="2024-01-01"),
+        ),
     ):
         try:
             call()
@@ -351,58 +374,7 @@ def main() -> int:
 
     print()
     print("=" * 100)
-    print("11. ИСТОЧНИК 1С (onec_source): дата у 100% строк и реальные товарные группы")
-    print("=" * 100)
-    onec_sales = Path("1c_export") / "sales_1c.csv"
-    if not onec_sales.is_file():
-        print(f"  SKIP  нет {onec_sales} -- выгрузка из 1С не найдена")
-    else:
-        from analytics import attach_product_group
-        from onec_source import VITRINA_COLUMNS, load_vitrina
-
-        vitrina = load_vitrina(str(onec_sales))
-        print(vitrina.head(3).to_string(index=False))
-        print()
-        _check(list(vitrina.columns) == list(VITRINA_COLUMNS), "схема витрины 1С с product_group")
-        _check(len(vitrina) > len(df), f"записей регистра больше, чем строк Excel-отчёта: {len(vitrina)} > {len(df)}")
-        _check(int(vitrina["date"].isna().sum()) == 0, "в витрине 1С нет строк без даты (было 250 в Excel)")
-        _check(
-            abs(float(vitrina["revenue"].sum()) - float(df["revenue"].sum())) < 0.01,
-            f"выручка 1С совпала с Excel: {vitrina['revenue'].sum():,.2f}",
-        )
-        _check(
-            abs(float(vitrina["quantity"].sum()) - float(df["quantity"].sum())) < 0.01,
-            f"количество 1С совпало с Excel: {vitrina['quantity'].sum():,.2f}",
-        )
-        _check(vitrina["product_group"].nunique() >= 10, f"реальных товарных групп: {vitrina['product_group'].nunique()}")
-
-        grouped = attach_product_group(vitrina)
-        _check(
-            grouped["product_group"].astype(str).eq(vitrina["product_group"].astype(str)).all(),
-            "attach_product_group не заменяет реальные группы 1С эвристикой",
-        )
-
-        full = get_timeseries(vitrina, freq="M")
-        _check(
-            abs(float(full["revenue"].sum()) - float(vitrina["revenue"].sum())) < 0.01,
-            f"временной ряд покрывает 100% выручки: {full['revenue'].sum():,.2f}",
-        )
-
-        real_groups = get_group_dynamics(
-            vitrina,
-            ("2023-01-01", "2023-06-30"),
-            ("2023-07-01", "2023-12-31"),
-            top_n=5,
-        )
-        _check(
-            set(real_groups.iloc[:, 0]).issubset(set(vitrina["product_group"]))
-            and "Вентиляторы, пылесосы, кондиционеры" in set(vitrina["product_group"]),
-            f"групповая динамика идёт по группам 1С: {list(real_groups.iloc[:3, 0])}",
-        )
-
-    print()
-    print("=" * 100)
-    print("12. СХЕМА LLM-СЛОЯ (docs/intent_schema.json)")
+    print("10. СХЕМА LLM-СЛОЯ (docs/intent_schema.json)")
     print("=" * 100)
     schema_path = Path("docs") / "intent_schema.json"
     if not schema_path.is_file():

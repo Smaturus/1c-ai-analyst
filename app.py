@@ -58,19 +58,17 @@ from llm_agent import (
     check_schema_sync,
     settings_from_env,
 )
-from onec_source import load_vitrina
+from onec_source import load_sample_vitrina, load_vitrina
 
 APP_TITLE = "ИИ-ассистент анализа данных 1С"
 
 REVENUE_UNIT = "₽"
 QUANTITY_UNIT = "шт."
 
-SOURCE_1C = "1С: 1c_export/sales_1c.csv"
-SOURCE_EXCEL = "Excel: тест.xlsx"
+SOURCE_SAMPLE = "Демо-данные: sample_data.csv"
 SOURCE_UPLOAD = "Загрузить свой файл"
 
-DATASET_1C = "1c_export/sales_1c.csv"
-DATASET_EXCEL = "тест.xlsx"
+DATASET_SAMPLE = "sample_data.csv"
 
 INTENT_TITLES: dict[str, str] = {
     "top_bottom_products": "Топ/антитоп товаров",
@@ -85,15 +83,9 @@ INTENT_TITLES: dict[str, str] = {
 # Загрузка данных
 # --------------------------------------------------------------------------- #
 @st.cache_data(show_spinner=False)
-def load_dataset_1c() -> pd.DataFrame:
-    """Загрузить готовую выгрузку из 1С (витрина с товарными группами)."""
-    return load_vitrina(DATASET_1C)
-
-
-@st.cache_data(show_spinner=False)
-def load_dataset_excel() -> pd.DataFrame:
-    """Загрузить Excel-выгрузку «Универсального отчёта»."""
-    return load_and_clean_1c_report(DATASET_EXCEL)
+def load_dataset_sample() -> pd.DataFrame:
+    """Загрузить синтетические демо-данные (``sample_data.csv``, без реальных выгрузок)."""
+    return load_sample_vitrina(DATASET_SAMPLE)
 
 
 @st.cache_data(show_spinner=False)
@@ -107,6 +99,10 @@ def load_uploaded(name: str, payload: bytes) -> pd.DataFrame:
         handle.write(payload)
         handle.close()
         if suffix == ".csv":
+            # Поддерживаем и 6-колоночную демо-схему, и полную выгрузку 1С (11 колонок).
+            header = pd.read_csv(handle.name, nrows=0)
+            if "revenue_net" not in header.columns:
+                return load_sample_vitrina(handle.name)
             return load_vitrina(handle.name)
         return load_and_clean_1c_report(handle.name)
     finally:
@@ -115,10 +111,8 @@ def load_uploaded(name: str, payload: bytes) -> pd.DataFrame:
 
 def load_dataframe(kind: str, uploaded: Any) -> tuple[pd.DataFrame, str]:
     """Выбрать и загрузить витрину по выбору в боковой панели."""
-    if kind == SOURCE_1C:
-        return load_dataset_1c(), "1C"
-    if kind == SOURCE_EXCEL:
-        return load_dataset_excel(), "Excel"
+    if kind == SOURCE_SAMPLE:
+        return load_dataset_sample(), "демо-данные"
     if uploaded is None:
         raise ValueError("Файл не загружен")
     return load_uploaded(uploaded.name, uploaded.getvalue()), uploaded.name
@@ -741,9 +735,12 @@ def render_sidebar() -> tuple[str, Any, bool]:
     st.sidebar.title("Данные")
     source_kind = st.sidebar.radio(
         "Источник витрины",
-        options=[SOURCE_1C, SOURCE_EXCEL, SOURCE_UPLOAD],
+        options=[SOURCE_SAMPLE, SOURCE_UPLOAD],
         index=0,
-        help="1С — полные даты и товарные группы; Excel — исходная выгрузка (есть строки без даты).",
+        help=(
+            "По умолчанию — синтетические демо-данные (без реальных выгрузок 1С). "
+            "Свой CSV из 1С или Excel можно загрузить вторым пунктом."
+        ),
     )
     uploaded = None
     if source_kind == SOURCE_UPLOAD:

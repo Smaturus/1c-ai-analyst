@@ -61,10 +61,12 @@ __all__ = [
     "resolve_product_groups",
     "export_from_1c",
     "load_vitrina",
+    "load_sample_vitrina",
     "load_nomenclature",
     "SALES_CSV",
     "NOMENCLATURE_CSV",
     "VITRINA_COLUMNS",
+    "SAMPLE_COLUMNS",
 ]
 
 DEFAULT_USR: str = "Администратор"
@@ -89,6 +91,9 @@ VITRINA_COLUMNS: tuple[str, ...] = (
     "product_group",
 )
 """Колонки витрины, которую возвращает :func:`load_vitrina`."""
+
+SAMPLE_COLUMNS: tuple[str, ...] = VITRINA_COLUMNS
+"""Колонки синтетического ``sample_data.csv`` (см. ``generate_synthetic_data.py``)."""
 
 UNKNOWN_PRODUCT: str = "Не указано"
 UNGROUPED: str = "Без группы"
@@ -452,6 +457,63 @@ def load_vitrina(
             "source_file": str(path),
             "source": "1c",
             "revenue_mode": revenue_mode,
+            "rows": len(vitrina),
+        }
+    )
+    return vitrina
+
+
+def load_sample_vitrina(sample_csv: str = "sample_data.csv") -> "Any":
+    """Прочитать синтетический ``sample_data.csv`` в витрину для аналитики.
+
+    Файл генерируется :mod:`generate_synthetic_data` и содержит только
+    вымышленные данные (без реальных выгрузок 1С). Схема совпадает с
+    :data:`VITRINA_COLUMNS`, поэтому результат подходит для всех интентов
+    :mod:`analytics` и для демонстрационного запуска Streamlit.
+    """
+    import pandas as pd
+
+    path = Path(sample_csv)
+    if not path.is_file():
+        raise FileNotFoundError(f"Файл демо-данных не найден: {path}")
+    frame = pd.read_csv(
+        path,
+        dtype={
+            "product": "string",
+            "counterparty": "string",
+            "product_group": "string",
+        },
+        parse_dates=["date"],
+    )
+    missing = [name for name in SAMPLE_COLUMNS if name not in frame.columns]
+    if missing:
+        raise ValueError(
+            f"В {path} не хватает колонок {missing}; ожидается схема {list(SAMPLE_COLUMNS)}"
+        )
+    vitrina = pd.DataFrame(
+        {
+            "date": pd.to_datetime(frame["date"]).dt.normalize(),
+            "product": frame["product"].fillna(UNKNOWN_PRODUCT),
+            "counterparty": frame["counterparty"].fillna(UNKNOWN_PRODUCT),
+            "quantity": pd.to_numeric(frame["quantity"], errors="coerce")
+            .fillna(0.0)
+            .astype("float64"),
+            "revenue": pd.to_numeric(frame["revenue"], errors="coerce")
+            .fillna(0.0)
+            .astype("float64"),
+            "product_group": frame["product_group"].fillna(UNGROUPED),
+        }
+    )
+    vitrina = vitrina.loc[:, list(VITRINA_COLUMNS)]
+    vitrina = vitrina.sort_values(
+        ["date", "product", "counterparty"],
+        na_position="last",
+        kind="stable",
+    ).reset_index(drop=True)
+    vitrina.attrs.update(
+        {
+            "source_file": str(path),
+            "source": "synthetic",
             "rows": len(vitrina),
         }
     )
