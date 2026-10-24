@@ -1,0 +1,14 @@
+# Зависимости шага 2 (Python 3.12)
+# Установка: pip install -r requirements.txt
+
+# Данные и анализ (шаг 1)
+pandas>=2.2,<4
+numpy>=2.0
+openpyxl>=3.1
+
+# UI и LLM-слой (шаг 2)
+streamlit>=1.36,<2
+pydantic>=2.6,<3
+
+# Опционально: прямой экспорт из 1С (только Windows)
+pywin32>=306; sys_platform == "win32"

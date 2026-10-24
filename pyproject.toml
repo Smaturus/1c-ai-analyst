@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "1c-ai-analyst"
+version = "0.5.0"
+description = "ИИ-ассистент для анализа данных из 1С: вопрос → JSON-DSL → pandas"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "1c-ai-analyst contributors" }]
+keywords = ["1c", "1c-enterprise", "streamlit", "llm", "pandas", "analytics", "nl2sql"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Typing :: Typed",
+]
+dependencies = [
+    "pandas>=2.2,<4",
+    "numpy>=2.0",
+    "openpyxl>=3.1",
+    "streamlit>=1.36,<2",
+    "pydantic>=2.6,<3",
+    "pywin32>=306; sys_platform == 'win32'",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.urls]
+Homepage = "https://github.com/Smaturus/1c-ai-analyst"
+
+[tool.setuptools]
+# Проект — плоский набор модулей в корне репозитория (без src/).
+py-modules = ["analytics", "app", "data_loader", "llm_agent", "onec_source"]
+
+[tool.pytest.ini_options]
+# Основная конфигурация — в pytest.ini (он имеет приоритет); секция продублирована
+# для инструментов, которые читают настройки только из pyproject.toml.
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra"

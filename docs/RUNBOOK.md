@@ -1,0 +1,175 @@
+# Runbook: запуск и эксплуатация
+
+Практическое руководство: как проверить проект, выгрузить данные из 1С, диагностировать типовые ошибки.
+
+## 1. Окружение
+
+| Что | Путь/значение |
+|---|---|
+| Рабочая папка | `D:\1C_data_assistant` |
+| Python проекта | `C:\Users\smatu\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\python\python.exe` (3.12, pandas 3.0.1) |
+| Python для 1С | `C:\Users\smatu\AppData\Local\Programs\Python\Python314\python.exe` (3.14, `pywin32` 312) |
+| 1С | `C:\Program Files\1cv8\8.3.27.1688`, `V83.COMConnector` (64-бит) |
+| База | `C:\1C\utdemo` (файловая) |
+| Выгрузка | `D:\1C_data_assistant\1c_export` |
+
+## 2. Проверка проекта (Excel-путь)
+
+```powershell
+cd D:\1C_data_assistant
+$py = 'C:\Users\smatu\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\python\python.exe'
+& $py -B -X utf8 smoke_test.py
+```
+
+Ожидаемо: `SMOKE TEST PASSED`. Проверяются схема, контрольные суммы, 5 интентов, DSL-диспетчер, негативные сценарии, источник 1С (если есть `1c_export/sales_1c.csv`).
+
+## 3. Выгрузка из 1С
+
+### 3.1. Требования
+
+- 1С установлена, COM-класс `V83.COMConnector` зарегистрирован (64-бит).
+- Есть действующая лицензия 1С (файл в `C:\ProgramData\1C\licenses` или ключ).
+- У процесса есть **права на запись** в каталог файловой базы: 1С создаёт lock-файлы `*.cfl`/`*.1CL`.
+- Python с `pywin32` (`pip install pywin32`).
+
+### 3.2. Команда
+
+```powershell
+& 'C:\Users\smatu\AppData\Local\Programs\Python\Python314\python.exe' `
+  D:\1C_data_assistant\onec_source.py `
+  --base "C:\1C\utdemo" `
+  --out-dir D:\1C_data_assistant\1c_export `
+  --start 2022-01-01 --end 2024-12-31
+```
+
+Ожидаемо:
+
+```
+Конфигурация: Управление торговлей, редакция 11 11.5.22.77
+Записей регистра: 2568
+Номенклатуры: 253, товарных групп: 27
+Выручка без НДС: 19,313,936.63
+Выручка с НДС:   22,957,182.97
+Количество:      10,878.000
+```
+
+### 3.3. Если база недоступна на запись
+
+Файловая 1С не откроется без права записи в свой каталог. Варианты:
+
+1. Выдать текущему пользователю права на каталог базы (владелец каталога может это сделать).
+2. Работать через копию базы (как в этом проекте): скопировать каталог в рабочую папку и указать `--base` на копию.
+
+```powershell
+robocopy "C:\1C\utdemo" "D:\1C_data_assistant\1c_base\utdemo" /E /COPY:DAT /R:1 /W:1 /MT:8
+# затем --base "D:\1C_data_assistant\1c_base\utdemo"
+# после выгрузки копию можно удалить (2,9 ГБ)
+```
+
+3. Если 1С не может проверить лицензию под ограничениями песочницы (ошибка `0x80041003` / «Не найдена лицензия»), запускать подключение в режиме без файловой песочницы — на обычной машине это не требуется.
+
+## 4. Проверка выгрузки 1С и витрины
+
+```powershell
+$py = 'C:\Users\smatu\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\python\python.exe'
+$env:PYTHONPATH = 'D:\1C_data_assistant'
+& $py -B -X utf8 -c @"
+import warnings; warnings.simplefilter('ignore')
+from onec_source import load_vitrina
+v = load_vitrina(r'1c_export\sales_1c.csv')
+print(v.shape, v['date'].isna().sum(), round(v['revenue'].sum(), 2))
+"@
+```
+
+Ожидаемо: `(2568, 6) 0 19313936.63`.
+
+## 5. Типовые ошибки и решения
+
+| Симптом | Причина | Решение |
+|---|---|---|
+| `Не найдена лицензия... Status=-100` | 1С не видит лицензию (песочница/WMI, ключ) | Запуск без файловой песочницы; проверить `C:\ProgramData\1C\licenses`, ключ HASP |
+| `Ошибка режима доступа к файлу базы данных` | Нет прав на запись в каталог базы или база занята | Права на запись, закрыть эксклюзивные сеансы, копия базы |
+| `Неверно указан пользователь или пароль` | Неверные учётные данные | Для демо-базы: `Администратор`, пустой пароль |
+| `com_error ... ВЫРАЗИТЬ` | Недопустимое приведение типа в запросе | Использовать точечную нотацию (`АналитикаУчетаНоменклатуры.Номенклатура`) |
+| `This object does not support enumeration` | Обращение к полю результата через `[]` в pywin32 | Читать поля через `getattr(selection, "Имя")` |
+| `No module named 'win32com'` | В интерпретаторе нет pywin32 | `pip install pywin32` или запускать выгрузку системным Python |
+| Поле `Количество` вернуло метод | Имя поля совпало с методом выборки | Алиас в запросе: `Количество КАК Кол` |
+| `pattern contains no capture groups` | pandas 3.0 требует группу в `str.extract` | Шаблон с `(\d{2}\.\d{2}\.\d{4})` |
+| `Invalid frequency: ME` | `to_period` не принимает `ME` | Нормализация `ME → M` (уже в коде) |
+| Excel-файл не открывается: `BadZipFile` | Файл повреждён или не `.xlsx` | Понятная ошибка `ValueError` в загрузчике |
+| ИТС: «Доступ к данному материалу ограничен» | Договор developer.1c.ru не включает документацию продуктов | Зарегистрировать продукт на Портале ИТС; см. [ITS_ACCESS_NOTES.md](ITS_ACCESS_NOTES.md) |
+
+## 6. Обновление артефактов
+
+- Перегенерировать `1c_export/*.csv` — повторить п. 3.
+- Обновить `docs/REPORT.md`/`progress.md` при значимых изменениях (правило: один шаг — одна запись в `progress.md` и `CHANGELOG.md`).
+- Не коммитить временные профили браузера, копию базы 1С, `.acl-recovery`.
+
+## 7. Безопасность
+
+- Учётные данные 1С и ИТС не хранятся в репозитории и не передаются в код.
+- Временный профиль браузера для ИТС использовался однократно и удалён.
+- `.acl-recovery/` содержит журнал изменения прав доступа к рабочей папке; не удалять до подтверждения, что доступ стабилен.
+
+## 8. Streamlit UI и LLM-слой (шаг 2)
+
+### 8.1. Установка
+
+```powershell
+cd D:\1C_data_assistant
+python -m venv .venv
+.\.venv\Scripts\python -m pip install -r requirements.txt
+```
+
+Требуется Python 3.12+ с `pandas`, `streamlit`, `pydantic` в одном окружении. `pywin32` нужен только для выгрузки 1С.
+
+### 8.2. Запуск
+
+```powershell
+# офлайн-режим (без ключа LLM, детерминированные правила)
+.\.venv\Scripts\python -m streamlit run app.py
+
+# с LLM
+$env:LLM_PROVIDER = "deepseek"   # openai | deepseek | ollama | none
+$env:LLM_API_KEY  = "sk-..."
+$env:LLM_MODEL    = "deepseek-chat"
+$env:LLM_BASE_URL = "https://api.deepseek.com/v1"   # опционально
+.\.venv\Scripts\python -m streamlit run app.py
+```
+
+Графики в UI — **Altair**: горизонтальные бары для топ/динамики (сортировка по значению, цвет по направлению), линия для временного ряда; подписи осей русские (`Товар`, `Контрагент`, `Период`, `Количество, шт.`, `Выручка без НДС, ₽`).
+
+Проверка LLM-слоя без UI:
+
+```powershell
+.\.venv\Scripts\python smoke_llm.py                 # SMOKE LLM PASSED: 86 проверок
+.\.venv\Scripts\python -m pytest -q                 # 152 passed (все unit-тесты tests/)
+.\.venv\Scripts\python -m pytest tests/test_planner.py -q   # только правила → DSL
+```
+
+Приёмка UI на 5 контрольных вопросах — [UI_ACCEPTANCE.md](UI_ACCEPTANCE.md).
+
+### 8.3. Настройки LLM
+
+| Переменная | Значение по умолчанию | Назначение |
+|---|---|---|
+| `LLM_PROVIDER` | `none` | `openai`, `deepseek`, `ollama`, `none` |
+| `LLM_MODEL` | по провайдеру | `gpt-4o-mini`, `deepseek-chat`, `llama3.1` |
+| `LLM_API_KEY` | — | ключ API (ollama не требует) |
+| `LLM_BASE_URL` | по провайдеру | OpenAI-совместимый API без `/chat/completions` |
+| `LLM_TIMEOUT` | `60` | таймаут, секунды |
+| `LLM_TEMPERATURE` | `0` | температура генерации |
+| `LLM_JSON_MODE` | `1` (кроме ollama) | запрашивать `response_format=json_object` |
+
+### 8.4. Типовые ошибки UI
+
+| Симптом | Причина | Решение |
+|---|---|---|
+| `ModuleNotFoundError: streamlit/pydantic` | зависимости не установлены | `pip install -r requirements.txt` |
+| Приложение работает, но всегда «офлайн-режим» | не задан `LLM_PROVIDER`/ключ | задать env и перезапустить |
+| «Не удалось разобрать вопрос» | модель вернула невалидный JSON дважды | переформулировать или задать другой `LLM_MODEL` |
+| «Нужно уточнение» | в вопросе нет периода/намерения | ответить одним из предложенных вариантов |
+| `HTTP 401` от провайдера | неверный ключ | проверить `LLM_API_KEY` |
+| `Сеть недоступна` | нет доступа к API | проверить сеть/`LLM_BASE_URL`; в песочнице DSH внешние API могут быть закрыты |
+
+**Важно:** шаг 3 принят: UI проверен Streamlit `AppTest` на реальной витрине и локальным запуском, LLM-режим — вручную на DeepSeek. В агентской песочнице DSH `pytest` запускается с отключением очистки temp (в песочнице запрещён `chmod`) — это ограничение среды агента, на обычной машине и в CI команда работает без обходов.

@@ -1,0 +1,64 @@
+{
+  "intents": {
+    "top_bottom_products": {
+      "description": "лучшие/худшие товары за период (топ или антитоп).",
+      "params": [
+        "metric",
+        "limit",
+        "ascending",
+        "start_date",
+        "end_date"
+      ],
+      "example_question": "Какие 5 товаров продаются хуже остальных за 2024 год?"
+    },
+    "timeseries": {
+      "description": "динамика продаж по месяцам/кварталам/годам (временной ряд).",
+      "params": [
+        "freq",
+        "metric",
+        "agg",
+        "start_date",
+        "end_date",
+        "fill_gaps"
+      ],
+      "example_question": "Как менялись продажи по месяцам в 2023 году?"
+    },
+    "counterparty_dynamics": {
+      "description": "сравнение контрагентов в двух периодах: кто вырос/упал (only_drops оставляет только падения).",
+      "params": [
+        "period1",
+        "period2",
+        "metric",
+        "top_n",
+        "min_abs_delta",
+        "sort_by",
+        "only_drops"
+      ],
+      "example_question": "У каких контрагентов упали продажи в 2024 по сравнению с 2023?"
+    },
+    "group_dynamics": {
+      "description": "сравнение товарных групп в двух периодах: что просело/выросло (only_drops оставляет только падения).",
+      "params": [
+        "period1",
+        "period2",
+        "group_by",
+        "metric",
+        "top_n",
+        "min_abs_delta",
+        "sort_by",
+        "only_drops"
+      ],
+      "example_question": "Какие товарные группы просели в 2024 по сравнению с 2023?"
+    },
+    "total": {
+      "description": "сколько всего продали за период (одна итоговая строка).",
+      "params": [
+        "start_date",
+        "end_date"
+      ],
+      "example_question": "Сколько мы продали за 2024 год?"
+    }
+  },
+  "clarification": "intent=clarification с вопросом и списком missing/suggestions",
+  "format": "{\"intent\": \"<name>\", \"params\": {...}}"
+}

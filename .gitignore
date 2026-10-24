@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# Временные профили браузера и выгрузка копии базы 1С (не коммитить)
+.browser_profile/
+1c_base/
+.acl-recovery/
+
+# Служебные временные файлы
+.its_*
+*.tmp
+*.log
+
+# Secrets: API keys (never commit)
+.env
+# Virtualenv / build artifacts
+.venv/
+build/
+dist/
+*.egg-info/
+
+# Служебные prompt-файлы (внутренний контекст, не публикуются)
+promp_2_ci.txt
+promt_1_publishing.md
+
+# Portable git (только локально, не публикуется)
+.tools/
