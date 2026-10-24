@@ -2,6 +2,16 @@
 
 Все значимые изменения проекта. Формат — по мотивам Keep a Changelog, версии — по этапам.
 
+## [Unreleased]
+
+### Changed
+- **Лицензионное соответствие:** реальные выгрузки 1С (`тест.xlsx`, `1c_export/`) удалены из репозитория и всей истории Git (`git-filter-repo` + force-push). В репозитории — только синтетический `sample_data.csv` (600 строк, 2023–2024, 10 % возвратов), который генерируется `generate_synthetic_data.py`; `app.py` по умолчанию загружает демо-данные, `smoke_test.py` переведён на синтетический датасет.
+- README, RUNBOOK, UI_ACCEPTANCE, INDEX, DATA_CONTRACT и ARCHITECTURE обновлены под синтетические данные; исторические отчёты помечены как демонстрационные.
+
+### Verified
+- `python -m pytest` — **152 passed**; `smoke_test.py` — PASSED (10 разделов, 51 проверка, синтетика); `smoke_llm.py` — **86 проверок** PASSED.
+- В истории Git нет `тест.xlsx`/`1c_export`: `git log --all --full-history -- "*тест.xlsx"` пуст.
+
 ## [0.5.0] — 2026-10-23 — шаг 3: UX, pytest/CI и относительные даты
 
 ### Added

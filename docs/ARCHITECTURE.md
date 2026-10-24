@@ -24,15 +24,15 @@
 ```mermaid
 flowchart TB
     subgraph Sources["Источники"]
-        XLS["тест.xlsx<br/>Универсальный отчёт"]
-        BASE[("База 1С: utdemo<br/>УТ 11.5")]
+        SAMPLE["sample_data.csv<br/>синтетическая демо-витрина"]
+        OWN["своя база 1С / свой Excel<br/>(локально, не публикуется)"]
     end
 
     subgraph ETL["Загрузка (offline)"]
         DL["data_loader.py<br/>load_and_clean_1c_report"]
         EXP["onec_source.py<br/>export_from_1c (COM)"]
-        CSV["1c_export/*.csv"]
-        LOAD["onec_source.py<br/>load_vitrina (pandas)"]
+        CSV["1c_export/*.csv<br/>(локальный артефакт)"]
+        LOAD["onec_source.py<br/>load_vitrina / load_sample_vitrina"]
     end
 
     subgraph Store["Витрина"]
@@ -93,8 +93,9 @@ flowchart TB
 
 1. `export_from_1c` → COM (`V83.COMConnector`) → запрос к `РегистрНакопления.ВыручкаИСебестоимостьПродаж`.
 2. Отдельный запрос справочника «Номенклатура» и построение групп (ближайший родитель + полный путь).
-3. Запись `sales_1c.csv` (11 колонок, см. [DATA_CONTRACT.md](DATA_CONTRACT.md)) и `nomenclature_1c.csv`.
+3. Запись `sales_1c.csv` (11 колонок, см. [DATA_CONTRACT.md](DATA_CONTRACT.md)) и `nomenclature_1c.csv` — только локально, каталог `1c_export/` в `.gitignore`.
 4. `load_vitrina` (pandas) → витрина + `product_group`; режим выручки `net`/`gross`.
+5. Для демо-запуска без 1С используется `load_sample_vitrina("sample_data.csv")` — синтетическая витрина с той же схемой.
 
 ### 3.3. Аналитика
 
@@ -116,8 +117,9 @@ flowchart TB
 
 | Объект | Где | В git |
 |---|---|---|
-| Исходная выгрузка | `тест.xlsx` | да (в проекте) |
-| Выгрузка 1С | `1c_export/sales_1c.csv`, `1c_export/nomenclature_1c.csv` | да (артефакт) |
+| Синтетическая демо-витрина | `sample_data.csv` | да |
+| Реальная выгрузка 1С | `1c_export/*.csv` | нет (`.gitignore`) |
+| Excel-выгрузка | `тест.xlsx` | нет (`.gitignore`) |
 | Код | `*.py` в корне | да |
 | Документация | `docs/`, `progress.md`, `CHANGELOG.md` | да |
 | Временные профили/сессии | не хранятся | нет |

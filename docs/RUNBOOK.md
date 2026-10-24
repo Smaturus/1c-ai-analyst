@@ -11,17 +11,19 @@
 | Python для 1С | `C:\Users\smatu\AppData\Local\Programs\Python\Python314\python.exe` (3.14, `pywin32` 312) |
 | 1С | `C:\Program Files\1cv8\8.3.27.1688`, `V83.COMConnector` (64-бит) |
 | База | `C:\1C\utdemo` (файловая) |
-| Выгрузка | `D:\1C_data_assistant\1c_export` |
+| Выгрузка | `D:\1C_data_assistant\1c_export` (локально, в `.gitignore`; в репозиторий не коммитится) |
 
-## 2. Проверка проекта (Excel-путь)
+## 2. Проверка проекта (демо-данные)
 
 ```powershell
 cd D:\1C_data_assistant
-$py = 'C:\Users\smatu\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\python\python.exe'
-& $py -B -X utf8 smoke_test.py
+.venv\Scripts\python.exe -X utf8 generate_synthetic_data.py   # при необходимости
+.venv\Scripts\python.exe -X utf8 smoke_test.py
 ```
 
-Ожидаемо: `SMOKE TEST PASSED`. Проверяются схема, контрольные суммы, 5 интентов, DSL-диспетчер, негативные сценарии, источник 1С (если есть `1c_export/sales_1c.csv`).
+Ожидаемо: `SMOKE TEST PASSED` — проверяются схема витрины, контрольные суммы
+генератора, 5 интентов, DSL-диспетчер и негативные сценарии на синтетическом
+`sample_data.csv` (реальные выгрузки 1С не используются).
 
 ## 3. Выгрузка из 1С
 
@@ -68,20 +70,19 @@ robocopy "C:\1C\utdemo" "D:\1C_data_assistant\1c_base\utdemo" /E /COPY:DAT /R:1 
 
 3. Если 1С не может проверить лицензию под ограничениями песочницы (ошибка `0x80041003` / «Не найдена лицензия»), запускать подключение в режиме без файловой песочницы — на обычной машине это не требуется.
 
-## 4. Проверка выгрузки 1С и витрины
+## 4. Проверка демо-витрины
 
 ```powershell
-$py = 'C:\Users\smatu\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\python\python.exe'
+cd D:\1C_data_assistant
 $env:PYTHONPATH = 'D:\1C_data_assistant'
-& $py -B -X utf8 -c @"
-import warnings; warnings.simplefilter('ignore')
-from onec_source import load_vitrina
-v = load_vitrina(r'1c_export\sales_1c.csv')
+.venv\Scripts\python.exe -X utf8 -c @"
+from onec_source import load_sample_vitrina
+v = load_sample_vitrina('sample_data.csv')
 print(v.shape, v['date'].isna().sum(), round(v['revenue'].sum(), 2))
 "@
 ```
 
-Ожидаемо: `(2568, 6) 0 19313936.63`.
+Ожидаемо: `(600, 6) 0 99708100.0`.
 
 ## 5. Типовые ошибки и решения
 
@@ -101,9 +102,12 @@ print(v.shape, v['date'].isna().sum(), round(v['revenue'].sum(), 2))
 
 ## 6. Обновление артефактов
 
-- Перегенерировать `1c_export/*.csv` — повторить п. 3.
+- Перегенерировать демо-данные — `python generate_synthetic_data.py`
+  (результат детерминирован, файл безопасен для публикации).
+- Реальные выгрузки 1С — повторить п. 3; каталог `1c_export/` в `.gitignore`
+  и в публичный репозиторий не попадает.
 - Обновить `docs/REPORT.md`/`progress.md` при значимых изменениях (правило: один шаг — одна запись в `progress.md` и `CHANGELOG.md`).
-- Не коммитить временные профили браузера, копию базы 1С, `.acl-recovery`.
+- Не коммитить временные профили браузера, копию базы 1С, `.acl-recovery`, реальные выгрузки.
 
 ## 7. Безопасность
 
@@ -172,4 +176,4 @@ $env:LLM_BASE_URL = "https://api.deepseek.com/v1"   # опционально
 | `HTTP 401` от провайдера | неверный ключ | проверить `LLM_API_KEY` |
 | `Сеть недоступна` | нет доступа к API | проверить сеть/`LLM_BASE_URL`; в песочнице DSH внешние API могут быть закрыты |
 
-**Важно:** шаг 3 принят: UI проверен Streamlit `AppTest` на реальной витрине и локальным запуском, LLM-режим — вручную на DeepSeek. В агентской песочнице DSH `pytest` запускается с отключением очистки temp (в песочнице запрещён `chmod`) — это ограничение среды агента, на обычной машине и в CI команда работает без обходов.
+**Важно:** шаг 3 принят: UI проверен Streamlit `AppTest` на синтетической демо-витрине и локальным запуском, LLM-режим — вручную на DeepSeek. В агентской песочнице DSH `pytest` запускается с отключением очистки temp (в песочнице запрещён `chmod`) — это ограничение среды агента, на обычной машине и в CI команда работает без обходов.
