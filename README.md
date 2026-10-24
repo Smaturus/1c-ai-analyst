@@ -106,48 +106,54 @@ python -m streamlit run app.py
 
 Проверка LLM-слоя отдельно (нужен pydantic): [`smoke_llm.py`](smoke_llm.py) — 86 проверок.
 
-## Запуск в Docker
+## Запуск через Docker
 
-В образ попадают только код и синтетический `sample_data.csv`; реальные
-выгрузки 1С, `.env`, `.venv` и кеши исключены через [`.dockerignore`](.dockerignore).
-Сборка и запуск:
+Сборка и запуск через Docker Compose:
 
-```powershell
-cd D:\1C_data_assistant
+```bash
+docker-compose build
+docker-compose up -d
+```
+
+Интерфейс: **http://localhost:8501**
+
+Остановка:
+
+```bash
+docker-compose down
+```
+
+> В Docker Compose v2 те же команды: `docker compose build`, `docker compose up -d`,
+> `docker compose down` (без дефиса).
+
+В образ не попадают `.venv/`, `.git/`, `.github/`, `tests/`, `docs/`, `.env`,
+реальные выгрузки 1С (`1c_export/`, `*.xlsx`) и кеши — см.
+[`.dockerignore`](.dockerignore). Внутри образа: Python 3.12, `build-essential`,
+зависимости из `requirements.txt` и синтетический `sample_data.csv`.
+
+`docker-compose.yml` монтирует папку проекта в `/app/data`: свой CSV/Excel можно
+положить в проект и загрузить в UI кнопкой **«Загрузить свой файл»**; демо-данные
+`sample_data.csv` уже находятся в образе.
+
+Переменные `LLM_PROVIDER`/`LLM_API_KEY`/`LLM_MODEL`/`LLM_BASE_URL` задаются в
+`.env` (compose подхватывает его для подстановки) или в окружении хоста. Без
+ключа LLM приложение работает в офлайн-режиме правил. Проверка состояния:
+
+```bash
+docker-compose ps
+docker inspect --format '{{.State.Health.Status}}' 1c-ai-analyst
+```
+
+Без Compose:
+
+```bash
 docker build -t 1c-ai-analyst:0.5.0 .
 docker run --rm -p 8501:8501 --name 1c-ai-analyst 1c-ai-analyst:0.5.0
 ```
 
-Интерфейс: http://localhost:8501. Без ключа LLM приложение работает в
-офлайн-режиме детерминированных правил.
-
-Через Docker Compose:
-
-```powershell
-# при необходимости: Copy-Item .env.example .env и заполните LLM_*
-docker compose up --build -d
-docker compose logs -f app
-docker compose down
-```
-
-Переменные `LLM_PROVIDER`/`LLM_API_KEY`/`LLM_MODEL`/`LLM_BASE_URL` можно задать
-в `.env` (compose подхватывает его для подстановки) или в переменных окружения
-хоста. Проверка состояния контейнера:
-
-```powershell
-docker inspect --format '{{.State.Health.Status}}' 1c-ai-analyst
-```
-
 Важно: в Linux-контейнере нет 1С/COM/`pywin32`, поэтому выгрузку из 1С
-(`onec_source.py`) выполняйте на Windows-хосте, а готовый CSV/Excel
-загружайте в UI кнопкой **«Загрузить свой файл»**. Либо примонтируйте свой
-файл с именем `sample_data.csv` и той же схемой:
-
-```powershell
-docker run --rm -p 8501:8501 `
-  -v "D:\1C_data_assistant\sample_data.csv:/app/sample_data.csv:ro" `
-  1c-ai-analyst:0.5.0
-```
+(`onec_source.py`) выполняйте на Windows-хосте, а готовый CSV/Excel загружайте
+в UI.
 
 ## Как запустить тесты
 

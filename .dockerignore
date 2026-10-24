@@ -1,42 +1,36 @@
-# Git / IDE / OS
-.git
+# Обязательные исключения: лишние и тяжёлые файлы не попадают в образ
+.venv/
+__pycache__/
+*.pyc
+.git/
+.github/
+tests/
+docs/
+.env
+*.xlsx
+1c_export/
+.pytest_cache/
+
+# Дополнительно: IDE/OS, кеши, локальные базы и секреты
 .gitignore
-.github
-.vscode
-.idea
+.vscode/
+.idea/
 Thumbs.db
 .DS_Store
-
-# Виртуальное окружение и кеши Python
-.venv
-__pycache__
-*.py[cod]
-.pytest_cache
-.mypy_cache
-.ruff_cache
-.tools
-.acl-recovery
-.browser_profile
-
-# Локальные базы и выгрузки 1С — в образ не попадают (лицензия/размер)
-1c_base
-1c_export
-utdemo
+.mypy_cache/
+.ruff_cache/
+.tools/
+.acl-recovery/
+.browser_profile/
+1c_base/
+utdemo/
 *.1CD
 *.cfl
 *.1CL
-тест.xlsx
-*.xlsx
-
-# Секреты: ключи LLM передаются через environment/.env на хосте
-.env
 .env.*
 !.env.example
 
-# Служебные документы, тесты и CI не нужны в runtime-образе
-tests
-docs/*
-!docs/intent_schema.json
+# Служебные документы и Windows-скрипты не нужны в runtime-образе
 progress.md
 CHANGELOG.md
 README.md
