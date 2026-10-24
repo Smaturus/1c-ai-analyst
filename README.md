@@ -122,10 +122,13 @@ python -m streamlit run app.py
 
 ```bash
 docker-compose build
-docker-compose up -d
+docker-compose up -d --wait
 ```
 
 Интерфейс: **http://localhost:8501**
+
+Флаг `--wait` дожидается, пока контейнер перейдёт в состояние `healthy`, —
+только после этого имеет смысл открывать UI и дергать `/_stcore/health`.
 
 Остановка:
 
