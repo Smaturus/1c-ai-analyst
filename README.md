@@ -118,11 +118,11 @@ python -m streamlit run app.py
 
 ## Запуск через Docker
 
-Сборка и запуск через Docker Compose:
+Сборка и запуск через Docker Compose v2 (Docker Desktop):
 
 ```bash
-docker-compose build
-docker-compose up -d --wait
+docker compose build
+docker compose up -d --wait
 ```
 
 Интерфейс: **http://localhost:8501**
@@ -133,11 +133,12 @@ docker-compose up -d --wait
 Остановка:
 
 ```bash
-docker-compose down
+docker compose down
 ```
 
-> В Docker Compose v2 те же команды: `docker compose build`, `docker compose up -d`,
-> `docker compose down` (без дефиса).
+> Для старого Docker Compose v1 (команда с дефисом) `--wait` недоступен:
+> используйте `docker-compose build && docker-compose up -d` и дождитесь
+> статуса `healthy` в `docker-compose ps`.
 
 В образ не попадают `.venv/`, `.git/`, `.github/`, `tests/`, `docs/`, `.env`,
 реальные выгрузки 1С (`1c_export/`, `*.xlsx`) и кеши — см.
@@ -153,7 +154,8 @@ docker-compose down
 ключа LLM приложение работает в офлайн-режиме правил. Проверка состояния:
 
 ```bash
-docker-compose ps
+docker compose ps
+docker compose logs -f app
 docker inspect --format '{{.State.Health.Status}}' 1c-ai-analyst
 ```
 
