@@ -66,9 +66,11 @@ REVENUE_UNIT = "₽"
 QUANTITY_UNIT = "шт."
 
 SOURCE_SAMPLE = "Демо-данные: sample_data.csv"
+SOURCE_1C = "1C: 1c_export/sales_1c.csv"
 SOURCE_UPLOAD = "Загрузить свой файл"
 
 DATASET_SAMPLE = "sample_data.csv"
+DATASET_1C = "1c_export/sales_1c.csv"
 
 INTENT_TITLES: dict[str, str] = {
     "top_bottom_products": "Топ/антитоп товаров",
@@ -86,6 +88,12 @@ INTENT_TITLES: dict[str, str] = {
 def load_dataset_sample() -> pd.DataFrame:
     """Загрузить синтетические демо-данные (``sample_data.csv``, без реальных выгрузок)."""
     return load_sample_vitrina(DATASET_SAMPLE)
+
+
+@st.cache_data(show_spinner=False)
+def load_dataset_1c() -> pd.DataFrame:
+    """Загрузить локальную выгрузку из 1С (``1c_export/sales_1c.csv``)."""
+    return load_vitrina(DATASET_1C)
 
 
 @st.cache_data(show_spinner=False)
@@ -109,10 +117,24 @@ def load_uploaded(name: str, payload: bytes) -> pd.DataFrame:
         Path(handle.name).unlink(missing_ok=True)
 
 
-def load_dataframe(kind: str, uploaded: Any) -> tuple[pd.DataFrame, str]:
-    """Выбрать и загрузить витрину по выбору в боковой панели."""
+def load_dataframe(kind: str, uploaded: Any) -> tuple[pd.DataFrame | None, str]:
+    """Выбрать и загрузить витрину по выбору в боковой панели.
+
+    Если выбран источник 1С, но локального файла выгрузки нет, показываем
+    предупреждение и возвращаем ``None`` — приложение продолжает работать,
+    пользователь может переключиться на демо-данные или загрузку файла.
+    """
     if kind == SOURCE_SAMPLE:
         return load_dataset_sample(), "демо-данные"
+    if kind == SOURCE_1C:
+        if not Path(DATASET_1C).is_file():
+            st.warning(
+                "Файл выгрузки из 1С не найден. Пожалуйста, используйте скрипт "
+                "`onec_source.py` для выгрузки данных или выберите Демо-данные / "
+                "Загрузите свой файл."
+            )
+            return None, "1C"
+        return load_dataset_1c(), "1C"
     if uploaded is None:
         raise ValueError("Файл не загружен")
     return load_uploaded(uploaded.name, uploaded.getvalue()), uploaded.name
@@ -735,11 +757,12 @@ def render_sidebar() -> tuple[str, Any, bool]:
     st.sidebar.title("Данные")
     source_kind = st.sidebar.radio(
         "Источник витрины",
-        options=[SOURCE_SAMPLE, SOURCE_UPLOAD],
+        options=[SOURCE_SAMPLE, SOURCE_1C, SOURCE_UPLOAD],
         index=0,
         help=(
-            "По умолчанию — синтетические демо-данные (без реальных выгрузок 1С). "
-            "Свой CSV из 1С или Excel можно загрузить вторым пунктом."
+            "По умолчанию — синтетические демо-данные. Источник 1С доступен, если "
+            "локально есть 1c_export/sales_1c.csv (создаётся onec_source.py). "
+            "Свой CSV из 1С или Excel можно загрузить третьим пунктом."
         ),
     )
     uploaded = None
@@ -817,6 +840,15 @@ def main() -> None:
     except (ValueError, FileNotFoundError, KeyError, RuntimeError) as exc:
         st.error(f"Не удалось загрузить данные: {exc}")
         st.stop()
+
+    if dataset is None:
+        # Предупреждение уже показано в load_dataframe; не останавливаем приложение,
+        # чтобы можно было переключиться на демо-данные или загрузку файла.
+        st.caption(
+            "Переключитесь на «Демо-данные: sample_data.csv» или «Загрузить свой файл» "
+            "в сайдбаре."
+        )
+        return
 
     render_dataset_quality(dataset)
     st.sidebar.caption(
