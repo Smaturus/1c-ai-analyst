@@ -28,3 +28,9 @@ promt_1_publishing.md
 
 # Portable git (только локально, не публикуется)
 .tools/
+
+# Данные 1С (не подлежат распространению)
+тест.xlsx
+1c_export/
+*.1CD
+utdemo/
