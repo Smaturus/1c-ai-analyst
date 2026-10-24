@@ -34,3 +34,6 @@ promt_1_publishing.md
 1c_export/
 *.1CD
 utdemo/
+
+# Внутренний handoff-промпт (не публикуется)
+Промпт_для_нового_чата.md

@@ -170,7 +170,7 @@
 - Эксплуатация — [docs/RUNBOOK.md](docs/RUNBOOK.md); приёмка UI — [docs/UI_ACCEPTANCE.md](docs/UI_ACCEPTANCE.md)
 - ИТС — [docs/ITS_ACCESS_NOTES.md](docs/ITS_ACCESS_NOTES.md)
 - Решения — [docs/adr/](docs/adr/)
-- Передача в новый чат — [Промпт_для_нового_чата.md](Промпт_для_нового_чата.md)
+- Передача в новый чат — внутренний handoff-промпт; в публичный репозиторий не включается.
 - История изменений — [CHANGELOG.md](CHANGELOG.md)
 
 ## Команды проверки

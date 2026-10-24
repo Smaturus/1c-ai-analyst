@@ -362,7 +362,6 @@ python -c "from onec_source import load_vitrina; print(load_vitrina('1c_export/s
 | [docs/RUNBOOK.md](RUNBOOK.md) | эксплуатация |
 | [docs/adr/](adr/) | архитектурные решения |
 | [progress.md](../progress.md) | журнал и план |
-| [Промпт_для_нового_чата.md](../Промпт_для_нового_чата.md) | передача контекста в новый чат |
 
 ---
 

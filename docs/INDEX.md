@@ -6,7 +6,7 @@
 
 | Роль | Порядок чтения |
 |---|---|
-| Новый чат / новый участник | [../progress.md](../progress.md) → [REPORT.md](REPORT.md) → [ARCHITECTURE.md](ARCHITECTURE.md) → [../Промпт_для_нового_чата.md](../Промпт_для_нового_чата.md) |
+| Новый чат / новый участник | [../progress.md](../progress.md) → [REPORT.md](REPORT.md) → [ARCHITECTURE.md](ARCHITECTURE.md) |
 | Разработчик | [ARCHITECTURE.md](ARCHITECTURE.md) → [DATA_CONTRACT.md](DATA_CONTRACT.md) → [RUNBOOK.md](RUNBOOK.md) → код |
 | Ревьюер | [REPORT.md](REPORT.md) (разделы 7–9) → [adr/](adr/) → `smoke_test.py` |
 | Эксплуатация | [RUNBOOK.md](RUNBOOK.md) → [DATA_CONTRACT.md](DATA_CONTRACT.md) |
@@ -18,7 +18,6 @@
 | [../README.md](../README.md) | обзор проекта, быстрый старт, структура | актуально |
 | [../progress.md](../progress.md) | статус, журнал по датам, решения, открытые вопросы, план | живой документ |
 | [../CHANGELOG.md](../CHANGELOG.md) | история изменений по этапам | актуально |
-| [../Промпт_для_нового_чата.md](../Промпт_для_нового_чата.md) | готовый промпт для передачи контекста | актуально |
 | [REPORT.md](REPORT.md) | итоговый отчёт: постановка, данные, решения, результаты, проверки, риски | актуально |
 | [REPORT_STEP2.md](REPORT_STEP2.md) | отчёт об инкременте шага 2: UI + LLM-слой, дельта артефактов и проверки | актуально |
 | [REPORT_STEP3.md](REPORT_STEP3.md) | отчёт об инкременте шага 3: UX таблиц и ввода, переключатель LLM, pytest/CI, относительные даты | актуально |
