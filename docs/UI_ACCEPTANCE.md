@@ -12,7 +12,7 @@
 ## 2. Запуск
 
 ```powershell
-cd D:\1C_data_assistant
+cd 1c-ai-analyst
 python -m venv .venv
 .\.venv\Scripts\python -m pip install -r requirements.txt
 

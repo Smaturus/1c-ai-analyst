@@ -6,7 +6,7 @@
 > `sample_data.csv`. Актуальный демо-набор описан в README.
 
 - **Документ:** отчёт об инкременте к [REPORT.md](REPORT.md)
-- **Проект:** `D:\1C_data_assistant`
+- **Проект:** `1c-ai-analyst`
 - **Дата:** 2026-10-23 10:55
 - **Базовая линия:** шаг 1 (загрузчик + 5 интентов + DSL) и источник 1С, зафиксированы в [REPORT.md](REPORT.md)
 - **Область инкремента:** Pydantic-модели DSL, системный промпт и LLM-клиент, Streamlit UI, fallback-сценарии
@@ -174,7 +174,7 @@
 ## 9. Как воспроизвести инкремент
 
 ```powershell
-cd D:\1C_data_assistant
+cd 1c-ai-analyst
 
 # зависимости UI/LLM
 python -m venv .venv
@@ -190,7 +190,7 @@ $env:LLM_API_KEY  = "sk-..."
 
 # проверки
 .\.venv\Scripts\python smoke_llm.py
-& 'C:\Users\smatu\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\python\python.exe' -B -X utf8 smoke_test.py
+python -B -X utf8 smoke_test.py
 ```
 
 ---

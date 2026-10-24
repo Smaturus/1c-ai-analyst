@@ -3,7 +3,7 @@
 Запускается интерпретатором, где установлен **pydantic 2** (в этом проекте —
 системный Python 3.14 с пакетами из соседнего окружения)::
 
-    set PYTHONPATH=D:\\MCP_1С_homework\\.venv\\Lib\\site-packages;D:\\1C_data_assistant
+    set PYTHONPATH=<путь к site-packages>;<путь к проекту>
     python smoke_llm.py
 
 Проверяет:

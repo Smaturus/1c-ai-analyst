@@ -6,17 +6,17 @@
 
 | Что | Путь/значение |
 |---|---|
-| Рабочая папка | `D:\1C_data_assistant` |
-| Python проекта | `C:\Users\smatu\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\python\python.exe` (3.12, pandas 3.0.1) |
-| Python для 1С | `C:\Users\smatu\AppData\Local\Programs\Python\Python314\python.exe` (3.14, `pywin32` 312) |
-| 1С | `C:\Program Files\1cv8\8.3.27.1688`, `V83.COMConnector` (64-бит) |
-| База | `C:\1C\utdemo` (файловая) |
-| Выгрузка | `D:\1C_data_assistant\1c_export` (локально, в `.gitignore`; в репозиторий не коммитится) |
+| Рабочая папка | `1c-ai-analyst` (клон репозитория) |
+| Python проекта | `python` 3.12+ с зависимостями из `requirements.txt` |
+| Python для 1С | `python` с `pywin32` (Windows) |
+| 1С | `<каталог установки 1С:Предприятие 8.3>`, `V83.COMConnector` (64-бит) |
+| База | `<путь к базе 1С>` (файловая) |
+| Выгрузка | `.\1c_export` (локально, в `.gitignore`; в репозиторий не коммитится) |
 
 ## 2. Проверка проекта (демо-данные)
 
 ```powershell
-cd D:\1C_data_assistant
+cd 1c-ai-analyst
 .venv\Scripts\python.exe -X utf8 generate_synthetic_data.py   # при необходимости
 .venv\Scripts\python.exe -X utf8 smoke_test.py
 ```
@@ -58,10 +58,7 @@ COM-соединений, поэтому скрипт не сможет подк
 ### 3.3. Команда
 
 ```powershell
-& 'C:\Users\smatu\AppData\Local\Programs\Python\Python314\python.exe' `
-  D:\1C_data_assistant\onec_source.py `
-  --base "C:\1C\utdemo" `
-  --out-dir D:\1C_data_assistant\1c_export `
+python onec_source.py --base "<путь к базе 1С>" --out-dir .\1c_export `
   --start 2022-01-01 --end 2024-12-31
 ```
 
@@ -84,8 +81,8 @@ COM-соединений, поэтому скрипт не сможет подк
 2. Работать через копию базы (как в этом проекте): скопировать каталог в рабочую папку и указать `--base` на копию.
 
 ```powershell
-robocopy "C:\1C\utdemo" "D:\1C_data_assistant\1c_base\utdemo" /E /COPY:DAT /R:1 /W:1 /MT:8
-# затем --base "D:\1C_data_assistant\1c_base\utdemo"
+robocopy "<путь к базе 1С>" ".\1c_base\utdemo" /E /COPY:DAT /R:1 /W:1 /MT:8
+# затем --base ".\1c_base\utdemo"
 # после выгрузки копию можно удалить (2,9 ГБ)
 ```
 
@@ -94,8 +91,8 @@ robocopy "C:\1C\utdemo" "D:\1C_data_assistant\1c_base\utdemo" /E /COPY:DAT /R:1 
 ## 4. Проверка демо-витрины
 
 ```powershell
-cd D:\1C_data_assistant
-$env:PYTHONPATH = 'D:\1C_data_assistant'
+cd 1c-ai-analyst
+$env:PYTHONPATH = (Get-Location)
 .venv\Scripts\python.exe -X utf8 -c @"
 from onec_source import load_sample_vitrina
 v = load_sample_vitrina('sample_data.csv')
@@ -141,7 +138,7 @@ print(v.shape, v['date'].isna().sum(), round(v['revenue'].sum(), 2))
 ### 8.1. Установка
 
 ```powershell
-cd D:\1C_data_assistant
+cd 1c-ai-analyst
 python -m venv .venv
 .\.venv\Scripts\python -m pip install -r requirements.txt
 ```

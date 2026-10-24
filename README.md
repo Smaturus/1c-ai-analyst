@@ -26,23 +26,34 @@ flowchart LR
 ## Быстрый старт без 1С
 
 ```powershell
-cd D:\1C_data_assistant
-.venv\Scripts\python.exe -X utf8 generate_synthetic_data.py   # создаст sample_data.csv
-.venv\Scripts\python.exe -m streamlit run app.py              # откроет UI
+git clone https://github.com/Smaturus/1c-ai-analyst.git
+cd 1c-ai-analyst
+python -m venv .venv
+
+# Windows:
+.venv\Scripts\Activate.ps1
+
+python -m pip install -r requirements.txt
+python generate_synthetic_data.py   # создаст sample_data.csv
+python -m streamlit run app.py      # откроет UI
 ```
+
+На Linux/macOS активация окружения: `source .venv/bin/activate`.
+На Windows также можно просто дважды кликнуть по [`start_app.bat`](start_app.bat) —
+он сам создаст `.venv`, поставит зависимости и откроет браузер.
 
 `sample_data.csv` уже лежит в репозитории (600 строк, только вымышленные товары
 и контрагенты), поэтому шаг генерации можно пропустить, а при желании —
 перегенерировать данные с теми же контрольными суммами:
 
-```powershell
-.venv\Scripts\python.exe -X utf8 generate_synthetic_data.py
+```bash
+python generate_synthetic_data.py
 ```
 
 Проверка синтетического датасета без UI:
 
-```powershell
-.venv\Scripts\python.exe -X utf8 smoke_test.py
+```bash
+python smoke_test.py
 ```
 
 Ожидаемо: `SMOKE TEST PASSED` (схема витрины, контрольные суммы генератора,
@@ -63,7 +74,7 @@ print(get_top_bottom_products(df, limit=5))
 
 ```powershell
 # нужен Python с pywin32 и доступ к базе 1С
-python onec_source.py --base "C:\1C\utdemo" --out-dir .\1c_export `
+python onec_source.py --base "<путь к вашей базе 1С>" --out-dir .\1c_export `
   --start 2022-01-01 --end 2024-12-31
 ```
 
@@ -81,10 +92,9 @@ df = load_vitrina("1c_export/sales_1c.csv")   # date, product, counterparty, qua
 
 Самый простой запуск на Windows — дважды кликнуть по [`start_app.bat`](start_app.bat): скрипт сам создаст `.venv`, поставит зависимости и откроет браузер.
 
-Вручную:
+Вручную (из корня проекта, при активированном `.venv`):
 
 ```powershell
-cd D:\1C_data_assistant
 python -m pip install -r requirements.txt      # pandas, streamlit, pydantic, pywin32
 python -m streamlit run app.py
 ```
@@ -165,17 +175,12 @@ Unit-тесты лежат в [`tests/`](tests/) и не требуют ни р�
 limit» и фильтр `only_drops`).
 
 ```powershell
-cd D:\1C_data_assistant
-
-# 1. Активировать окружение (Windows cmd/bat; в PowerShell — .venv\Scripts\Activate.ps1
-#    при разрешённой политике выполнения, либо start_app.bat, который делает всё сам)
-call .venv\Scripts\activate.bat
-
-# 2. Поставить зависимости и pytest
+# из корня проекта, при активированном .venv
+# 1. Поставить зависимости и pytest
 python -m pip install -r requirements.txt
 python -m pip install pytest
 
-# 3. Запустить тесты
+# 2. Запустить тесты
 python -m pytest
 ```
 
@@ -227,7 +232,7 @@ python -m pytest tests/test_planner.py -q     # вопрос → JSON-DSL
 ## Структура
 
 ```
-D:\1C_data_assistant
+1c-ai-analyst/
 ├─ generate_synthetic_data.py # генератор sample_data.csv (без реальных данных 1С)
 ├─ sample_data.csv            # синтетическая демо-витрина (600 строк)
 ├─ data_loader.py            # ETL Excel (для загрузки своих файлов)

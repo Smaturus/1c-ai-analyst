@@ -18,7 +18,7 @@
 
 1. **Выгрузка** (нужен Python с ``pywin32`` и лицензия 1С)::
 
-       python onec_source.py --base "C:\\1C\\utdemo" --out-dir 1c_export \\
+       python onec_source.py --base "<путь к базе 1С>" --out-dir 1c_export \\
            --start 2022-01-01 --end 2024-12-31
 
    Создаются ``sales_1c.csv`` и ``nomenclature_1c.csv``.
@@ -122,7 +122,7 @@ def connect(base_path: str, *, usr: str = DEFAULT_USR, pwd: str = DEFAULT_PWD):
     Parameters
     ----------
     base_path:
-        Путь к каталогу файловой базы, например ``C:\\1C\\utdemo``.
+        Путь к каталогу файловой базы, например ``<путь к базе 1С>``.
     usr, pwd:
         Пользователь и пароль 1С. В демо-базе ``utdemo`` -- ``Администратор``
         с пустым паролем.
@@ -604,7 +604,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Выгрузка регистра «Выручка и себестоимость продаж» из 1С в CSV."
     )
-    parser.add_argument("--base", required=True, help="каталог файловой базы 1С, например C:\\1C\\utdemo")
+    parser.add_argument("--base", required=True, help="каталог файловой базы 1С, например <путь к базе 1С>")
     parser.add_argument("--out-dir", default="1c_export", help="каталог для CSV (по умолчанию 1c_export)")
     parser.add_argument("--usr", default=DEFAULT_USR, help="пользователь 1С")
     parser.add_argument("--pwd", default=DEFAULT_PWD, help="пароль 1С")
