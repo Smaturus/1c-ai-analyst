@@ -91,8 +91,12 @@ def load_dataset_sample() -> pd.DataFrame:
 
 
 @st.cache_data(show_spinner=False)
-def load_dataset_1c() -> pd.DataFrame:
-    """Загрузить локальную выгрузку из 1С (``1c_export/sales_1c.csv``)."""
+def load_dataset_1c(mtime_ns: int | None = None) -> pd.DataFrame:
+    """Загрузить локальную выгрузку из 1С (``1c_export/sales_1c.csv``).
+
+    ``mtime_ns`` участвует в ключе кеша: после перезаписи CSV следующим
+    запросом приложение перечитает файл, даже если процесс не перезапускали.
+    """
     return load_vitrina(DATASET_1C)
 
 
@@ -127,14 +131,15 @@ def load_dataframe(kind: str, uploaded: Any) -> tuple[pd.DataFrame | None, str]:
     if kind == SOURCE_SAMPLE:
         return load_dataset_sample(), "демо-данные"
     if kind == SOURCE_1C:
-        if not Path(DATASET_1C).is_file():
+        path = Path(DATASET_1C)
+        if not path.is_file():
             st.warning(
                 "Файл выгрузки из 1С не найден. Пожалуйста, используйте скрипт "
                 "`onec_source.py` для выгрузки данных или выберите Демо-данные / "
                 "Загрузите свой файл."
             )
             return None, "1C"
-        return load_dataset_1c(), "1C"
+        return load_dataset_1c(path.stat().st_mtime_ns), "1C"
     if uploaded is None:
         raise ValueError("Файл не загружен")
     return load_uploaded(uploaded.name, uploaded.getvalue()), uploaded.name
