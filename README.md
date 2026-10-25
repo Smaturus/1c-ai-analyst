@@ -218,7 +218,6 @@ python smoke_llm.py          # SMOKE LLM PASSED: 92 проверок
 - [docs/RUNBOOK.md](docs/RUNBOOK.md) — запуск, выгрузка 1С, лицензии, типовые ошибки.
 - [docs/UI_ACCEPTANCE.md](docs/UI_ACCEPTANCE.md) — приёмка UI и контрольные вопросы.
 - [docs/adr/](docs/adr/) — архитектурные решения (в т.ч. Data Snapshot, graceful degradation, L4L).
-- Исторические отчёты — [docs/history/](docs/history/) (не заменяют ARCHITECTURE).
 
 ## Лицензия и данные
 

@@ -5,6 +5,7 @@
 ## [Unreleased]
 
 ### Changed
+- **Дневник `docs/history/`** исключён из репозитория (`.gitignore`); ссылки на него убраны из README / INDEX / ARCHITECTURE / ADR 0001. Локальные файлы у разработчика сохраняются.
 - **Пакет `src/onec_analyst/`:** доменные модули (`analytics`, `llm_agent`, `clarification`, `data_loader`, `onec_source`, `rate_limiter`) перенесены из корня; `app.py` остаётся тонким UI-входом. `pip install -e .`, pytest `pythonpath=src`, CI/Docker ставят пакет; `rate_limit.db` по-прежнему в корне репозитория.
 
 ### Fixed
@@ -13,7 +14,7 @@
 
 ### Changed
 - **Поставка и лимиты LLM:** CI запускает `pytest` + `smoke_test.py` + `smoke_llm.py`; multi-stage `Dockerfile` без `build-essential` в runtime; RUNBOOK §8.6 — схема volume Docker (`./` → `/app/data`, витрина в `/app`); ручной сброс лимита сессии только при `RATE_LIMIT_ALLOW_RESET=1` (по умолчанию кнопки нет). ARCHITECTURE: пакет `src/onec_analyst/`, `RuleBasedPlanner` = safety net.
-- **Документация под продукт 0.6.0 (не дневник разработки):** переписаны [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) и [docs/INDEX.md](docs/INDEX.md); README — блок «Что смотреть за 3 минуты», явно NL2DSL ≠ NL2SQL; `REPORT*` и `ITS_ACCESS_NOTES` перенесены в [docs/history/](docs/history/); убраны ссылки на непубликуемый `app_local.py`/`progress.md` из навигации; docker-compose image `0.6.0`; keyword `nl2dsl`; docstring/smoke — 7 интентов. Методика ИТС свёрнута в [ADR 0001](docs/adr/0001-revenue-net.md).
+- **Документация под продукт 0.6.0 (не дневник разработки):** переписаны [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) и [docs/INDEX.md](docs/INDEX.md); README — блок «Что смотреть за 3 минуты», явно NL2DSL ≠ NL2SQL; `REPORT*` и `ITS_ACCESS_NOTES` вынесены из публичной навигации (позже — только локальный дневник); убраны ссылки на непубликуемый `app_local.py`/`progress.md`; docker-compose image `0.6.0`; keyword `nl2dsl`; docstring/smoke — 7 интентов. Методика ИТС свёрнута в [ADR 0001](docs/adr/0001-revenue-net.md).
 
 ## [0.6.0] — 2026-10-25 — Финальный релиз: умные фильтры, стресс-тестирование, полировка UX
 

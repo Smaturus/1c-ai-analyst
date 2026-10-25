@@ -36,4 +36,4 @@
 - [НДС в управленческом учёте](https://www.fd.ru/articles/164792-nds-v-upravlencheskom-uchete-zachem-ochishchat-otchetnost-statgb)
 - [Инфостарт: выручка без НДС = 90.01 минус НДС](https://infostart.ru/1c/reports/846969/)
 - ИТС (оглавление УТ 11.5): [«Валовая прибыль предприятия/организаций»](https://its.1c.ru/db/ut115doc/bookmark/Salesreports/Salesreports1), [«Выручка НДС»](https://its.1c.ru/db/ut115doc/bookmark/Salesreports/Salesreports23)
-- Диагностические заметки по доступу к ИТС (архив): [../history/ITS_ACCESS_NOTES.md](../history/ITS_ACCESS_NOTES.md)
+- Диагностические заметки по доступу к ИТС хранятся локально (не в репозитории); на решение ADR не влияют.
