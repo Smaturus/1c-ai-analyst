@@ -52,7 +52,11 @@ from analytics import (
     dispatch_intent,
     get_data_quality,
 )
-from clarification import choose_clarified_text, force_interpretation
+from clarification import (
+    SOURCE_LLM,
+    choose_clarified_text,
+    force_interpretation,
+)
 from data_loader import load_and_clean_1c_report
 from llm_agent import (
     INTENT_EXAMPLES,
@@ -89,6 +93,58 @@ def _rate_limit_reset_allowed() -> bool:
         "yes",
         "on",
     }
+
+
+def format_usage_caption(limit_status: LimitStatus) -> str:
+    """Текст счётчика LLM в сайдбаре."""
+    return (
+        f"Использовано запросов к ИИ: "
+        f"{limit_status.used_session}/{limit_status.limit_session}"
+    )
+
+
+def fill_usage_caption(slot: Any, limit_status: LimitStatus | None) -> None:
+    """Записать или очистить подпись счётчика (``st.empty``-слот)."""
+    if limit_status is None:
+        slot.empty()
+    else:
+        slot.caption(format_usage_caption(limit_status))
+
+
+def fill_session_limit_warning(slot: Any, limit_status: LimitStatus | None) -> None:
+    """Показать/убрать плашку исчерпания лимита сессии в сайдбаре."""
+    if limit_status is not None and limit_status.used_session >= limit_status.limit_session:
+        slot.warning("Лимит ИИ в этой сессии исчерпан — включён офлайн-режим.")
+    else:
+        slot.empty()
+
+
+def record_llm_usage(
+    limiter: RateLimiter,
+    session_id: str,
+    usage_slot: Any,
+    warn_slot: Any,
+) -> LimitStatus | None:
+    """Учесть успешный вызов LLM и сразу обновить счётчик/плашку в сайдбаре.
+
+    Returns
+    -------
+    LimitStatus | None
+        Обновлённый статус после ``increment``, либо ``None`` при ошибке SQLite.
+    """
+    try:
+        limiter.increment(session_id)
+        refreshed = limiter.check_limit(
+            session_id,
+            max_per_session=MAX_PER_SESSION,
+            max_global=MAX_GLOBAL,
+        )
+    except RateLimiterError as exc:
+        st.warning(f"⚠️ Не удалось учесть вызов ИИ: {exc}")
+        return None
+    fill_usage_caption(usage_slot, refreshed)
+    fill_session_limit_warning(warn_slot, refreshed)
+    return refreshed
 
 #: Сколько уточнений подряд показываем, прежде чем выполнить ближайшую
 #: детерминированную интерпретацию (защита от цикла уточнений).
@@ -1067,7 +1123,7 @@ def render_sidebar(
     limiter: RateLimiter,
     session_id: str,
     limit_status: LimitStatus | None,
-) -> tuple[str, Any, bool]:
+) -> tuple[str, Any, bool, Any, Any]:
     """Отрисовать боковую панель: источник витрины, режим LLM, сброс истории.
 
     Parameters
@@ -1081,10 +1137,10 @@ def render_sidebar(
 
     Returns
     -------
-    tuple[str, Any, bool]
-        Выбранный источник данных, загруженный файл (для ``SOURCE_UPLOAD``) и
-        флаг «использовать LLM». Если LLM не настроена, переключатель
-        заблокирован, а флаг принудительно ``False`` — работают офлайн-правила.
+    tuple[str, Any, bool, Any, Any]
+        Источник, файл, флаг LLM, слот счётчика и слот плашки лимита
+        (``st.empty``), чтобы обновить UI после ``increment`` в том же прогоне.
+        Если LLM не настроена, переключатель заблокирован, флаг ``False``.
     """
     st.sidebar.title("Данные")
     source_kind = st.sidebar.radio(
@@ -1134,30 +1190,34 @@ def render_sidebar(
     else:
         st.sidebar.caption("Включены офлайн-правила: API не вызывается.")
 
-    if limit_status is not None:
-        st.sidebar.caption(
-            f"Использовано запросов к ИИ: {limit_status.used_session}/{limit_status.limit_session}"
-        )
-        if limit_status.used_session >= limit_status.limit_session:
-            st.sidebar.warning("Лимит ИИ в этой сессии исчерпан — включён офлайн-режим.")
-            if _rate_limit_reset_allowed() and st.sidebar.button(
-                "Сбросить лимит сессии"
-            ):
-                try:
-                    limiter.reset_session(session_id)
-                except RateLimiterError as exc:
-                    st.sidebar.error(f"Не удалось сбросить лимит: {exc}")
-                else:
-                    st.rerun()
+    usage_slot = st.sidebar.empty()
+    warn_slot = st.sidebar.empty()
+    fill_usage_caption(usage_slot, limit_status)
+    fill_session_limit_warning(warn_slot, limit_status)
+    if (
+        limit_status is not None
+        and limit_status.used_session >= limit_status.limit_session
+        and _rate_limit_reset_allowed()
+        and st.sidebar.button("Сбросить лимит сессии")
+    ):
+        try:
+            limiter.reset_session(session_id)
+        except RateLimiterError as exc:
+            st.sidebar.error(f"Не удалось сбросить лимит: {exc}")
+        else:
+            st.rerun()
 
     if st.sidebar.button("Очистить историю"):
         st.session_state["history"] = []
-        # Новый диалог — счётчик уточнений и контекст уточнения сбрасываются.
+        # Новый диалог: история, поле вопроса и контекст уточнения.
+        st.session_state["question_input"] = ""
         st.session_state["clarification_rounds"] = 0
         st.session_state.pop("clarification_base", None)
         st.session_state.pop("clarification_choice", None)
+        st.session_state.pop("clarification_answer", None)
+        st.session_state.pop("auto_submit", None)
     st.sidebar.divider()
-    return source_kind, uploaded, use_llm
+    return source_kind, uploaded, use_llm, usage_slot, warn_slot
 
 
 # --------------------------------------------------------------------------- #
@@ -1202,7 +1262,9 @@ def main() -> None:
             "Система работает в офлайн-режиме."
         )
 
-    source_kind, uploaded, use_llm = render_sidebar(limiter, llm_session_id, limit_status)
+    source_kind, uploaded, use_llm, usage_slot, warn_slot = render_sidebar(
+        limiter, llm_session_id, limit_status
+    )
 
     limit_blocked = limiter_error is not None or (
         limit_status is not None and not limit_status.allowed
@@ -1250,6 +1312,9 @@ def main() -> None:
     # Выбранный вариант уточнения: решаем, показать полный склеенный запрос или
     # только вторую часть (см. clarification.choose_clarified_text). Текст
     # записывается в поле ДО создания виджета и одинаково уходит в расчёт и историю.
+    # LLM для планировщика и классификатора уточнений — только если не упёрлись в лимит.
+    llm_allowed = use_llm and not limit_blocked
+
     pending_answer = st.session_state.pop("clarification_answer", None)
     if pending_answer:
         base = str(st.session_state.get("clarification_base") or "")
@@ -1257,13 +1322,21 @@ def main() -> None:
             resolved = choose_clarified_text(
                 base,
                 str(pending_answer),
-                use_llm=use_llm,
+                use_llm=llm_allowed,
                 settings=settings,
                 data_profile=profile,
             )
         st.session_state["question_input"] = resolved.text
         st.session_state["clarification_source"] = resolved.source
         st.session_state["auto_submit"] = True
+        # Классификатор — отдельный вызов API; учитываем в лимите, как и plan().
+        if resolved.source == SOURCE_LLM:
+            refreshed = record_llm_usage(
+                limiter, llm_session_id, usage_slot, warn_slot
+            )
+            if refreshed is not None and not refreshed.allowed:
+                limit_blocked = True
+                llm_allowed = False
 
     question, submitted = render_question_input()
 
@@ -1280,7 +1353,7 @@ def main() -> None:
         if not question.strip():
             st.warning("Введите вопрос.")
             st.stop()
-        planner = select_planner(use_llm and not limit_blocked, settings)
+        planner = select_planner(llm_allowed, settings)
         with st.spinner("Разбираю вопрос…"):
             decision = planner.plan(question, st.session_state["history"], profile)
         llm_success = decision.source == "llm" and decision.ok
@@ -1288,10 +1361,8 @@ def main() -> None:
         decision = guard_decision(decision, question)
         if llm_success:
             # Лимит считается только по успешным вызовам LLM; офлайн-правила бесплатны.
-            try:
-                limiter.increment(llm_session_id)
-            except RateLimiterError as exc:
-                st.warning(f"⚠️ Не удалось учесть вызов ИИ: {exc}")
+            # Сразу обновляем счётчик и плашку: иначе до следующего rerun UI отстаёт.
+            record_llm_usage(limiter, llm_session_id, usage_slot, warn_slot)
 
         if decision.intent == "clarification":
             rounds = int(st.session_state.get("clarification_rounds", 0))

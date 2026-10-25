@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 from streamlit.testing.v1 import AppTest
 
+from app import format_usage_caption
 from rate_limiter import (
     MAX_GLOBAL,
     MAX_PER_SESSION,
@@ -155,6 +156,19 @@ def _run_app(monkeypatch: pytest.MonkeyPatch) -> AppTest:
     return AppTest.from_file(APP_FILE, default_timeout=TIMEOUT).run()
 
 
+def test_format_usage_caption_includes_counts() -> None:
+    """Текст счётчика отражает used/limit без отставания на единицу."""
+    status = LimitStatus(
+        allowed=True,
+        reason=None,
+        used_session=3,
+        used_global=3,
+        limit_session=MAX_PER_SESSION,
+        limit_global=MAX_GLOBAL,
+    )
+    assert format_usage_caption(status) == "Использовано запросов к ИИ: 3/15"
+
+
 def test_sidebar_shows_usage_counter(
     monkeypatch: pytest.MonkeyPatch, rate_limit_db_path: Path
 ) -> None:
@@ -164,6 +178,86 @@ def test_sidebar_shows_usage_counter(
     captions = [caption.value for caption in at.sidebar.caption]
     assert any("Использовано запросов к ИИ: 0/15" in text for text in captions)
     assert at.session_state["llm_session_id"]
+
+
+def test_clear_history_resets_question_and_clarification_state(
+    monkeypatch: pytest.MonkeyPatch, rate_limit_db_path: Path
+) -> None:
+    """«Очистить историю» сбрасывает историю, поле вопроса и контекст уточнения."""
+    at = _run_app(monkeypatch)
+    at.session_state["history"] = [{"role": "user", "content": "q"}]
+    at.session_state["question_input"] = "старый вопрос"
+    at.session_state["clarification_rounds"] = 2
+    at.session_state["clarification_base"] = "база"
+    at.session_state["clarification_answer"] = "ответ"
+    at.session_state["clarification_choice"] = "выбор"
+    at.session_state["auto_submit"] = True
+    at.run()
+
+    clear = next(button for button in at.button if button.label == "Очистить историю")
+    clear.click().run()
+
+    assert at.session_state["history"] == []
+    assert at.session_state.get("question_input", "") == ""
+    assert int(at.session_state.get("clarification_rounds", 0)) == 0
+    assert "clarification_base" not in at.session_state
+    assert "clarification_answer" not in at.session_state
+    assert "clarification_choice" not in at.session_state
+    assert "auto_submit" not in at.session_state
+
+
+def test_clarification_classifier_disabled_when_limit_hit(
+    monkeypatch: pytest.MonkeyPatch, rate_limit_db_path: Path
+) -> None:
+    """При исчерпанном лимите классификатор уточнений вызывается с use_llm=False."""
+    from clarification import SOURCE_MERGED, ClarifiedText
+
+    captured: dict[str, bool] = {}
+
+    def fake_choose(*_args: object, **kwargs: object) -> ClarifiedText:
+        captured["use_llm"] = bool(kwargs.get("use_llm"))
+        return ClarifiedText("фрагмент", SOURCE_MERGED, "test")
+
+    # AppTest исполняет app.py заново: патч на модуль clarification подхватывается import'ом.
+    monkeypatch.setattr("clarification.choose_clarified_text", fake_choose)
+    monkeypatch.setenv("LLM_PROVIDER", "deepseek")
+    monkeypatch.setenv("LLM_API_KEY", "test-key")
+    monkeypatch.setenv("LLM_MODEL", "deepseek-chat")
+    at = AppTest.from_file(APP_FILE, default_timeout=TIMEOUT).run()
+    session_id = str(at.session_state["llm_session_id"])
+    for _ in range(MAX_PER_SESSION):
+        RateLimiter(rate_limit_db_path).increment(session_id)
+
+    at.session_state["clarification_base"] = "продажи"
+    at.session_state["clarification_answer"] = "неопределённый длинный вариант ответа"
+    at.run()
+
+    assert captured.get("use_llm") is False
+
+
+def test_clarification_llm_source_increments_usage(
+    monkeypatch: pytest.MonkeyPatch, rate_limit_db_path: Path
+) -> None:
+    """Если уточнение решил LLM-классификатор — вызов учитывается в лимите."""
+    from clarification import SOURCE_LLM, ClarifiedText
+
+    monkeypatch.setattr(
+        "clarification.choose_clarified_text",
+        lambda *_a, **_k: ClarifiedText(
+            "Сколько мы продали за 2024 год?", SOURCE_LLM, "fake-llm"
+        ),
+    )
+    at = _run_app(monkeypatch)
+    session_id = str(at.session_state["llm_session_id"])
+    assert RateLimiter(rate_limit_db_path).check_limit(session_id).used_session == 0
+
+    at.session_state["clarification_base"] = "продажи"
+    at.session_state["clarification_answer"] = "неопределённый длинный вариант ответа"
+    at.run()
+
+    assert RateLimiter(rate_limit_db_path).check_limit(session_id).used_session == 1
+    captions = [caption.value for caption in at.sidebar.caption]
+    assert any("Использовано запросов к ИИ: 1/15" in text for text in captions)
 
 
 def test_session_limit_shows_warning_without_reset_by_default(
