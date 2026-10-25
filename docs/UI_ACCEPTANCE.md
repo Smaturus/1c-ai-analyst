@@ -98,4 +98,4 @@ $env:LLM_MODEL    = "deepseek-chat"
 | График не появился | проверить, что источник — демо-данные (там есть `date` и `product_group`) |
 | Порт занят | `streamlit run app.py --server.port 8502` |
 
-**Примечание:** UI проверялся локальным запуском Streamlit (Windows). Автотесты: `python -m pytest` (183 проверки в `tests/`), `smoke_llm.py` (86 проверок), `smoke_test.py` (PASSED).
+**Примечание:** UI проверялся локальным запуском Streamlit (Windows). Автотесты: `python -m pytest` (183 проверки в `tests/`), `smoke_llm.py` (89 проверок), `smoke_test.py` (PASSED).

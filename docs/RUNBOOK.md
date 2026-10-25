@@ -164,8 +164,8 @@ $env:LLM_BASE_URL = "https://api.deepseek.com/v1"   # опционально
 Проверка LLM-слоя без UI:
 
 ```powershell
-.\.venv\Scripts\python smoke_llm.py                 # SMOKE LLM PASSED: 86 проверок
-.\.venv\Scripts\python -m pytest -q                 # 183 passed (все unit-тесты tests/)
+.\.venv\Scripts\python smoke_llm.py                 # SMOKE LLM PASSED: 89 проверок
+.\.venv\Scripts\python -m pytest -q                 # 194 passed (все unit-тесты tests/)
 .\.venv\Scripts\python -m pytest tests/test_planner.py -q   # только правила → DSL
 ```
 

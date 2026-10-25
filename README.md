@@ -141,7 +141,7 @@ volumes:
 
 ## Инженерные решения
 
-- **183 pytest-теста** в `tests/` и CI на GitHub Actions (Python 3.12): расчёты, планировщик, UI через `AppTest`, статическая проверка app.py.
+- **194 pytest-теста** в `tests/` и CI на GitHub Actions (Python 3.12): расчёты, планировщик, UI через `AppTest`, статическая проверка app.py.
 - **Защита от галлюцинаций LLM:** жёсткий JSON-DSL, Pydantic-модели с `extra="forbid"`, `dispatch_intent`, никаких чисел или SQL от модели.
 - **Graceful degradation ([ADR 0007](docs/adr/0007-graceful-degradation.md)):** неоднозначный вопрос уточняется максимум дважды, затем выполняется детерминированная ближайшая интерпретация с честной плашкой «Уточнения исчерпаны — показываю как понял…»; если разобрать нельзя — понятная ошибка вместо падения. Составной запрос «топ за 2023 и за 2024» поддерживается отдельным интентом сравнения топов (L4L, [ADR 0008](docs/adr/0008-compare-tops-intent.md)): одна таблица с местами, дельтой и статусами — без multi-intent.
 - **Разделение ETL и UI (Data Snapshot):** аналитика и дашборд не зависят от доступности 1С; результаты воспроизводимы, тесты не требуют живой базы.
@@ -163,9 +163,9 @@ volumes:
 ## Проверки
 
 ```powershell
-python -m pytest -q          # 183 passed
+python -m pytest -q          # 194 passed
 python smoke_test.py         # SMOKE TEST PASSED
-python smoke_llm.py          # SMOKE LLM PASSED: 86 проверок
+python smoke_llm.py          # SMOKE LLM PASSED: 89 проверок
 ```
 
 Примеры вопросов:

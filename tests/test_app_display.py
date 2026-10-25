@@ -9,9 +9,11 @@
 from __future__ import annotations
 
 import math
+from pathlib import Path
 
 import pandas as pd
 import pytest
+from streamlit.testing.v1 import AppTest
 
 from app import (
     build_chart,
@@ -458,3 +460,26 @@ def test_chart_returns_none_for_missing_columns_or_unknown_intent() -> None:
     assert build_chart(_decision("top_bottom_products", metric="revenue"), result) is None
     assert build_chart(_decision("unknown_intent"), result) is None
     assert build_chart(_decision("timeseries"), result) is None
+
+
+# --------------------------------------------------------------------------- #
+# Бизнес-подсказка в сайдбаре: возвраты уменьшают выручку, нули не влияют
+# --------------------------------------------------------------------------- #
+APP_FILE = Path(__file__).resolve().parents[1] / "app.py"
+
+
+@pytest.fixture()
+def offline(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Офлайн-режим: тест не ходит в API и не зависит от .env."""
+    monkeypatch.setenv("LLM_PROVIDER", "none")
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+
+
+def test_sidebar_explains_net_revenue_business_rule(offline: None) -> None:
+    """В сайдбаре есть бизнес-подсказка про нетто-выручку и нулевые строки."""
+    at = AppTest.from_file(APP_FILE, default_timeout=120).run()
+
+    assert len(at.exception) == 0
+    captions = [caption.value for caption in at.caption]
+    assert any("Возвраты и сторно уменьшают итоговую выручку" in text for text in captions)
+    assert any("Строки с нулевой выручкой не влияют на суммы" in text for text in captions)
