@@ -90,6 +90,7 @@ __all__ = [
     "filter_by_period",
     "get_top_bottom_products",
     "compare_top_products",
+    "get_negative_revenue",
     "get_timeseries",
     "compare_periods",
     "get_counterparty_dynamics",
@@ -195,6 +196,8 @@ def get_top_bottom_products(
     *,
     start_date: DateLike | None = None,
     end_date: DateLike | None = None,
+    product_filter: str | None = None,
+    group_filter: str | None = None,
 ) -> pd.DataFrame:
     """Интент 1. Лучшие или худшие товары за период.
 
@@ -227,7 +230,10 @@ def get_top_bottom_products(
     metric = _check_metric(metric)
     limit = _positive_int(limit, "limit")
     ascending = _as_bool(ascending, "ascending")
-    scoped = filter_by_period(df, start_date, end_date)
+    scoped = df
+    scoped = _filter_product(scoped, product_filter)
+    scoped = _filter_group(scoped, group_filter)
+    scoped = filter_by_period(scoped, start_date, end_date)
     if scoped.empty:
         return _empty_frame((RANK, PRODUCT, metric, SHARE_PCT))
 
@@ -378,6 +384,63 @@ def _compare_top_status(rank_p1: pd.Series, rank_p2: pd.Series) -> pd.Series:
     return status.astype("string")
 
 
+def get_negative_revenue(
+    df: pd.DataFrame,
+    start_date: DateLike | None = None,
+    end_date: DateLike | None = None,
+    group_by: str = PRODUCT,
+) -> pd.DataFrame:
+    """Интент 7: отрицательная выручка (возвраты, сторно) в разрезе измерения.
+
+    Оставляет только строки с ``revenue < 0`` за период и агрегирует их:
+    сумма отрицательной выручки (всегда отрицательная), число строк и сумма
+    количества (тоже отрицательная — это возврат).
+
+    Parameters
+    ----------
+    df:
+        Очищенный DataFrame витрины.
+    start_date, end_date:
+        Необязательные границы периода включительно.
+    group_by:
+        Разрез: ``"product"`` (по умолчанию) или ``"counterparty"``.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Колонки ``<group_by>``, ``revenue``, ``rows_count``, ``quantity``.
+        Сортировка по ``revenue`` по возрастанию: самые крупные убытки сверху.
+        Если отрицательных строк нет — пустая таблица с тем же контрактом.
+
+    Notes
+    -----
+    Нулевые строки не включаются: критерий строго ``revenue < 0``. В витрине нет
+    поля операции/регистратора, поэтому «возврат» и «сторно» не разделяются —
+    это именно отрицательные суммы (см. «Бизнес-правила» в DATA_CONTRACT).
+    """
+    _ensure_columns(df, (DATE, REVENUE, QUANTITY))
+    if group_by not in (PRODUCT, COUNTERPARTY):
+        raise ValueError(
+            f"group_by должен быть {PRODUCT!r} или {COUNTERPARTY!r}, получено {group_by!r}"
+        )
+    if group_by not in df.columns:
+        raise ValueError(f"Колонка {group_by!r} отсутствует в данных")
+
+    scoped = filter_by_period(df, start_date, end_date)
+    negative = scoped.loc[scoped[REVENUE] < 0]
+    if negative.empty:
+        return _empty_frame((group_by, REVENUE, ROWS_COUNT, QUANTITY))
+
+    table = (
+        negative.groupby(group_by, dropna=False)
+        .agg(revenue=(REVENUE, "sum"), rows_count=(REVENUE, "count"), quantity=(QUANTITY, "sum"))
+        .reset_index()
+        .sort_values(REVENUE, ascending=True, kind="stable")
+        .reset_index(drop=True)
+    )
+    return table.loc[:, [group_by, REVENUE, ROWS_COUNT, QUANTITY]]
+
+
 def get_timeseries(
     df: pd.DataFrame,
     freq: str = "M",
@@ -387,6 +450,7 @@ def get_timeseries(
     start_date: DateLike | None = None,
     end_date: DateLike | None = None,
     fill_gaps: bool = True,
+    product_filter: str | None = None,
 ) -> pd.DataFrame:
     """Интент 3. Временной ряд продаж с заданной частотой.
 
@@ -428,6 +492,7 @@ def get_timeseries(
     period_alias = _period_alias(freq)
 
     scoped = filter_by_period(df, start_date, end_date)
+    scoped = _filter_product(scoped, product_filter)
     scoped = scoped.loc[scoped[DATE].notna()]
     if scoped.empty:
         return _empty_frame((PERIOD, metric))
@@ -464,6 +529,7 @@ def compare_periods(
     top_n: int | None = None,
     min_abs_delta: float | None = None,
     sort_by: SortBy = "delta_abs",
+    min_base_revenue: float | None = None,
 ) -> pd.DataFrame:
     """Сравнить две произвольные группы (измерения) между двумя периодами.
 
@@ -486,6 +552,9 @@ def compare_periods(
         Оставить N строк после сортировки.
     min_abs_delta:
         Оставить только строки, где ``|delta| >= min_abs_delta``.
+    min_base_revenue:
+        Оставить только строки, где выручка базового периода
+        ``period1_value >= min_base_revenue`` (условие «база больше N»).
     sort_by:
         Порядок строк: ``"delta_abs"`` (по модулю изменения, по умолчанию),
         ``"delta"``, ``"period2_value"``, ``"period1_value"``, ``"name"``.
@@ -520,6 +589,12 @@ def compare_periods(
         min_abs_delta = float(min_abs_delta)
         if min_abs_delta < 0:
             raise ValueError(f"min_abs_delta не может быть отрицательным: {min_abs_delta}")
+    if min_base_revenue is not None:
+        min_base_revenue = float(min_base_revenue)
+        if min_base_revenue < 0:
+            raise ValueError(
+                f"min_base_revenue не может быть отрицательным: {min_base_revenue}"
+            )
 
     p1_start, p1_end = _as_period(period1, "period1")
     p2_start, p2_end = _as_period(period2, "period2")
@@ -540,6 +615,9 @@ def compare_periods(
     table[DELTA] = table[P2_VALUE] - table[P1_VALUE]
     table[DELTA_PCT] = _percent_change(table[P1_VALUE], table[DELTA])
     table[DIRECTION] = _classify_direction(table[P1_VALUE], table[P2_VALUE], table[DELTA])
+
+    if min_base_revenue is not None:
+        table = table.loc[table[P1_VALUE] >= min_base_revenue]
 
     table = _sort_dynamics(table, dim=dim, sort_by=sort_by)
 
@@ -562,6 +640,7 @@ def get_counterparty_dynamics(
     min_abs_delta: float | None = None,
     sort_by: SortBy = "delta_abs",
     only_drops: bool = False,
+    min_base_revenue: float | None = None,
 ) -> pd.DataFrame:
     """Интент 2. У каких контрагентов выросли или упали продажи.
 
@@ -608,6 +687,7 @@ def get_counterparty_dynamics(
         top_n=None if only_drops else top_n,
         min_abs_delta=min_abs_delta,
         sort_by=sort_by,
+        min_base_revenue=min_base_revenue,
     )
     if only_drops and not result.empty:
         result = result.loc[result[DELTA] < 0].reset_index(drop=True)
@@ -627,6 +707,7 @@ def get_group_dynamics(
     min_abs_delta: float | None = None,
     sort_by: SortBy = "delta_abs",
     only_drops: bool = False,
+    group_filter: str | None = None,
 ) -> pd.DataFrame:
     """Интент 4. Срез по товарным группам: что просело, а что выросло.
 
@@ -674,6 +755,7 @@ def get_group_dynamics(
     ... )
     """
     prepared, dim = _prepare_group_column(df, group_by)
+    prepared = _filter_group(prepared, group_filter)
     only_drops = _as_bool(only_drops, "only_drops")
     if top_n is not None:
         top_n = _positive_int(top_n, "top_n")
@@ -699,6 +781,7 @@ def get_total(
     *,
     start_date: DateLike | None = None,
     end_date: DateLike | None = None,
+    product_filter: str | None = None,
 ) -> pd.DataFrame:
     """Интент 5. Сколько продали за период (одна строка итогов).
 
@@ -726,6 +809,7 @@ def get_total(
     """
     _ensure_columns(df, (DATE, REVENUE, QUANTITY))
     scoped = filter_by_period(df, start_date, end_date)
+    scoped = _filter_product(scoped, product_filter)
 
     if start_date is not None:
         start = _to_timestamp(start_date)
@@ -917,6 +1001,7 @@ def get_data_quality(df: pd.DataFrame) -> pd.DataFrame:
 INTENT_REGISTRY: Final[dict[str, Callable[..., pd.DataFrame]]] = {
     "top_bottom_products": get_top_bottom_products,
     "compare_top_products": compare_top_products,
+    "negative_revenue": get_negative_revenue,
     "timeseries": get_timeseries,
     "counterparty_dynamics": get_counterparty_dynamics,
     "group_dynamics": get_group_dynamics,
@@ -925,9 +1010,26 @@ INTENT_REGISTRY: Final[dict[str, Callable[..., pd.DataFrame]]] = {
 """Имя интента из JSON-DSL -> функция расчёта (см. docstring модуля)."""
 
 INTENT_PARAMETERS: Final[dict[str, tuple[str, ...]]] = {
-    "top_bottom_products": ("metric", "limit", "ascending", "start_date", "end_date"),
+    "top_bottom_products": (
+        "metric",
+        "limit",
+        "ascending",
+        "start_date",
+        "end_date",
+        "product_filter",
+        "group_filter",
+    ),
     "compare_top_products": ("period1", "period2", "top_n", "metric"),
-    "timeseries": ("freq", "metric", "agg", "start_date", "end_date", "fill_gaps"),
+    "negative_revenue": ("start_date", "end_date", "group_by"),
+    "timeseries": (
+        "freq",
+        "metric",
+        "agg",
+        "start_date",
+        "end_date",
+        "fill_gaps",
+        "product_filter",
+    ),
     "counterparty_dynamics": (
         "period1",
         "period2",
@@ -936,6 +1038,7 @@ INTENT_PARAMETERS: Final[dict[str, tuple[str, ...]]] = {
         "min_abs_delta",
         "sort_by",
         "only_drops",
+        "min_base_revenue",
     ),
     "group_dynamics": (
         "period1",
@@ -946,8 +1049,9 @@ INTENT_PARAMETERS: Final[dict[str, tuple[str, ...]]] = {
         "min_abs_delta",
         "sort_by",
         "only_drops",
+        "group_filter",
     ),
-    "total": ("start_date", "end_date"),
+    "total": ("start_date", "end_date", "product_filter"),
 }
 """Допустимые параметры каждого интента -- основа схемы инструмента для LLM."""
 
@@ -1048,6 +1152,48 @@ def _check_metric(metric: str) -> str:
     if metric not in METRICS:
         raise ValueError(f"metric должен быть одним из {list(METRICS)}, получено {metric!r}")
     return metric
+
+
+def _filter_text(
+    df: pd.DataFrame,
+    column: str,
+    value: str | None,
+    *,
+    label: str,
+) -> pd.DataFrame:
+    """Отфильтровать строки по подстроке в текстовой колонке (без учёта регистра)."""
+    if value is None:
+        return df
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{label} должен быть непустой строкой, получено {value!r}")
+    if column not in df.columns:
+        raise ValueError(
+            f"Для {label} нужна колонка {column!r}; доступно: {list(df.columns)}"
+        )
+    mask = (
+        df[column]
+        .astype("string")
+        .str.contains(value.strip(), case=False, na=False, regex=False)
+    )
+    return df.loc[mask]
+
+
+def _filter_product(df: pd.DataFrame, product_filter: str | None) -> pd.DataFrame:
+    """Фильтр по названию товара (подстрока, регистр не важен)."""
+    return _filter_text(df, PRODUCT, product_filter, label="product_filter")
+
+
+def _filter_group(df: pd.DataFrame, group_filter: str | None) -> pd.DataFrame:
+    """Фильтр по товарной группе (``product_group`` или ``product_group_path``)."""
+    if group_filter is None:
+        return df
+    for column in (PRODUCT_GROUP, "product_group_path"):
+        if column in df.columns:
+            return _filter_text(df, column, group_filter, label="group_filter")
+    raise ValueError(
+        "Для group_filter нет колонки product_group/product_group_path; "
+        "вызовите attach_product_group(df)"
+    )
 
 
 def _percent_change(previous: pd.Series, delta: pd.Series) -> pd.Series:

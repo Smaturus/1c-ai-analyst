@@ -7,7 +7,9 @@
         "limit",
         "ascending",
         "start_date",
-        "end_date"
+        "end_date",
+        "product_filter",
+        "group_filter"
       ],
       "example_question": "Какие 5 товаров продаются хуже остальных за 2024 год?"
     },
@@ -21,6 +23,15 @@
       ],
       "example_question": "Сравни топ-5 товаров за 2023 и 2024 годы"
     },
+    "negative_revenue": {
+      "description": "отрицательная выручка (возвраты, сторно): сумма, число строк и количество в разрезе товаров или контрагентов.",
+      "params": [
+        "start_date",
+        "end_date",
+        "group_by"
+      ],
+      "example_question": "Покажи товары с отрицательной выручкой за 2024 год"
+    },
     "timeseries": {
       "description": "динамика продаж по месяцам/кварталам/годам (временной ряд).",
       "params": [
@@ -29,7 +40,8 @@
         "agg",
         "start_date",
         "end_date",
-        "fill_gaps"
+        "fill_gaps",
+        "product_filter"
       ],
       "example_question": "Как менялись продажи по месяцам в 2023 году?"
     },
@@ -42,7 +54,8 @@
         "top_n",
         "min_abs_delta",
         "sort_by",
-        "only_drops"
+        "only_drops",
+        "min_base_revenue"
       ],
       "example_question": "У каких контрагентов упали продажи в 2024 по сравнению с 2023?"
     },
@@ -56,7 +69,8 @@
         "top_n",
         "min_abs_delta",
         "sort_by",
-        "only_drops"
+        "only_drops",
+        "group_filter"
       ],
       "example_question": "Какие товарные группы просели в 2024 по сравнению с 2023?"
     },
@@ -64,7 +78,8 @@
       "description": "сколько всего продали за период (одна итоговая строка).",
       "params": [
         "start_date",
-        "end_date"
+        "end_date",
+        "product_filter"
       ],
       "example_question": "Сколько мы продали за 2024 год?"
     }

@@ -21,8 +21,11 @@
 
 from __future__ import annotations
 
+import json
 import math
+import os
 import tempfile
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -60,9 +63,17 @@ from llm_agent import (
     LLMSettings,
     RuleBasedPlanner,
     check_schema_sync,
+    guard_decision,
     settings_from_env,
 )
 from onec_source import load_sample_vitrina, load_vitrina
+from rate_limiter import (
+    MAX_GLOBAL,
+    MAX_PER_SESSION,
+    LimitStatus,
+    RateLimiter,
+    RateLimiterError,
+)
 
 APP_TITLE = "ИИ-ассистент анализа данных 1С"
 
@@ -83,6 +94,7 @@ DATASET_1C = "1c_export/sales_1c.csv"
 INTENT_TITLES: dict[str, str] = {
     "top_bottom_products": "Топ/антитоп товаров",
     "compare_top_products": "Сравнение топов (L4L)",
+    "negative_revenue": "Отрицательная выручка / возвраты",
     "timeseries": "Временной ряд продаж",
     "counterparty_dynamics": "Динамика контрагентов",
     "group_dynamics": "Срез по товарным группам",
@@ -422,10 +434,61 @@ def _direction_label(value: str) -> str:
     }.get(str(value), str(value))
 
 
-def build_summary(decision: AgentDecision, result: pd.DataFrame) -> str:
+def _human_date(value: Any) -> str:
+    """ISO-дата (``2023-01-01``) в человеческий вид ``01.01.2023``."""
+    try:
+        return pd.Timestamp(value).strftime("%d.%m.%Y")
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def _filter_note(decision: AgentDecision, result: pd.DataFrame) -> str:
+    """Пояснение к сводке, если запрос был сужен фильтром товара/группы."""
+    params = decision.params or {}
+    filter_text = params.get("product_filter") or params.get("group_filter")
+    if not filter_text:
+        return ""
+    return f"По фильтру «{filter_text}» найдено {len(result)} записей."
+
+
+def build_summary(
+    decision: AgentDecision,
+    result: pd.DataFrame,
+    data_profile: dict[str, Any] | None = None,
+) -> str:
     """Собрать текстовую сводку по результату (без участия LLM)."""
-    if result is None or result.empty:
-        return "За выбранный период данных нет — попробуйте другой период или источник."
+    params = decision.params or {}
+    filter_text = params.get("product_filter") or params.get("group_filter")
+    total_zero = (
+        decision.intent == "total"
+        and result is not None
+        and not result.empty
+        and ROWS_COUNT in result.columns
+        and int(result.iloc[0][ROWS_COUNT]) == 0
+    )
+    if result is None or result.empty or total_zero:
+        if total_zero and filter_text:
+            return f"По фильтру «{filter_text}» данных не найдено за выбранный период."
+        profile = data_profile or {}
+        date_min = profile.get("date_min")
+        date_max = profile.get("date_max")
+        if date_min and date_max:
+            base = (
+                "За выбранный период данных нет. "
+                f"В текущем источнике данные доступны с {_human_date(date_min)} "
+                f"по {_human_date(date_max)}."
+            )
+        else:
+            base = "За выбранный период данных нет — попробуйте другой период или источник."
+        note = "" if total_zero else _filter_note(decision, result)
+        return f"{note} {base}".strip() if note else base
+    summary = _build_summary_text(decision, result)
+    note = _filter_note(decision, result)
+    return f"{note} {summary}" if note else summary
+
+
+def _build_summary_text(decision: AgentDecision, result: pd.DataFrame) -> str:
+    """Текст сводки для непустого результата."""
     intent = decision.intent or ""
     params = decision.params or {}
     metric = str(params.get("metric", REVENUE))
@@ -488,6 +551,16 @@ def build_summary(decision: AgentDecision, result: pd.DataFrame) -> str:
         )
     if intent == "compare_top_products":
         return _compare_tops_summary(result, params, metric, unit)
+    if intent == "negative_revenue":
+        dim = str(params.get("group_by", PRODUCT))
+        noun = "контрагентов" if dim == COUNTERPARTY else "товаров"
+        total = float(result[REVENUE].sum())
+        rows = int(result[ROWS_COUNT].sum()) if ROWS_COUNT in result.columns else len(result)
+        return (
+            f"Найдено {len(result)} {noun} с отрицательной выручкой. "
+            f"Общая сумма возвратов: {format_metric(total, REVENUE)} {REVENUE_UNIT} "
+            f"({rows} строк)."
+        )
     return f"Получено строк: {len(result)}."
 
 
@@ -715,6 +788,24 @@ def build_chart(decision: AgentDecision, result: pd.DataFrame) -> alt.Chart | No
             .properties(height=_chart_height(len(result)))
         )
 
+    if intent == "negative_revenue":
+        dim = str(params.get("group_by", PRODUCT))
+        if dim not in result.columns or REVENUE not in result.columns:
+            return None
+        return (
+            alt.Chart(result)
+            .mark_bar(color="#d62728")
+            .encode(
+                x=alt.X(
+                    REVENUE,
+                    type="quantitative",
+                    title=labels.get(REVENUE, f"Выручка без НДС, {REVENUE_UNIT}"),
+                ),
+                y=alt.Y(dim, type="nominal", title=labels.get(dim, dim), sort="x"),
+            )
+            .properties(height=_chart_height(len(result)))
+        )
+
     if intent == "timeseries":
         if PERIOD not in result.columns or metric not in result.columns:
             return None
@@ -837,10 +928,14 @@ def render_error(decision: AgentDecision) -> None:
         st.code(decision.raw_response or decision.error or "нет ответа модели")
 
 
-def render_result(decision: AgentDecision, result: pd.DataFrame) -> None:
+def render_result(
+    decision: AgentDecision,
+    result: pd.DataFrame,
+    data_profile: dict[str, Any] | None = None,
+) -> None:
     """Показать заголовок, сводку, таблицу, график и технические детали."""
     st.subheader(INTENT_TITLES.get(decision.intent or "", decision.intent or "Результат"))
-    st.write(build_summary(decision, result))
+    st.write(build_summary(decision, result, data_profile))
     st.dataframe(
         build_result_table(decision, result),
         hide_index=True,
@@ -853,7 +948,12 @@ def render_result(decision: AgentDecision, result: pd.DataFrame) -> None:
             "и проверки. На ответ пользователю не влияет."
         )
         st.markdown("**JSON-DSL:**")
-        st.json(decision.dsl)
+        # st.code даёт встроенную кнопку «копировать» в правом верхнем углу блока.
+        st.code(
+            json.dumps(decision.dsl, ensure_ascii=False, indent=2),
+            language="json",
+        )
+        st.caption("Кнопка копирования JSON — в правом верхнем углу блока.")
         st.markdown(
             f"**Интент:** `{decision.intent}` · **Режим:** "
             f"{'LLM' if decision.source == 'llm' else 'офлайн-правила'}"
@@ -950,8 +1050,21 @@ def select_planner(use_llm: bool, settings: LLMSettings) -> LLMPlanner | RuleBas
 # --------------------------------------------------------------------------- #
 # Боковая панель
 # --------------------------------------------------------------------------- #
-def render_sidebar() -> tuple[str, Any, bool]:
+def render_sidebar(
+    limiter: RateLimiter,
+    session_id: str,
+    limit_status: LimitStatus | None,
+) -> tuple[str, Any, bool]:
     """Отрисовать боковую панель: источник витрины, режим LLM, сброс истории.
+
+    Parameters
+    ----------
+    limiter:
+        Учёт вызовов LLM (SQLite); нужен для кнопки демо-сброса лимита.
+    session_id:
+        Идентификатор текущей сессии (``uuid4``), ключ учёта лимитов.
+    limit_status:
+        Текущий статус лимитов; ``None``, если учёт недоступен.
 
     Returns
     -------
@@ -1008,6 +1121,20 @@ def render_sidebar() -> tuple[str, Any, bool]:
     else:
         st.sidebar.caption("Включены офлайн-правила: API не вызывается.")
 
+    if limit_status is not None:
+        st.sidebar.caption(
+            f"Использовано запросов к ИИ: {limit_status.used_session}/{limit_status.limit_session}"
+        )
+        if limit_status.used_session >= limit_status.limit_session:
+            st.sidebar.warning("Лимит ИИ в этой сессии исчерпан — включён офлайн-режим.")
+            if st.sidebar.button("Сбросить лимит (Демо-режим)"):
+                try:
+                    limiter.reset_session(session_id)
+                except RateLimiterError as exc:
+                    st.sidebar.error(f"Не удалось сбросить лимит: {exc}")
+                else:
+                    st.rerun()
+
     if st.sidebar.button("Очистить историю"):
         st.session_state["history"] = []
         # Новый диалог — счётчик уточнений и контекст уточнения сбрасываются.
@@ -1037,7 +1164,43 @@ def main() -> None:
         st.stop()
 
     st.session_state.setdefault("history", [])
-    source_kind, uploaded, use_llm = render_sidebar()
+    st.session_state.setdefault("llm_session_id", str(uuid.uuid4()))
+    llm_session_id = str(st.session_state["llm_session_id"])
+
+    limiter = RateLimiter()
+    limit_status: LimitStatus | None = None
+    limiter_error: str | None = None
+    try:
+        limit_status = limiter.check_limit(
+            llm_session_id, max_per_session=MAX_PER_SESSION, max_global=MAX_GLOBAL
+        )
+    except RateLimiterError as exc:
+        limiter_error = str(exc)
+
+    if limiter_error is not None:
+        st.warning(
+            "⚠️ Учёт лимитов ИИ недоступен (база занята) — работаю в офлайн-режиме правил."
+        )
+    elif limit_status is not None and limit_status.reason == "global":
+        st.error(
+            "🔴 Дневной лимит ИИ-запросов исчерпан. "
+            "Система работает в офлайн-режиме."
+        )
+
+    source_kind, uploaded, use_llm = render_sidebar(limiter, llm_session_id, limit_status)
+
+    limit_blocked = limiter_error is not None or (
+        limit_status is not None and not limit_status.allowed
+    )
+    if (
+        limit_status is not None
+        and limit_status.reason == "session"
+        and use_llm
+    ):
+        st.warning(
+            "⚠️ Вы достигли лимита запросов к ИИ в этой сессии. "
+            "Переключаюсь на офлайн-режим."
+        )
 
     try:
         settings = settings_from_env()
@@ -1102,9 +1265,18 @@ def main() -> None:
         if not question.strip():
             st.warning("Введите вопрос.")
             st.stop()
-        planner = select_planner(use_llm, settings)
+        planner = select_planner(use_llm and not limit_blocked, settings)
         with st.spinner("Разбираю вопрос…"):
             decision = planner.plan(question, st.session_state["history"], profile)
+        llm_success = decision.source == "llm" and decision.ok
+        # Защита от подмены: запрос про отрицательную выручку не должен стать антитопом.
+        decision = guard_decision(decision, question)
+        if llm_success:
+            # Лимит считается только по успешным вызовам LLM; офлайн-правила бесплатны.
+            try:
+                limiter.increment(llm_session_id)
+            except RateLimiterError as exc:
+                st.warning(f"⚠️ Не удалось учесть вызов ИИ: {exc}")
 
         if decision.intent == "clarification":
             rounds = int(st.session_state.get("clarification_rounds", 0))
@@ -1156,10 +1328,13 @@ def main() -> None:
                 for name in INTENT_NAMES:
                     st.markdown(f"- {INTENT_TITLES[name]}: «{INTENT_EXAMPLES[name]}»")
                 with st.expander("Технические детали"):
-                    st.json(decision.dsl)
+                    st.code(
+                        json.dumps(decision.dsl, ensure_ascii=False, indent=2),
+                        language="json",
+                    )
             else:
-                render_result(decision, result)
-                summary = build_summary(decision, result)
+                render_result(decision, result, profile)
+                summary = build_summary(decision, result, profile)
                 st.session_state["history"].append({"role": "user", "content": question})
                 st.session_state["history"].append(
                     {"role": "assistant", "content": f"{INTENT_TITLES.get(decision.intent or '', '')}: {summary}"}

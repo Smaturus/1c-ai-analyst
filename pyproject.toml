@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "1c-ai-analyst"
-version = "0.5.0"
+version = "0.6.0"
 description = "ИИ-ассистент для анализа данных из 1С: вопрос → JSON-DSL → pandas"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -37,7 +37,7 @@ Homepage = "https://github.com/Smaturus/1c-ai-analyst"
 
 [tool.setuptools]
 # Проект — плоский набор модулей в корне репозитория (без src/).
-py-modules = ["analytics", "app", "clarification", "data_loader", "llm_agent", "onec_source"]
+py-modules = ["analytics", "app", "clarification", "data_loader", "llm_agent", "onec_source", "rate_limiter"]
 
 [tool.pytest.ini_options]
 # Основная конфигурация — в pytest.ini (он имеет приоритет); секция продублирована

@@ -17,11 +17,13 @@ from pydantic import ValidationError
 
 from llm_agent import (
     INTENT_PARAMETER_NAMES,
+    AgentDecision,
     LLMPlanner,
     LLMSettings,
     RuleBasedPlanner,
     build_messages,
     build_system_prompt,
+    guard_decision,
     make_planner,
     parse_plan_json,
     to_dispatch_params,
@@ -659,3 +661,149 @@ def test_compare_tops_requires_two_periods_in_dsl() -> None:
         parse_plan_json(
             '{"intent":"compare_top_products","params":{"period1":["2023-01-01","2023-12-31"]}}'
         )
+
+
+# --------------------------------------------------------------------------- #
+# Интент 7: отрицательная выручка (возвраты, сторно)
+# --------------------------------------------------------------------------- #
+def test_negative_revenue_by_rules() -> None:
+    """«Товары с отрицательной выручкой за 2024» → negative_revenue, а не антитоп."""
+    decision = _plan("покажи товары с отрицательной выручкой за 2024")
+
+    assert decision.intent == "negative_revenue", decision.error
+    assert decision.params["start_date"] == date(2024, 1, 1)
+    assert decision.params["end_date"] == date(2024, 12, 31)
+    assert decision.params["group_by"] == "product"
+
+
+def test_returns_by_counterparty_rules() -> None:
+    """«Покажи возвраты по контрагентам» → negative_revenue с group_by=counterparty."""
+    decision = _plan("покажи возвраты по контрагентам за 2024")
+
+    assert decision.intent == "negative_revenue", decision.error
+    assert decision.params["group_by"] == "counterparty"
+
+
+def test_negative_revenue_month_range() -> None:
+    """«январь–июнь 2024» — диапазон месяцев, а не весь год."""
+    decision = _plan(
+        "покажи все отрицательные выручки январь–июнь 2024, товары с отрицательной выручкой"
+    )
+
+    assert decision.intent == "negative_revenue", decision.error
+    assert decision.params["start_date"] == date(2024, 1, 1)
+    assert decision.params["end_date"] == date(2024, 6, 30)
+
+
+def test_guard_blocks_antipot_substitution() -> None:
+    """LLM вернула top_bottom на вопрос о возвратах — guard переключает на negative_revenue."""
+    substituted = AgentDecision(
+        ok=True, intent="top_bottom_products", params={"limit": 5, "ascending": True}
+    )
+    guarded = guard_decision(
+        substituted, "покажи товары с отрицательной выручкой за 2024"
+    )
+
+    assert guarded.intent == "negative_revenue", guarded.intent
+    assert guarded.params["start_date"] == date(2024, 1, 1)
+
+
+def test_guard_keeps_regular_top_questions() -> None:
+    """Обычный вопрос про худшие товары guard не трогает."""
+    regular = AgentDecision(
+        ok=True, intent="top_bottom_products", params={"limit": 5, "ascending": True}
+    )
+
+    assert guard_decision(regular, "Топ-5 худших товаров за 2024") is regular
+
+
+# --------------------------------------------------------------------------- #
+# Средний чек: честный отказ вместо «похожего» интента
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize(
+    "question",
+    [
+        "Сравни средний чек за 2024",
+        "Какая средняя выручка в 2024?",
+        "Покажи средний оборот по месяцам за 2023",
+    ],
+)
+def test_average_check_returns_clarification(question: str) -> None:
+    """Средний чек не поддерживается — clarification с объяснением."""
+    decision = _plan(question)
+
+    assert decision.ok and decision.intent == "clarification", decision.error
+    assert decision.clarification is not None
+    assert "Расчёт среднего чека не поддерживается" in decision.clarification.question
+
+
+# --------------------------------------------------------------------------- #
+# Новые фильтры: товар, группа, минимальная база
+# --------------------------------------------------------------------------- #
+def test_product_filter_from_quotes() -> None:
+    """Название товара в кавычках уходит в product_filter."""
+    decision = _plan("Сколько продали «Крупа Геркулес» за 2024")
+
+    assert decision.intent == "total", decision.error
+    assert decision.params["product_filter"] == "Крупа Геркулес"
+
+
+def test_group_filter_from_quotes() -> None:
+    """Название группы в кавычках уходит в group_filter."""
+    decision = _plan("Топ-5 товаров в группе «Бытовая техника» за 2024")
+
+    assert decision.intent == "top_bottom_products", decision.error
+    assert decision.params["group_filter"] == "Бытовая техника"
+    assert "product_filter" not in decision.params
+
+
+def test_group_filter_for_group_dynamics() -> None:
+    """Для динамики групп кавычки дают group_filter."""
+    decision = _plan("Какие группы просели в 2024 по сравнению с 2023, группа «Аксессуары»")
+
+    assert decision.intent == "group_dynamics", decision.error
+    assert decision.params["group_filter"] == "Аксессуары"
+
+
+def test_min_base_revenue_from_phrase() -> None:
+    """«выручка больше 100к» → min_base_revenue=100000 для контрагентов."""
+    decision = _plan("У каких контрагентов выручка в 2023 была больше 100к и упала в 2024")
+
+    assert decision.intent == "counterparty_dynamics", decision.error
+    assert decision.params["min_base_revenue"] == pytest.approx(100000.0)
+
+
+def test_group_filter_from_group_pattern() -> None:
+    """Паттерн «группа "Название"» (прямые кавычки) даёт group_filter."""
+    decision = _plan('Топ-5 товаров группы "Бытовая техника"')
+
+    assert decision.intent == "top_bottom_products", decision.error
+    assert decision.params["group_filter"] == "Бытовая техника"
+
+
+def test_default_period_when_no_dates_total() -> None:
+    """Без дат total получает демо-период 2023-01-01…2024-12-31."""
+    decision = _plan("Сколько продали")
+
+    assert decision.intent == "total", decision.error
+    assert decision.params["start_date"] == date(2023, 1, 1)
+    assert decision.params["end_date"] == date(2024, 12, 31)
+
+
+def test_default_period_uses_data_profile() -> None:
+    """Если есть профиль данных, дефолтные даты берутся из него."""
+    decision = _plan(
+        "Лидеры по выручке",
+        profile={"date_min": "2022-03-01", "date_max": "2024-12-26"},
+    )
+
+    assert decision.intent == "top_bottom_products", decision.error
+    assert decision.params["start_date"] == date(2022, 3, 1)
+    assert decision.params["end_date"] == date(2024, 12, 26)
+
+
+def test_default_period_does_not_skip_missing_periods_clarification() -> None:
+    """Динамика контрагентов без периодов всё равно просит уточнение."""
+    decision = _plan("У каких контрагентов выросли продажи?")
+
+    assert decision.ok and decision.intent == "clarification", decision.error

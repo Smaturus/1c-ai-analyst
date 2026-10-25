@@ -6,6 +6,9 @@
 
 from __future__ import annotations
 
+import uuid
+from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -60,3 +63,32 @@ def undated_frame(sales_frame: pd.DataFrame) -> pd.DataFrame:
     """Та же витрина плюс строка без даты — для проверки качества данных."""
     extra = make_frame([(None, "P4", "G4", "D", 5, 50.0)])
     return pd.concat([sales_frame, extra], ignore_index=True)
+
+
+# --------------------------------------------------------------------------- #
+# Учёт лимитов LLM: изолированная SQLite-база для каждого теста
+# --------------------------------------------------------------------------- #
+@pytest.fixture()
+def rate_limit_db_path() -> Iterator[Path]:
+    """Путь к временной SQLite-базе лимитов внутри рабочей папки.
+
+    Системный ``%TEMP%`` в песочнице недоступен для SQLite (файл не создаётся),
+    поэтому база кладётся в ``.pytest_tmp/`` проекта и удаляется после теста.
+    """
+    directory = Path(__file__).resolve().parents[1] / ".pytest_tmp"
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"rate_limit_{uuid.uuid4().hex}.db"
+    yield path
+    for suffix in ("", "-wal", "-shm"):
+        try:
+            path.with_name(path.name + suffix).unlink()
+        except FileNotFoundError:
+            pass
+
+
+@pytest.fixture(autouse=True)
+def _isolated_rate_limit_db(
+    monkeypatch: pytest.MonkeyPatch, rate_limit_db_path: Path
+) -> None:
+    """Все тесты (включая AppTest) используют временную базу лимитов."""
+    monkeypatch.setenv("RATE_LIMIT_DB", str(rate_limit_db_path))

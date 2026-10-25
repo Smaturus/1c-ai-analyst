@@ -483,3 +483,106 @@ def test_sidebar_explains_net_revenue_business_rule(offline: None) -> None:
     captions = [caption.value for caption in at.caption]
     assert any("Возвраты и сторно уменьшают итоговую выручку" in text for text in captions)
     assert any("Строки с нулевой выручкой не влияют на суммы" in text for text in captions)
+
+
+# --------------------------------------------------------------------------- #
+# Интент «Отрицательная выручка»: сводка и красный график
+# --------------------------------------------------------------------------- #
+def test_negative_revenue_summary() -> None:
+    """Сводка: N товаров с отрицательной выручкой + общая сумма возвратов."""
+    result = pd.DataFrame(
+        {
+            "product": ["A", "B"],
+            "revenue": [-200.0, -50.0],
+            "rows_count": [1, 2],
+            "quantity": [-4.0, -2.0],
+        }
+    )
+
+    summary = build_summary(_decision("negative_revenue", group_by="product"), result)
+
+    assert "Найдено 2 товаров с отрицательной выручкой" in summary
+    assert "Общая сумма возвратов: -250,00 ₽" in summary
+    assert "3 строк" in summary
+
+
+def test_negative_revenue_chart_is_red_horizontal_bars() -> None:
+    """График отрицательной выручки — красные горизонтальные бары."""
+    result = pd.DataFrame(
+        {
+            "product": ["A", "B"],
+            "revenue": [-200.0, -50.0],
+            "rows_count": [1, 2],
+            "quantity": [-4.0, -2.0],
+        }
+    )
+
+    chart = build_chart(_decision("negative_revenue", group_by="product"), result)
+    assert chart is not None
+    spec = chart.to_dict()
+    assert spec["mark"]["color"] == "#d62728"
+    assert spec["encoding"]["x"]["field"] == "revenue"
+    assert spec["encoding"]["y"]["field"] == "product"
+
+
+# --------------------------------------------------------------------------- #
+# Пустой период и фильтры в сводке
+# --------------------------------------------------------------------------- #
+def test_empty_summary_shows_available_dates() -> None:
+    """Пустой период объясняет, какие даты вообще есть в источнике."""
+    empty = pd.DataFrame(columns=["period", "revenue"])
+
+    summary = build_summary(
+        _decision("timeseries"),
+        empty,
+        {"date_min": "2023-01-01", "date_max": "2024-12-31"},
+    )
+
+    assert "За выбранный период данных нет" in summary
+    assert "данные доступны с 01.01.2023 по 31.12.2024" in summary
+
+
+def test_summary_mentions_active_filter() -> None:
+    """Если сработал product_filter/group_filter, сводка это явно говорит."""
+    result = pd.DataFrame({"product": ["P1"], "revenue": [120.0], "share_pct": [100.0]})
+
+    summary = build_summary(
+        _decision("top_bottom_products", product_filter="P1", limit=5), result
+    )
+
+    assert summary.startswith("По фильтру «P1» найдено 1 записей.")
+
+
+def test_summary_mentions_group_filter() -> None:
+    """group_filter тоже отражается в сводке."""
+    result = pd.DataFrame({"product": ["P1"], "revenue": [120.0], "share_pct": [100.0]})
+
+    summary = build_summary(
+        _decision("top_bottom_products", group_filter="Бытовая техника", limit=5),
+        result,
+    )
+
+    assert "По фильтру «Бытовая техника»" in summary
+
+
+def test_filtered_total_without_rows_explains_no_data() -> None:
+    """total с фильтром без совпадений: не «найдено 1 записей… строк 0», а понятное сообщение."""
+    result = pd.DataFrame(
+        [
+            {
+                "period_start": pd.Timestamp("2024-01-01"),
+                "period_end": pd.Timestamp("2024-12-31"),
+                "revenue": 0.0,
+                "quantity": 0.0,
+                "rows_count": 0,
+                "undated_rows": 0,
+            }
+        ]
+    )
+    decision = _decision("total", product_filter="НетТакого", start_date="2024-01-01")
+
+    summary = build_summary(
+        decision, result, {"date_min": "2023-01-01", "date_max": "2024-12-28"}
+    )
+
+    assert summary == "По фильтру «НетТакого» данных не найдено за выбранный период."

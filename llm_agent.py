@@ -67,6 +67,8 @@ __all__ = [
     "ClarificationPlan",
     "CompareTopsParams",
     "CompareTopsPlan",
+    "NegativeRevenueParams",
+    "NegativeRevenuePlan",
     "IntentDSL",
     "LLMSettings",
     "LLMClient",
@@ -79,6 +81,8 @@ __all__ = [
     "build_messages",
     "parse_plan_json",
     "to_dispatch_params",
+    "is_negative_revenue_question",
+    "guard_decision",
     "make_planner",
     "check_schema_sync",
     "export_schema",
@@ -91,6 +95,7 @@ __all__ = [
 INTENT_NAMES: Final[tuple[str, ...]] = (
     "top_bottom_products",
     "compare_top_products",
+    "negative_revenue",
     "timeseries",
     "counterparty_dynamics",
     "group_dynamics",
@@ -98,9 +103,26 @@ INTENT_NAMES: Final[tuple[str, ...]] = (
 )
 
 INTENT_PARAMETER_NAMES: Final[dict[str, tuple[str, ...]]] = {
-    "top_bottom_products": ("metric", "limit", "ascending", "start_date", "end_date"),
+    "top_bottom_products": (
+        "metric",
+        "limit",
+        "ascending",
+        "start_date",
+        "end_date",
+        "product_filter",
+        "group_filter",
+    ),
     "compare_top_products": ("period1", "period2", "top_n", "metric"),
-    "timeseries": ("freq", "metric", "agg", "start_date", "end_date", "fill_gaps"),
+    "negative_revenue": ("start_date", "end_date", "group_by"),
+    "timeseries": (
+        "freq",
+        "metric",
+        "agg",
+        "start_date",
+        "end_date",
+        "fill_gaps",
+        "product_filter",
+    ),
     "counterparty_dynamics": (
         "period1",
         "period2",
@@ -109,6 +131,7 @@ INTENT_PARAMETER_NAMES: Final[dict[str, tuple[str, ...]]] = {
         "min_abs_delta",
         "sort_by",
         "only_drops",
+        "min_base_revenue",
     ),
     "group_dynamics": (
         "period1",
@@ -119,13 +142,15 @@ INTENT_PARAMETER_NAMES: Final[dict[str, tuple[str, ...]]] = {
         "min_abs_delta",
         "sort_by",
         "only_drops",
+        "group_filter",
     ),
-    "total": ("start_date", "end_date"),
+    "total": ("start_date", "end_date", "product_filter"),
 }
 
 INTENT_DESCRIPTIONS: Final[dict[str, str]] = {
     "top_bottom_products": "лучшие/худшие товары за период (топ или антитоп).",
     "compare_top_products": "сравнение топ-товаров двух периодов (L4L): кто вошёл в топ, кто выпал, кто поднялся или опустился.",
+    "negative_revenue": "отрицательная выручка (возвраты, сторно): сумма, число строк и количество в разрезе товаров или контрагентов.",
     "timeseries": "динамика продаж по месяцам/кварталам/годам (временной ряд).",
     "counterparty_dynamics": "сравнение контрагентов в двух периодах: кто вырос/упал (only_drops оставляет только падения).",
     "group_dynamics": "сравнение товарных групп в двух периодах: что просело/выросло (only_drops оставляет только падения).",
@@ -135,6 +160,7 @@ INTENT_DESCRIPTIONS: Final[dict[str, str]] = {
 INTENT_EXAMPLES: Final[dict[str, str]] = {
     "top_bottom_products": "Какие 5 товаров продаются хуже остальных за 2024 год?",
     "compare_top_products": "Сравни топ-5 товаров за 2023 и 2024 годы",
+    "negative_revenue": "Покажи товары с отрицательной выручкой за 2024 год",
     "timeseries": "Как менялись продажи по месяцам в 2023 году?",
     "counterparty_dynamics": "У каких контрагентов упали продажи в 2024 по сравнению с 2023?",
     "group_dynamics": "Какие товарные группы просели в 2024 по сравнению с 2023?",
@@ -198,6 +224,16 @@ class TopBottomParams(_Params):
     ascending: bool = False
     start_date: DateValue | None = None
     end_date: DateValue | None = None
+    product_filter: str | None = Field(
+        default=None,
+        max_length=200,
+        description="Подстрока названия товара (регистр не важен)",
+    )
+    group_filter: str | None = Field(
+        default=None,
+        max_length=200,
+        description="Подстрока названия товарной группы",
+    )
 
 
 class CompareTopsParams(_Params):
@@ -209,6 +245,14 @@ class CompareTopsParams(_Params):
     metric: MetricName = "revenue"
 
 
+class NegativeRevenueParams(_Params):
+    """Параметры интента «отрицательная выручка (возвраты/сторно)»."""
+
+    start_date: DateValue | None = None
+    end_date: DateValue | None = None
+    group_by: Literal["product", "counterparty"] = "product"
+
+
 class TimeseriesParams(_Params):
     """Параметры интента «временной ряд»."""
     freq: FreqName = "M"
@@ -217,6 +261,7 @@ class TimeseriesParams(_Params):
     start_date: DateValue | None = None
     end_date: DateValue | None = None
     fill_gaps: bool = True
+    product_filter: str | None = Field(default=None, max_length=200)
 
 
 class CounterpartyDynamicsParams(_Params):
@@ -231,6 +276,11 @@ class CounterpartyDynamicsParams(_Params):
     only_drops: bool = Field(
         default=False,
         description="Оставить только контрагентов с падением продаж (delta < 0)",
+    )
+    min_base_revenue: float | None = Field(
+        default=None,
+        ge=0,
+        description="Оставить только контрагентов с базовой выручкой period1 >= N",
     )
 
 
@@ -249,6 +299,7 @@ class GroupDynamicsParams(_Params):
     min_abs_delta: float | None = Field(default=None, ge=0)
     sort_by: SortBy = "delta_abs"
     only_drops: bool = False
+    group_filter: str | None = Field(default=None, max_length=200)
 
 
 class TotalParams(_Params):
@@ -256,6 +307,7 @@ class TotalParams(_Params):
 
     start_date: DateValue | None = None
     end_date: DateValue | None = None
+    product_filter: str | None = Field(default=None, max_length=200)
 
 
 # --------------------------------------------------------------------------- #
@@ -275,6 +327,14 @@ class CompareTopsPlan(BaseModel):
     model_config = ConfigDict(extra="forbid")
     intent: Literal["compare_top_products"] = "compare_top_products"
     params: CompareTopsParams
+
+
+class NegativeRevenuePlan(BaseModel):
+    """DSL интента 7: отрицательная выручка (возвраты/сторно)."""
+
+    model_config = ConfigDict(extra="forbid")
+    intent: Literal["negative_revenue"] = "negative_revenue"
+    params: NegativeRevenueParams = Field(default_factory=NegativeRevenueParams)
 
 
 class TimeseriesPlan(BaseModel):
@@ -322,6 +382,7 @@ class ClarificationPlan(BaseModel):
 IntentDSL = Annotated[
     TopBottomPlan
     | CompareTopsPlan
+    | NegativeRevenuePlan
     | TimeseriesPlan
     | CounterpartyDynamicsPlan
     | GroupDynamicsPlan
@@ -460,6 +521,20 @@ SYSTEM_PROMPT: Final[str] = f"""Ты — переводчик вопросов �
    Не угадывай период сравнения, метрику или группировку, если вопрос допускает
    несколько прочтений.
 7. Допустимы только перечисленные ниже интенты и параметры. Лишние поля запрещены.
+8. Если пользователь спрашивает про отрицательную выручку, возвраты, сторно,
+   убытки или корректировки — ОБЯЗАТЕЛЬНО используй intent="negative_revenue".
+   Для таких запросов ЗАПРЕЩЕНО использовать top_bottom_products.
+9. Если назван конкретный товар (например, «Крупа Геркулес»), ОБЯЗАТЕЛЬНО
+   передай его в product_filter (подстрока названия, без кавычек).
+10. Если названа товарная группа/категория (например, «Бытовая техника»),
+    ОБЯЗАТЕЛЬНО передай её в group_filter (доступен в top_bottom_products и
+    group_dynamics).
+11. Если просят отфильтровать по базовой выручке («у кого выручка/база была
+    больше 100к»), передай число в min_base_revenue (только counterparty_dynamics).
+12. Средний чек, средняя выручка и средний оборот НЕ поддерживаются: верни
+    intent="clarification" с вопросом «Расчёт среднего чека не поддерживается.
+    Доступны только суммарная выручка и количество.» Не подменяй такой запрос
+    топом, итогом или динамикой.
 
 ОТНОСИТЕЛЬНЫЕ ПЕРИОДЫ
 - Считай их от «Сегодняшней даты» (см. начало промпта), а не от дат витрины.
@@ -482,6 +557,10 @@ SYSTEM_PROMPT: Final[str] = f"""Ты — переводчик вопросов �
 - min_abs_delta: неотрицательное число.
 - only_drops: true — оставить только падения (group_dynamics и counterparty_dynamics).
 - group_by: "product" | "counterparty" | "product_group" | null.
+  Для negative_revenue — "product" | "counterparty" (разрез отрицательной выручки).
+- product_filter: подстрока названия товара (регистр не важен), например «Крупа».
+- group_filter: подстрока названия товарной группы, например «Бытовая техника».
+- min_base_revenue: неотрицательное число — фильтр «в первом периоде выручка >= N».
 
 ПРИМЕРЫ
 Q: Какие 5 товаров продаются хуже остальных за 2024 год?
@@ -489,6 +568,18 @@ A: {{"intent":"top_bottom_products","params":{{"metric":"revenue","limit":5,"asc
 
 Q: Сравни топ-5 товаров за 2023 и 2024 годы.
 A: {{"intent":"compare_top_products","params":{{"period1":["2023-01-01","2023-12-31"],"period2":["2024-01-01","2024-12-31"],"top_n":5,"metric":"revenue"}}}}
+
+Q: Покажи товары с отрицательной выручкой за 2024 год.
+A: {{"intent":"negative_revenue","params":{{"start_date":"2024-01-01","end_date":"2024-12-31","group_by":"product"}}}}
+
+Q: Сколько продали «Крупа Геркулес» за 2024 год?
+A: {{"intent":"total","params":{{"start_date":"2024-01-01","end_date":"2024-12-31","product_filter":"Крупа Геркулес"}}}}
+
+Q: Какие топ-5 товаров в группе «Бытовая техника» за 2024?
+A: {{"intent":"top_bottom_products","params":{{"metric":"revenue","limit":5,"ascending":false,"start_date":"2024-01-01","end_date":"2024-12-31","group_filter":"Бытовая техника"}}}}
+
+Q: У каких контрагентов выручка в 2023 была больше 100 000 и упала в 2024?
+A: {{"intent":"counterparty_dynamics","params":{{"period1":["2023-01-01","2023-12-31"],"period2":["2024-01-01","2024-12-31"],"metric":"revenue","min_base_revenue":100000,"only_drops":true}}}}
 
 Q: Как менялись продажи по месяцам в 2023 году?
 A: {{"intent":"timeseries","params":{{"freq":"M","metric":"revenue","start_date":"2023-01-01","end_date":"2023-12-31"}}}}
@@ -949,6 +1040,82 @@ _MONTHS: Final[dict[str, int]] = {
 }
 
 
+def _month_number(token: str) -> int | None:
+    """Номер месяца по русскому корню («январ», «май»/«мая», «июн»)."""
+    for key, number in _MONTHS.items():
+        if token.startswith(key):
+            return number
+    return None
+
+
+_MONTH_RANGE_RE: Final = re.compile(
+    r"(январ|феврал|март|апрел|ма[йя]|июн|июл|август|сентябр|октябр|ноябр|декабр)\w*"
+    r"\s*(?:[-–—]|по)\s*"
+    r"(январ|феврал|март|апрел|ма[йя]|июн|июл|август|сентябр|октябр|ноябр|декабр)\w*"
+    r"\s+(20\d{2})"
+)
+
+
+def _month_range_period(lowered: str) -> tuple[date, date] | None:
+    """Период «январь–июнь 2024» или «с января по июнь 2024»."""
+    match = _MONTH_RANGE_RE.search(lowered)
+    if not match:
+        return None
+    start_month = _month_number(match.group(1))
+    end_month = _month_number(match.group(2))
+    year = int(match.group(3))
+    if start_month is None or end_month is None or start_month > end_month:
+        return None
+    return (date(year, start_month, 1), _last_day_of_month(year, end_month))
+
+
+_QUOTED_RE: Final = re.compile(r'["«]([^"»]+)["»]')
+_GROUP_QUOTED_RE: Final = re.compile(
+    r'(?:групп[аы]|категори[яи])\s+["«]([^"»]+)["»]', re.IGNORECASE
+)
+DEFAULT_START_DATE: Final = date(2023, 1, 1)
+DEFAULT_END_DATE: Final = date(2024, 12, 31)
+_AVERAGE_CHECK_RE: Final = re.compile(
+    r"средн\w*\s+(?:чек|выручк\w*|оборот\w*)", re.IGNORECASE
+)
+_BASE_MORE_RE: Final = re.compile(
+    r"(?:больше|выше|свыше)\s+(\d[\d\s]*(?:[.,]\d+)?)\s*(тыс\w*|к|млн|млрд)?",
+    re.IGNORECASE,
+)
+
+
+def _extract_quoted(text: str) -> str | None:
+    """Текст в кавычках («товар», "группа") — для product_filter/group_filter."""
+    match = _QUOTED_RE.search(text or "")
+    if not match:
+        return None
+    value = match.group(1).strip()
+    return value or None
+
+
+def _extract_min_base_revenue(text: str) -> float | None:
+    """Число из условия «выручка/база больше N» (100, 100к, 1 млн)."""
+    if not re.search(r"баз|выручк", text, re.IGNORECASE):
+        return None
+    match = _BASE_MORE_RE.search(text or "")
+    if not match:
+        return None
+    number = match.group(1).replace(" ", "").replace(",", ".")
+    try:
+        value = float(number)
+    except ValueError:
+        return None
+    unit = (match.group(2) or "").casefold()
+    multiplier = 1.0
+    if unit.startswith(("тыс", "к")):
+        multiplier = 1_000.0
+    elif unit.startswith("млн"):
+        multiplier = 1_000_000.0
+    elif unit.startswith("млрд"):
+        multiplier = 1_000_000_000.0
+    return value * multiplier
+
+
 def _relative_years(lowered: str, today: date) -> list[int]:
     """Годы из относительных формулировок в порядке упоминания (без повторов).
 
@@ -1024,12 +1191,49 @@ class RuleBasedPlanner:
         if not text:
             return AgentDecision(ok=False, error="Пустой вопрос", source="rules")
         lowered = text.lower()
+        if _AVERAGE_CHECK_RE.search(text):
+            # Средний чек не поддерживается: честный отказ вместо «похожего» интента.
+            message = (
+                "Расчёт среднего чека не поддерживается. "
+                "Доступны только суммарная выручка и количество."
+            )
+            return AgentDecision(
+                ok=True,
+                intent="clarification",
+                clarification=ClarificationPlan(
+                    question=message,
+                    missing=["intent"],
+                    suggestions=[],
+                ),
+                dsl={"intent": "clarification", "question": message},
+                source="rules",
+            )
         metric: MetricName = "quantity" if re.search(r"штук|количеств|единиц", lowered) else "revenue"
         periods = self._extract_periods(lowered, data_profile, today=today)
         if len(periods) >= 2 and re.search(r"по сравнению с", lowered):
             # «в 2024 по сравнению с 2023» → база = 2023, оцениваемый = 2024
             periods = [periods[1], periods[0]]
+
+        group_match = _GROUP_QUOTED_RE.search(text)
+        quoted = (
+            group_match.group(1).strip()
+            if group_match
+            else _extract_quoted(text)
+        )
+        group_context = bool(group_match or re.search(r"групп|категор", lowered))
+        min_base_revenue = _extract_min_base_revenue(lowered)
         try:
+            # 0. Отрицательная выручка (возвраты/сторно): проверяем ПЕРВОЙ, чтобы
+            # «товары с отрицательной выручкой» не уходили в обычный антитоп.
+            if re.search(r"отрицательн|возврат|сторно|убыт|корректировк", lowered):
+                group_by = (
+                    "counterparty"
+                    if re.search(r"контрагент|клиент|партн[её]р", lowered)
+                    else "product"
+                )
+                params: dict[str, Any] = {"group_by": group_by}
+                params.update(_dates_to_bounds(periods))
+                return self._make("negative_revenue", params, source="rules")
             # 1. Итог за период: «итог», «сколько», «общая сумма», «выручка за …».
             # Слова топ/динамики/сравнений исключаются — они уходят в свои интенты.
             if re.search(
@@ -1041,7 +1245,12 @@ class RuleBasedPlanner:
                 r"по месяц|по квартал|по год|временн|тенденц|тренд|ряд",
                 lowered,
             ):
-                return self._make("total", _dates_to_bounds(periods), source="rules")
+                total_params = _dates_to_bounds(periods) or self._default_bounds(
+                    data_profile
+                )
+                if quoted and not group_context:
+                    total_params["product_filter"] = quoted
+                return self._make("total", total_params, source="rules")
             # 2. Динамика контрагентов. Само слово «контрагенты» уже задаёт
             # интент, но для сравнения нужны два периода: без них вернём
             # уточнение (missing period1/period2), а не ошибку.
@@ -1053,12 +1262,19 @@ class RuleBasedPlanner:
                     metric,
                     periods,
                     only_drops=bool(re.search(r"упал|просел|снизил|снижен|уменьш|падени", lowered)),
+                    min_base_revenue=min_base_revenue,
                 )
             # 3. Динамика товарных групп/категорий.
             if re.search(r"групп|категор", lowered) and re.search(
                 r"просел|упал|выросл|упали|выросли|сравн|динамик|измен", lowered
             ):
-                return self._dynamics("group_dynamics", metric, periods, only_drops=bool(re.search(r"просел|упал", lowered)))
+                return self._dynamics(
+                    "group_dynamics",
+                    metric,
+                    periods,
+                    only_drops=bool(re.search(r"просел|упал", lowered)),
+                    group_filter=quoted,
+                )
             # 4. Временной ряд. Второе условие («продажи/выручка») больше не
             # требуется: любое «по месяцам/кварталам/годам», «динамика»,
             # «тренд», «тенденция» в этом приложении и так про продажи.
@@ -1066,6 +1282,8 @@ class RuleBasedPlanner:
                 freq = "Q" if "квартал" in lowered else "Y" if re.search(r"по год|годов", lowered) else "M"
                 params: dict[str, Any] = {"freq": freq, "metric": metric}
                 params.update(_dates_to_bounds(periods))
+                if quoted and not group_context:
+                    params["product_filter"] = quoted
                 return self._make("timeseries", params, source="rules")
             # 5. Сравнение топов двух периодов (L4L): «сравни топ-5 за 2023 и 2024».
             # Запросы про топ всегда сначала проверяем на два периода: если их два,
@@ -1096,7 +1314,12 @@ class RuleBasedPlanner:
                 limit = _extract_limit(lowered)
                 ascending = bool(re.search(r"хуже|худш|аутсайд|наименьш|плохо|меньш", lowered))
                 params = {"metric": metric, "limit": limit, "ascending": ascending}
-                params.update(_dates_to_bounds(periods))
+                params.update(_dates_to_bounds(periods) or self._default_bounds(data_profile))
+                if quoted:
+                    if group_context:
+                        params["group_filter"] = quoted
+                    else:
+                        params["product_filter"] = quoted
                 return self._make("top_bottom_products", params, source="rules")
         except ValueError as exc:
             return AgentDecision(ok=False, error=str(exc), source="rules")
@@ -1122,6 +1345,7 @@ class RuleBasedPlanner:
         model_name = {
             "top_bottom_products": TopBottomPlan,
             "compare_top_products": CompareTopsPlan,
+            "negative_revenue": NegativeRevenuePlan,
             "timeseries": TimeseriesPlan,
             "counterparty_dynamics": CounterpartyDynamicsPlan,
             "group_dynamics": GroupDynamicsPlan,
@@ -1137,6 +1361,8 @@ class RuleBasedPlanner:
         periods: list[tuple[date, date]],
         *,
         only_drops: bool = False,
+        min_base_revenue: float | None = None,
+        group_filter: str | None = None,
     ) -> AgentDecision:
         """Построить динамику по двум периодам или попросить уточнение."""
         if len(periods) < 2:
@@ -1158,7 +1384,30 @@ class RuleBasedPlanner:
         }
         if intent in ("group_dynamics", "counterparty_dynamics"):
             params["only_drops"] = only_drops
+        if min_base_revenue is not None and intent == "counterparty_dynamics":
+            params["min_base_revenue"] = min_base_revenue
+        if group_filter is not None and intent == "group_dynamics":
+            params["group_filter"] = group_filter
         return self._make(intent, params, source="rules")
+
+    @staticmethod
+    def _default_bounds(data_profile: dict[str, Any] | None) -> dict[str, date]:
+        """Даты по умолчанию, если пользователь их не назвал.
+
+        Берём фактический диапазон из ``data_profile`` (``date_min``/``date_max``),
+        иначе — фиксированный демо-период 2023-01-01…2024-12-31. Это делает
+        офлайн-ответы предсказуемыми: без периода не считаем «всё, включая
+        строки без даты».
+        """
+        if data_profile:
+            try:
+                start = _parse_date_value(data_profile["date_min"])
+                end = _parse_date_value(data_profile["date_max"])
+            except (KeyError, TypeError, ValueError):
+                pass
+            else:
+                return {"start_date": start, "end_date": end}
+        return {"start_date": DEFAULT_START_DATE, "end_date": DEFAULT_END_DATE}
 
     def _extract_periods(
         self,
@@ -1182,6 +1431,10 @@ class RuleBasedPlanner:
             return [tuple(sorted(parsed[0:2])), tuple(sorted(parsed[2:4]))]  # type: ignore[list-item]
         if len(parsed) == 2:
             return [tuple(sorted(parsed))]  # type: ignore[list-item]
+
+        month_range = _month_range_period(lowered)
+        if month_range is not None:
+            return [month_range]
 
         years = [int(year) for year in re.findall(r"\b(20\d{2})\b", lowered)]
         unique_years: list[int] = []
@@ -1237,6 +1490,37 @@ class RuleBasedPlanner:
                 return [(end - timedelta(days=29), end)]
 
         return []
+
+
+_NEGATIVE_REVENUE_RE: Final = re.compile(
+    r"отрицательн|возврат|сторно|убыт|корректировк", re.IGNORECASE
+)
+
+
+def is_negative_revenue_question(question: str) -> bool:
+    """Похож ли вопрос на запрос про отрицательную выручку/возвраты/сторно."""
+    return bool(_NEGATIVE_REVENUE_RE.search(question or ""))
+
+
+def guard_decision(
+    decision: AgentDecision,
+    question: str,
+    *,
+    today: date | None = None,
+) -> AgentDecision:
+    """Не дать планировщику подменить запрос про отрицательную выручку антитопом.
+
+    Если вопрос явно про отрицательную выручку/возвраты/сторно, а LLM выбрала
+    другой интент (например, ``top_bottom_products`` — «худшие товары»), решение
+    пересобирается детерминированными правилами. Если правила не дают
+    ``negative_revenue``, исходное решение сохраняется.
+    """
+    if decision.intent == "negative_revenue" or not is_negative_revenue_question(question):
+        return decision
+    fallback = RuleBasedPlanner().plan(question, today=today)
+    if fallback.ok and fallback.intent == "negative_revenue":
+        return fallback
+    return decision
 
 
 def _dates_to_bounds(periods: list[tuple[date, date]]) -> dict[str, Any]:

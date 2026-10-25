@@ -35,6 +35,7 @@ from analytics import (
     get_counterparty_dynamics,
     get_data_quality,
     get_group_dynamics,
+    get_negative_revenue,
     get_timeseries,
     get_top_bottom_products,
     get_total,
@@ -466,3 +467,151 @@ def test_compare_top_products_via_dispatch() -> None:
 
     with pytest.raises(ValueError, match="не хватает обязательных параметров"):
         dispatch_intent("compare_top_products", _l4l_frame(), {"period1": PERIOD_2023})
+
+
+# --------------------------------------------------------------------------- #
+# Интент 7: отрицательная выручка (возвраты, сторно)
+# --------------------------------------------------------------------------- #
+def _negative_frame() -> pd.DataFrame:
+    """Витрина с положительными, отрицательными и нулевыми строками."""
+    return pd.DataFrame(
+        [
+            ("2024-01-10", "A", "G", "X", 2, 100.0),
+            ("2024-01-11", "A", "G", "X", -1, -50.0),
+            ("2024-01-12", "B", "G", "Y", -4, -200.0),
+            ("2024-01-13", "C", "G", "Z", 1, 0.0),
+        ],
+        columns=[DATE, PRODUCT, "product_group", COUNTERPARTY, QUANTITY, REVENUE],
+    ).assign(**{DATE: lambda frame: pd.to_datetime(frame[DATE])})
+
+
+def test_negative_revenue_keeps_only_negative_rows() -> None:
+    """В результат попадают только строки revenue < 0, агрегированные по товару."""
+    result = get_negative_revenue(
+        _negative_frame(), start_date="2024-01-01", end_date="2024-12-31"
+    )
+
+    assert list(result[PRODUCT]) == ["B", "A"]  # самый большой убыток сверху
+    assert list(result[REVENUE]) == [pytest.approx(-200.0), pytest.approx(-50.0)]
+    assert list(result[ROWS_COUNT]) == [1, 1]
+    assert list(result[QUANTITY]) == [pytest.approx(-4.0), pytest.approx(-1.0)]
+    assert (result[REVENUE] < 0).all()
+
+
+def test_negative_revenue_groups_by_counterparty() -> None:
+    """group_by='counterparty' группирует возвраты по контрагентам."""
+    result = get_negative_revenue(
+        _negative_frame(), start_date="2024-01-01", end_date="2024-12-31",
+        group_by=COUNTERPARTY,
+    )
+
+    assert list(result[COUNTERPARTY]) == ["Y", "X"]
+    assert result[REVENUE].sum() == pytest.approx(-250.0)
+
+
+def test_negative_revenue_empty_period_keeps_contract() -> None:
+    """Без отрицательных строк — пустая таблица с ожидаемыми колонками."""
+    result = get_negative_revenue(
+        _negative_frame(), start_date="2030-01-01", end_date="2030-12-31"
+    )
+
+    assert result.empty
+    assert list(result.columns) == [PRODUCT, REVENUE, ROWS_COUNT, QUANTITY]
+
+
+def test_negative_revenue_via_dispatch() -> None:
+    """Интент доступен через dispatch_intent."""
+    result = dispatch_intent(
+        "negative_revenue",
+        _negative_frame(),
+        {"start_date": "2024-01-01", "end_date": "2024-12-31"},
+    )
+
+    assert len(result) == 2
+    assert float(result[REVENUE].sum()) == pytest.approx(-250.0)
+
+
+# --------------------------------------------------------------------------- #
+# Фильтры: конкретный товар, товарная группа, минимальная база
+# --------------------------------------------------------------------------- #
+def test_top_products_product_filter(sales_frame: pd.DataFrame) -> None:
+    """product_filter оставляет только совпадающие товары."""
+    result = get_top_bottom_products(
+        sales_frame, limit=10, start_date="2024-01-01", end_date="2024-12-31",
+        product_filter="p1",
+    )
+
+    assert list(result[PRODUCT]) == ["P1"]
+    assert result.iloc[0][REVENUE] == pytest.approx(120.0)
+
+
+def test_top_products_group_filter(sales_frame: pd.DataFrame) -> None:
+    """group_filter оставляет только товары указанной группы."""
+    result = get_top_bottom_products(
+        sales_frame, limit=10, start_date="2024-01-01", end_date="2024-12-31",
+        group_filter="G2",
+    )
+
+    assert list(result[PRODUCT]) == ["P2"]
+    assert result.iloc[0][REVENUE] == pytest.approx(40.0)
+    # Оба фильтра вместе: товар не из G2 отсекается.
+    assert get_top_bottom_products(
+        sales_frame, limit=10, product_filter="P1", group_filter="G2"
+    ).empty
+
+
+def test_total_product_filter(sales_frame: pd.DataFrame) -> None:
+    """get_total с product_filter суммирует только выбранный товар."""
+    result = get_total(
+        sales_frame, start_date="2024-01-01", end_date="2024-12-31",
+        product_filter="P1",
+    )
+
+    assert result.iloc[0][REVENUE] == pytest.approx(120.0)
+    assert result.iloc[0][ROWS_COUNT] == 1
+
+
+def test_timeseries_product_filter(sales_frame: pd.DataFrame) -> None:
+    """get_timeseries с product_filter оставляет ряд только по этому товару."""
+    result = get_timeseries(
+        sales_frame,
+        freq="M",
+        start_date="2024-01-01",
+        end_date="2024-12-31",
+        fill_gaps=False,
+        product_filter="P2",
+    )
+
+    assert result[REVENUE].sum() == pytest.approx(40.0)
+    assert len(result) == 1
+
+
+def test_group_dynamics_group_filter(sales_frame: pd.DataFrame) -> None:
+    """group_filter в динамике групп оставляет одну группу."""
+    result = get_group_dynamics(
+        sales_frame, PERIOD_2023, PERIOD_2024, group_filter="G3"
+    )
+
+    assert list(result["product_group"]) == ["G3"]
+    assert result.iloc[0][DELTA] == pytest.approx(-10.0)
+
+
+def test_counterparty_min_base_revenue(sales_frame: pd.DataFrame) -> None:
+    """min_base_revenue оставляет контрагентов с базой period1 >= N."""
+    result = get_counterparty_dynamics(
+        sales_frame, PERIOD_2023, PERIOD_2024, min_base_revenue=100.0
+    )
+
+    assert set(result[COUNTERPARTY]) == {"A", "B"}  # C (30) отсечён
+    full = get_counterparty_dynamics(sales_frame, PERIOD_2023, PERIOD_2024)
+    assert "C" in set(full[COUNTERPARTY])
+
+
+def test_filters_available_in_dispatch(sales_frame: pd.DataFrame) -> None:
+    """Новые параметры проходят через dispatch_intent без ошибок."""
+    result = dispatch_intent(
+        "top_bottom_products",
+        sales_frame,
+        {"limit": 10, "product_filter": "P1", "start_date": "2024-01-01"},
+    )
+    assert list(result[PRODUCT]) == ["P1"]

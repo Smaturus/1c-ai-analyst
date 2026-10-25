@@ -40,7 +40,7 @@ flowchart TB
     end
 
     subgraph Serving["Аналитика"]
-        A["analytics.py<br/>6 интентов"]
+        A["analytics.py<br/>7 интентов"]
         CP["compare_periods<br/>(ядро сравнения)"]
         D["dispatch_intent<br/>JSON-DSL → функция"]
         REG["INTENT_REGISTRY /<br/>INTENT_PARAMETERS"]

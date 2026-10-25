@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -183,6 +184,43 @@ def test_clarification_rounds_increment_and_reset(offline: None) -> None:
 
     at.pills[0].select(TOTAL_SUGGESTION).run()
     assert at.session_state["clarification_rounds"] == 0
+
+
+def test_negative_revenue_question_is_not_antipot(offline: None) -> None:
+    """Вопрос про отрицательную выручку даёт возвраты, а не «худшие товары»."""
+    at = AppTest.from_file(APP_FILE, default_timeout=TIMEOUT).run()
+    _ask(at, "покажи товары с отрицательной выручкой за 2024")
+
+    assert len(at.exception) == 0
+    assert "Отрицательная выручка / возвраты" in [
+        subheader.value for subheader in at.subheader
+    ]
+    assert any(
+        "Общая сумма возвратов" in element.value for element in at.markdown
+    )
+    table = at.dataframe[0].value
+    assert (table["revenue"] < 0).all()
+    assert "rows_count" in table.columns
+
+
+def test_technical_details_json_is_copyable_code(offline: None) -> None:
+    """JSON-DSL выводится в st.code (встроенная кнопка копирования), а не st.json."""
+    at = AppTest.from_file(APP_FILE, default_timeout=TIMEOUT).run()
+    _ask(at, "Итог за 2024")
+
+    payloads: list[object] = []
+    for element in at.code:
+        try:
+            payloads.append(json.loads(element.value))
+        except (TypeError, ValueError):
+            continue
+    assert any(
+        isinstance(payload, dict) and payload.get("intent") == "total"
+        for payload in payloads
+    ), payloads
+    assert any(
+        "Кнопка копирования JSON" in caption.value for caption in at.caption
+    )
 
 
 def test_clarification_limit_stops_loop(offline: None) -> None:
