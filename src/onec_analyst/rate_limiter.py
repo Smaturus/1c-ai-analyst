@@ -28,7 +28,8 @@ MAX_PER_SESSION = 15
 #: Глобальный дневной лимит вызовов LLM на всё приложение.
 MAX_GLOBAL = 100
 #: Путь к базе по умолчанию; можно переопределить переменной окружения.
-DEFAULT_DB_PATH = Path(__file__).resolve().parent / "rate_limit.db"
+# Корень репозитория: src/onec_analyst/rate_limiter.py → parents[2]
+DEFAULT_DB_PATH = Path(__file__).resolve().parents[2] / "rate_limit.db"
 DB_ENV_VAR = "RATE_LIMIT_DB"
 
 _SCHEMA = """

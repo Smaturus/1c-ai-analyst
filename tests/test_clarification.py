@@ -11,7 +11,7 @@ from datetime import date
 
 import pytest
 
-from clarification import (
+from onec_analyst.clarification import (
     SOURCE_ANSWER,
     SOURCE_LLM,
     SOURCE_MERGED,
@@ -21,7 +21,7 @@ from clarification import (
     force_interpretation,
     merge_clarification,
 )
-from llm_agent import AgentDecision, LLMError
+from onec_analyst.llm_agent import AgentDecision, LLMError
 
 
 class FakeClient:

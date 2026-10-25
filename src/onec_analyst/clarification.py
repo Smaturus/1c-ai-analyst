@@ -25,7 +25,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from llm_agent import LLMClient, LLMError, LLMSettings, RuleBasedPlanner
+from onec_analyst.llm_agent import LLMClient, LLMError, LLMSettings, RuleBasedPlanner
 
 #: Вторая часть самодостаточна — в запрос уходит только она.
 SOURCE_ANSWER = "answer"

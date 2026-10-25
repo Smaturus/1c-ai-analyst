@@ -12,9 +12,11 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
-COPY requirements.txt ./
+COPY requirements.txt pyproject.toml README.md ./
+COPY src ./src
 RUN python -m pip install --upgrade pip \
-    && python -m pip install --prefix=/install --no-cache-dir -r requirements.txt
+    && python -m pip install --prefix=/install --no-cache-dir -r requirements.txt \
+    && python -m pip install --prefix=/install --no-cache-dir .
 
 # --- runtime: без build-essential ---
 FROM python:3.12-slim

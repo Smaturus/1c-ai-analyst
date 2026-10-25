@@ -14,7 +14,7 @@ from typing import Any
 import pandas as pd
 import pytest
 
-from analytics import (
+from onec_analyst.analytics import (
     COUNTERPARTY,
     DATE,
     PRODUCT,

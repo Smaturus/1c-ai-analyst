@@ -15,7 +15,7 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from llm_agent import (
+from onec_analyst.llm_agent import (
     INTENT_PARAMETER_NAMES,
     AgentDecision,
     LLMPlanner,

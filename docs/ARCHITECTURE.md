@@ -41,7 +41,7 @@ flowchart TB
     end
 
     subgraph Serving["Аналитика"]
-        A["analytics.py<br/>7 интентов"]
+        A["onec_analyst.analytics<br/>7 интентов"]
         D["dispatch_intent"]
         REG["INTENT_REGISTRY"]
     end
@@ -50,8 +50,8 @@ flowchart TB
         CLIENT["LLM: deepseek / openai / ollama"]
         RULES["RuleBasedPlanner"]
         PYD["Pydantic DSL"]
-        CLAR["clarification.py"]
-        RL["rate_limiter.py"]
+        CLAR["clarification"]
+        RL["rate_limiter"]
     end
 
     subgraph UI["app.py Streamlit"]
@@ -75,13 +75,13 @@ flowchart TB
 
 | Модуль | Ответственность | Точки входа |
 |---|---|---|
-| `data_loader.py` | ETL Excel «Универсального отчёта» | `load_and_clean_1c_report` |
-| `onec_source.py` | COM-выгрузка 1С → CSV; загрузка витрины | `export_from_1c`, `load_vitrina`, `load_sample_vitrina` |
-| `analytics.py` | 7 интентов, периоды, фильтры, DSL | `dispatch_intent`, `INTENT_REGISTRY` |
-| `llm_agent.py` | Pydantic-модели, промпт, LLM-клиент, офлайн-правила, `guard_decision` | `make_planner`, `parse_plan_json` |
-| `clarification.py` | Текст после уточнения; принудительная интерпретация | `choose_clarified_text`, `force_interpretation` |
-| `rate_limiter.py` | Лимиты вызовов LLM для демо (SQLite) | `check_limit`, `increment` |
-| `app.py` | Streamlit UI | `main` |
+| `onec_analyst.data_loader` | ETL Excel «Универсального отчёта» | `load_and_clean_1c_report` |
+| `onec_analyst.onec_source` | COM-выгрузка 1С → CSV; загрузка витрины | `export_from_1c`, `load_vitrina`, `load_sample_vitrina` |
+| `onec_analyst.analytics` | 7 интентов, периоды, фильтры, DSL | `dispatch_intent`, `INTENT_REGISTRY` |
+| `onec_analyst.llm_agent` | Pydantic-модели, промпт, LLM-клиент, офлайн-правила, `guard_decision` | `make_planner`, `parse_plan_json` |
+| `onec_analyst.clarification` | Текст после уточнения; принудительная интерпретация | `choose_clarified_text`, `force_interpretation` |
+| `onec_analyst.rate_limiter` | Лимиты вызовов LLM для демо (SQLite) | `check_limit`, `increment` |
+| `app.py` | Streamlit UI (корень репозитория) | `main` |
 | `smoke_test.py` / `smoke_llm.py` | Сквозные проверки данных и LLM-слоя | CLI |
 
 **Семь интентов:** `top_bottom_products`, `compare_top_products`, `negative_revenue`, `timeseries`, `counterparty_dynamics`, `group_dynamics`, `total`.
@@ -160,11 +160,10 @@ flowchart TB
 
 ## 7. Ограничения MVP и точки роста
 
-1. **Плоская раскладка модулей** в корне репозитория (`analytics.py`, `app.py`, … без пакета `src/onec_analyst/`) — осознанный MVP: простой запуск и импорты. Для упаковки как библиотеки возможен перенос в `src/` отдельным этапом (затронет Docker, CI и импорты тестов).
-2. **`RuleBasedPlanner`** разрастается вместе с формулировками пользователей; это допустимо только как offline safety net (§3.4), не как параллельная модель расчётов.
-3. **Rate limiting:** лимит на сессию завязан на `session_id` в `st.session_state` (новый браузер/вкладка = новая сессия). Жёсткий потолок — глобальный дневной лимит. Ручной сброс сессии по умолчанию выключен (`RATE_LIMIT_ALLOW_RESET`).
-4. Excel-выгрузка слабее снимка 1С по датам и группам.
-5. Составные запросы кроме L4L-топов не разбиваются на несколько интентов.
+1. **`RuleBasedPlanner`** разрастается вместе с формулировками пользователей; это допустимо только как offline safety net (§3.4), не как параллельная модель расчётов.
+2. **Rate limiting:** лимит на сессию завязан на `session_id` в `st.session_state` (новый браузер/вкладка = новая сессия). Жёсткий потолок — глобальный дневной лимит. Ручной сброс сессии по умолчанию выключен (`RATE_LIMIT_ALLOW_RESET`).
+3. Excel-выгрузка слабее снимка 1С по датам и группам.
+4. Составные запросы кроме L4L-топов не разбиваются на несколько интентов.
 
 **Расширение**
 
@@ -172,4 +171,3 @@ flowchart TB
 - Другой LLM → переменные окружения, без правки кода.
 - Новый источник → `load_*` с тем же контрактом витрины.
 - LangChain StructuredTool → тонкая обёртка над `parse_plan_json` / `dispatch_intent`.
-- Пакетная раскладка → `src/onec_analyst/` при необходимости reusable install.

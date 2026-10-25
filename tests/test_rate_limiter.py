@@ -14,7 +14,7 @@ import pytest
 from streamlit.testing.v1 import AppTest
 
 from app import format_usage_caption
-from rate_limiter import (
+from onec_analyst.rate_limiter import (
     MAX_GLOBAL,
     MAX_PER_SESSION,
     LimitStatus,
@@ -210,7 +210,7 @@ def test_clarification_classifier_disabled_when_limit_hit(
     monkeypatch: pytest.MonkeyPatch, rate_limit_db_path: Path
 ) -> None:
     """При исчерпанном лимите классификатор уточнений вызывается с use_llm=False."""
-    from clarification import SOURCE_MERGED, ClarifiedText
+    from onec_analyst.clarification import SOURCE_MERGED, ClarifiedText
 
     captured: dict[str, bool] = {}
 
@@ -219,7 +219,9 @@ def test_clarification_classifier_disabled_when_limit_hit(
         return ClarifiedText("фрагмент", SOURCE_MERGED, "test")
 
     # AppTest исполняет app.py заново: патч на модуль clarification подхватывается import'ом.
-    monkeypatch.setattr("clarification.choose_clarified_text", fake_choose)
+    monkeypatch.setattr(
+        "onec_analyst.clarification.choose_clarified_text", fake_choose
+    )
     monkeypatch.setenv("LLM_PROVIDER", "deepseek")
     monkeypatch.setenv("LLM_API_KEY", "test-key")
     monkeypatch.setenv("LLM_MODEL", "deepseek-chat")
@@ -239,10 +241,10 @@ def test_clarification_llm_source_increments_usage(
     monkeypatch: pytest.MonkeyPatch, rate_limit_db_path: Path
 ) -> None:
     """Если уточнение решил LLM-классификатор — вызов учитывается в лимите."""
-    from clarification import SOURCE_LLM, ClarifiedText
+    from onec_analyst.clarification import SOURCE_LLM, ClarifiedText
 
     monkeypatch.setattr(
-        "clarification.choose_clarified_text",
+        "onec_analyst.clarification.choose_clarified_text",
         lambda *_a, **_k: ClarifiedText(
             "Сколько мы продали за 2024 год?", SOURCE_LLM, "fake-llm"
         ),

@@ -25,7 +25,7 @@ from app import (
     format_quantity,
     _period_column_format,
 )
-from llm_agent import AgentDecision
+from onec_analyst.llm_agent import AgentDecision
 
 
 def _decision(intent: str, **params: object) -> AgentDecision:

@@ -28,6 +28,10 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+_SRC = Path(__file__).resolve().parent / "src"
+if _SRC.is_dir() and str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
+
 try:
     from pydantic import ValidationError
 except ImportError:  # pragma: no cover - зависит от окружения
@@ -37,7 +41,7 @@ except ImportError:  # pragma: no cover - зависит от окружения
     )
     raise SystemExit(2) from None
 
-import llm_agent as la
+import onec_analyst.llm_agent as la
 
 ROOT = Path(__file__).resolve().parent
 SCHEMA_PATH = ROOT / "docs" / "intent_schema.json"

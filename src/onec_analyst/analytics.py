@@ -55,7 +55,7 @@ from typing import Any, Final, Literal, TypeAlias
 import numpy as np
 import pandas as pd
 
-from data_loader import COUNTERPARTY, DATE, PRODUCT, QUANTITY, REVENUE
+from onec_analyst.data_loader import COUNTERPARTY, DATE, PRODUCT, QUANTITY, REVENUE
 
 __all__ = [
     "PERIOD",

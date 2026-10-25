@@ -29,7 +29,7 @@ cd 1c-ai-analyst
 
 ### 3.1. Требования к лицензии 1С
 
-Для выгрузки данных через `V83.COMConnector` (скрипт `onec_source.py`)
+Для выгрузки данных через `V83.COMConnector` (модуль `onec_analyst.onec_source`)
 необходима платформа «1С:Предприятие 8.3» версии **8.3.23 и выше**.
 
 **Не используйте Учебную версию (Learning Version):** в ней отключена поддержка
@@ -58,7 +58,7 @@ COM-соединений, поэтому скрипт не сможет подк
 ### 3.3. Команда
 
 ```powershell
-python onec_source.py --base "<путь к базе 1С>" --out-dir .\1c_export `
+python -m onec_analyst.onec_source --base "<путь к базе 1С>" --out-dir .\1c_export `
   --start 2022-01-01 --end 2024-12-31
 ```
 
@@ -92,9 +92,9 @@ robocopy "<путь к базе 1С>" ".\1c_base\utdemo" /E /COPY:DAT /R:1 /W:1 
 
 ```powershell
 cd 1c-ai-analyst
-$env:PYTHONPATH = (Get-Location)
+$env:PYTHONPATH = Join-Path (Get-Location) "src"
 .venv\Scripts\python.exe -X utf8 -c @"
-from onec_source import load_sample_vitrina
+from onec_analyst.onec_source import load_sample_vitrina
 v = load_sample_vitrina('sample_data.csv')
 print(v.shape, v['date'].isna().sum(), round(v['revenue'].sum(), 2))
 "@

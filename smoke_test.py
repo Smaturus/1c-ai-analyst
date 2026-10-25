@@ -16,9 +16,13 @@ import json
 import sys
 from pathlib import Path
 
+_SRC = Path(__file__).resolve().parent / "src"
+if _SRC.is_dir() and str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
+
 import pandas as pd
 
-from analytics import (
+from onec_analyst.analytics import (
     INTENT_REGISTRY,
     dispatch_intent,
     get_counterparty_dynamics,
@@ -34,7 +38,7 @@ from generate_synthetic_data import (
     SAMPLE_CSV,
     generate_sample_data,
 )
-from onec_source import SAMPLE_COLUMNS, load_sample_vitrina
+from onec_analyst.onec_source import SAMPLE_COLUMNS, load_sample_vitrina
 
 EXPECTED = generate_sample_data()
 """Эталон, сгенерированный в памяти с тем же семенем (600 строк)."""
@@ -388,7 +392,7 @@ def main() -> int:
     if not schema_path.is_file():
         print(f"  SKIP  нет {schema_path}")
     else:
-        from analytics import INTENT_PARAMETERS
+        from onec_analyst.analytics import INTENT_PARAMETERS
 
         schema = json.loads(schema_path.read_text(encoding="utf-8"))
         _check(

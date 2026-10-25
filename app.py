@@ -24,16 +24,22 @@ from __future__ import annotations
 import json
 import math
 import os
+import sys
 import tempfile
 import uuid
 from pathlib import Path
 from typing import Any
 
+# Локальный запуск без ``pip install -e .``: пакет лежит в src/.
+_SRC = Path(__file__).resolve().parent / "src"
+if _SRC.is_dir() and str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
+
 import altair as alt
 import pandas as pd
 import streamlit as st
 
-from analytics import (
+from onec_analyst.analytics import (
     CHECK,
     COUNTERPARTY,
     DATE,
@@ -52,13 +58,13 @@ from analytics import (
     dispatch_intent,
     get_data_quality,
 )
-from clarification import (
+from onec_analyst.clarification import (
     SOURCE_LLM,
     choose_clarified_text,
     force_interpretation,
 )
-from data_loader import load_and_clean_1c_report
-from llm_agent import (
+from onec_analyst.data_loader import load_and_clean_1c_report
+from onec_analyst.llm_agent import (
     INTENT_EXAMPLES,
     INTENT_NAMES,
     AgentDecision,
@@ -70,8 +76,8 @@ from llm_agent import (
     guard_decision,
     settings_from_env,
 )
-from onec_source import load_sample_vitrina, load_vitrina
-from rate_limiter import (
+from onec_analyst.onec_source import load_sample_vitrina, load_vitrina
+from onec_analyst.rate_limiter import (
     MAX_GLOBAL,
     MAX_PER_SESSION,
     LimitStatus,

@@ -1581,7 +1581,7 @@ def check_schema_sync() -> None:
     RuntimeError
         Если наборы интентов или параметров разошлись.
     """
-    from analytics import INTENT_PARAMETERS  # локальный импорт: нужен pandas
+    from onec_analyst.analytics import INTENT_PARAMETERS  # локальный импорт: нужен pandas
 
     if set(INTENT_PARAMETER_NAMES) != set(INTENT_PARAMETERS):
         raise RuntimeError(

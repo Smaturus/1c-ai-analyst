@@ -11,7 +11,7 @@ from datetime import date
 import pandas as pd
 import pytest
 
-from analytics import (
+from onec_analyst.analytics import (
     CHECK,
     COUNTERPARTY,
     DATE,

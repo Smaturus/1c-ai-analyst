@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 from streamlit.testing.v1 import AppTest
 
-from llm_agent import INTENT_EXAMPLES, INTENT_NAMES
+from onec_analyst.llm_agent import INTENT_EXAMPLES, INTENT_NAMES
 
 APP_FILE = Path(__file__).resolve().parents[1] / "app.py"
 TIMEOUT = 120

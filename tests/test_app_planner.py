@@ -15,7 +15,7 @@ import pytest
 from streamlit.testing.v1 import AppTest
 
 from app import select_planner
-from llm_agent import LLMPlanner, LLMSettings, RuleBasedPlanner
+from onec_analyst.llm_agent import LLMPlanner, LLMSettings, RuleBasedPlanner
 
 APP_FILE = Path(__file__).resolve().parents[1] / "app.py"
 TIMEOUT = 120
