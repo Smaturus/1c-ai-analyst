@@ -8,8 +8,10 @@ services:
     ports:
       - "8501:8501"
     volumes:
-      # Папка проекта доступна в контейнере: можно положить свой CSV/Excel
-      # и загрузить его в UI, либо заменить sample_data.csv в образе.
+      # Хост → /app/data (НЕ перекрывает /app): демо-витрина остаётся
+      # /app/sample_data.csv из образа. Свой файл — через «Загрузить» в UI.
+      # Снимок 1С (раскомментировать при наличии ./1c_export):
+      # - ./1c_export:/app/1c_export:ro
       - ./:/app/data
     environment:
       # values are taken from the shell or from .env (docker compose reads it
@@ -18,6 +20,8 @@ services:
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_MODEL: ${LLM_MODEL:-}
       LLM_BASE_URL: ${LLM_BASE_URL:-}
+      # RATE_LIMIT_ALLOW_RESET: "1"   # опционально: кнопка сброса лимита сессии
+      RATE_LIMIT_ALLOW_RESET: ${RATE_LIMIT_ALLOW_RESET:-}
     restart: unless-stopped
     healthcheck:
       test:

@@ -188,7 +188,10 @@ class RateLimiter:
         return int(row[0]) if row else 0
 
     def reset_session(self, session_id: str) -> None:
-        """Сбросить сегодняшний счётчик сессии (демо-сброс лимита).
+        """Сбросить сегодняшний счётчик сессии.
+
+        В UI вызывается только при ``RATE_LIMIT_ALLOW_RESET``; иначе сброс —
+        только сменой даты или прямой вызов API модуля.
 
         Raises
         ------

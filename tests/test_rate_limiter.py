@@ -166,13 +166,14 @@ def test_sidebar_shows_usage_counter(
     assert at.session_state["llm_session_id"]
 
 
-def test_session_limit_shows_warning_and_reset_button(
+def test_session_limit_shows_warning_without_reset_by_default(
     monkeypatch: pytest.MonkeyPatch, rate_limit_db_path: Path
 ) -> None:
-    """Исчерпанный лимит сессии: предупреждение, офлайн-режим и кнопка сброса."""
+    """Исчерпанный лимит: предупреждение есть, кнопки сброса без env нет."""
     monkeypatch.setenv("LLM_PROVIDER", "deepseek")
     monkeypatch.setenv("LLM_API_KEY", "test-key")
     monkeypatch.setenv("LLM_MODEL", "deepseek-chat")
+    monkeypatch.delenv("RATE_LIMIT_ALLOW_RESET", raising=False)
     at = AppTest.from_file(APP_FILE, default_timeout=TIMEOUT).run()
     session_id = str(at.session_state["llm_session_id"])
 
@@ -182,8 +183,29 @@ def test_session_limit_shows_warning_and_reset_button(
     at.run()
 
     assert any("Вы достигли лимита запросов к ИИ" in warning.value for warning in at.warning)
-    reset = [button for button in at.button if button.label == "Сбросить лимит (Демо-режим)"]
-    assert reset, "кнопка демо-сброса лимита должна быть видна"
+    reset = [button for button in at.button if "Сбросить лимит" in button.label]
+    assert not reset, "без RATE_LIMIT_ALLOW_RESET кнопка сброса не должна быть видна"
+
+
+def test_session_limit_reset_button_when_allowed(
+    monkeypatch: pytest.MonkeyPatch, rate_limit_db_path: Path
+) -> None:
+    """При RATE_LIMIT_ALLOW_RESET=1 кнопка сброса очищает счётчик сессии."""
+    monkeypatch.setenv("LLM_PROVIDER", "deepseek")
+    monkeypatch.setenv("LLM_API_KEY", "test-key")
+    monkeypatch.setenv("LLM_MODEL", "deepseek-chat")
+    monkeypatch.setenv("RATE_LIMIT_ALLOW_RESET", "1")
+    at = AppTest.from_file(APP_FILE, default_timeout=TIMEOUT).run()
+    session_id = str(at.session_state["llm_session_id"])
+
+    limiter = RateLimiter(rate_limit_db_path)
+    for _ in range(MAX_PER_SESSION):
+        limiter.increment(session_id)
+    at.run()
+
+    assert any("Вы достигли лимита запросов к ИИ" in warning.value for warning in at.warning)
+    reset = [button for button in at.button if button.label == "Сбросить лимит сессии"]
+    assert reset, "кнопка сброса лимита должна быть видна при RATE_LIMIT_ALLOW_RESET=1"
 
     reset[0].click()
     at.run()

@@ -1,5 +1,22 @@
 # syntax=docker/dockerfile:1
 
+# --- builder: компиляторы только здесь (pandas/streamlit wheels при необходимости) ---
+FROM python:3.12-slim AS builder
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+COPY requirements.txt ./
+RUN python -m pip install --upgrade pip \
+    && python -m pip install --prefix=/install --no-cache-dir -r requirements.txt
+
+# --- runtime: без build-essential ---
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -10,15 +27,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Системные зависимости для сборки pandas/streamlit (если нет готового wheel).
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential \
-    && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /install /usr/local
 
-COPY requirements.txt ./
-RUN python -m pip install --no-cache-dir -r requirements.txt
-
-# Приложение запускается не от root.
 RUN useradd --create-home --uid 1000 appuser
 COPY --chown=appuser:appuser . .
 

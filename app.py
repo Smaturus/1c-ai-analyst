@@ -77,6 +77,19 @@ from rate_limiter import (
 
 APP_TITLE = "ИИ-ассистент анализа данных 1С"
 
+#: Env-флаг: показать кнопку ручного сброса лимита сессии (по умолчанию выкл.).
+_RATE_LIMIT_RESET_ENV = "RATE_LIMIT_ALLOW_RESET"
+
+
+def _rate_limit_reset_allowed() -> bool:
+    """Разрешён ли ручной сброс лимита LLM (только при явном env)."""
+    return os.environ.get(_RATE_LIMIT_RESET_ENV, "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
 #: Сколько уточнений подряд показываем, прежде чем выполнить ближайшую
 #: детерминированную интерпретацию (защита от цикла уточнений).
 MAX_CLARIFICATIONS = 2
@@ -1060,7 +1073,7 @@ def render_sidebar(
     Parameters
     ----------
     limiter:
-        Учёт вызовов LLM (SQLite); нужен для кнопки демо-сброса лимита.
+        Учёт вызовов LLM (SQLite); нужен для опционального сброса лимита.
     session_id:
         Идентификатор текущей сессии (``uuid4``), ключ учёта лимитов.
     limit_status:
@@ -1127,7 +1140,9 @@ def render_sidebar(
         )
         if limit_status.used_session >= limit_status.limit_session:
             st.sidebar.warning("Лимит ИИ в этой сессии исчерпан — включён офлайн-режим.")
-            if st.sidebar.button("Сбросить лимит (Демо-режим)"):
+            if _rate_limit_reset_allowed() and st.sidebar.button(
+                "Сбросить лимит сессии"
+            ):
                 try:
                     limiter.reset_session(session_id)
                 except RateLimiterError as exc:

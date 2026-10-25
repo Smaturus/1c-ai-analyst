@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   tests:
-    name: pytest (Python 3.12)
+    name: pytest + smoke (Python 3.12)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -36,5 +36,11 @@ jobs:
           pip install -r requirements.txt
           pip install pytest
 
-      - name: Run tests
+      - name: Run pytest
         run: python -m pytest -q
+
+      - name: Run smoke_test
+        run: python -X utf8 smoke_test.py
+
+      - name: Run smoke_llm
+        run: python -X utf8 smoke_llm.py
