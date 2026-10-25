@@ -193,7 +193,9 @@ def test_clarification_limit_stops_loop(offline: None) -> None:
     _ask(at, CLARIFICATION_QUESTION)
 
     assert len(at.exception) == 0
-    assert any("Уточнения исчерпаны" in warning.value for warning in at.warning)
+    assert any(
+        "однозначно разобрать вопрос" in warning.value for warning in at.warning
+    )
     assert len(at.pills) == 0  # нового круга уточнений нет
     assert at.session_state["clarification_rounds"] == 0
     # Правила тоже не смогли выбрать интент — показываем понятную ошибку и примеры.
