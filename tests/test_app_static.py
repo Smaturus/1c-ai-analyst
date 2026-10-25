@@ -12,9 +12,8 @@ Docstring самого модуля (первое выражение в файл
 from __future__ import annotations
 
 import ast
-from pathlib import Path
 
-APP_PATH = Path(__file__).resolve().parents[1] / "app.py"
+from tests.paths import APP_FILE as APP_PATH
 
 
 def test_app_has_no_bare_module_level_strings() -> None:

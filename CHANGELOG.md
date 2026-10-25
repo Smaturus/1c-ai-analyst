@@ -4,6 +4,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- **Корень репо для `rate_limit.db`:** вместо хрупкого `parents[2]` — `find_repo_root()` по `pyproject.toml` / `.git`. В тестах единая цель monkeypatch `PATCH_CHOOSE_CLARIFIED_TEXT` и `APP_FILE` через `tests/paths.py`.
+
 ### Changed
 - **Дневник `docs/history/`** исключён из репозитория (`.gitignore`); ссылки на него убраны из README / INDEX / ARCHITECTURE / ADR 0001. Локальные файлы у разработчика сохраняются.
 - **Пакет `src/onec_analyst/`:** доменные модули (`analytics`, `llm_agent`, `clarification`, `data_loader`, `onec_source`, `rate_limiter`) перенесены из корня; `app.py` остаётся тонким UI-входом. `pip install -e .`, pytest `pythonpath=src`, CI/Docker ставят пакет; `rate_limit.db` по-прежнему в корне репозитория.

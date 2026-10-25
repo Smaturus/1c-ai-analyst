@@ -27,10 +27,28 @@ from pathlib import Path
 MAX_PER_SESSION = 15
 #: Глобальный дневной лимит вызовов LLM на всё приложение.
 MAX_GLOBAL = 100
-#: Путь к базе по умолчанию; можно переопределить переменной окружения.
-# Корень репозитория: src/onec_analyst/rate_limiter.py → parents[2]
-DEFAULT_DB_PATH = Path(__file__).resolve().parents[2] / "rate_limit.db"
 DB_ENV_VAR = "RATE_LIMIT_DB"
+
+
+def find_repo_root(start: Path | None = None) -> Path:
+    """Найти корень репозитория по маркерам ``pyproject.toml`` или ``.git``.
+
+    Обходит каталоги вверх от ``start`` (по умолчанию — файл этого модуля).
+    Не зависит от фиксированной глубины ``parents[N]``. Если маркер не найден —
+    возвращает ближайший разумный fallback (родитель ``src/`` или cwd).
+    """
+    current = (start or Path(__file__).resolve()).parent
+    for candidate in (current, *current.parents):
+        if (candidate / "pyproject.toml").is_file() or (candidate / ".git").exists():
+            return candidate
+    # Установленный wheel без pyproject рядом: src/onec_analyst → … или cwd
+    if current.name == "onec_analyst" and current.parent.name == "src":
+        return current.parent.parent
+    return Path.cwd()
+
+
+#: Путь к базе по умолчанию; можно переопределить переменной окружения.
+DEFAULT_DB_PATH = find_repo_root() / "rate_limit.db"
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS llm_calls (
@@ -218,6 +236,7 @@ __all__ = [
     "MAX_PER_SESSION",
     "DEFAULT_DB_PATH",
     "DB_ENV_VAR",
+    "find_repo_root",
     "LimitStatus",
     "RateLimiter",
     "RateLimiterError",

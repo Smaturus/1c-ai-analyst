@@ -12,14 +12,13 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
 from streamlit.testing.v1 import AppTest
 
 from onec_analyst.llm_agent import INTENT_EXAMPLES, INTENT_NAMES
+from tests.paths import APP_FILE
 
-APP_FILE = Path(__file__).resolve().parents[1] / "app.py"
 TIMEOUT = 120
 
 # Вопрос, который офлайн-правила честно распознают как неоднозначный.

@@ -15,15 +15,26 @@ from streamlit.testing.v1 import AppTest
 
 from app import format_usage_caption
 from onec_analyst.rate_limiter import (
+    DEFAULT_DB_PATH,
     MAX_GLOBAL,
     MAX_PER_SESSION,
     LimitStatus,
     RateLimiter,
     RateLimiterError,
+    find_repo_root,
 )
 
-APP_FILE = Path(__file__).resolve().parents[1] / "app.py"
+from tests.paths import APP_FILE, PATCH_CHOOSE_CLARIFIED_TEXT, REPO_ROOT
+
 TIMEOUT = 120
+
+
+def test_default_db_path_anchors_to_repo_root() -> None:
+    """DEFAULT_DB_PATH — в корне репо, найденном по маркерам, не по parents[N]."""
+    root = find_repo_root()
+    assert (root / "pyproject.toml").is_file()
+    assert root == REPO_ROOT
+    assert DEFAULT_DB_PATH == root / "rate_limit.db"
 
 
 # --------------------------------------------------------------------------- #
@@ -218,10 +229,8 @@ def test_clarification_classifier_disabled_when_limit_hit(
         captured["use_llm"] = bool(kwargs.get("use_llm"))
         return ClarifiedText("фрагмент", SOURCE_MERGED, "test")
 
-    # AppTest исполняет app.py заново: патч на модуль clarification подхватывается import'ом.
-    monkeypatch.setattr(
-        "onec_analyst.clarification.choose_clarified_text", fake_choose
-    )
+    # AppTest исполняет app.py заново: патч на пакет подхватывается import'ом.
+    monkeypatch.setattr(PATCH_CHOOSE_CLARIFIED_TEXT, fake_choose)
     monkeypatch.setenv("LLM_PROVIDER", "deepseek")
     monkeypatch.setenv("LLM_API_KEY", "test-key")
     monkeypatch.setenv("LLM_MODEL", "deepseek-chat")
@@ -244,7 +253,7 @@ def test_clarification_llm_source_increments_usage(
     from onec_analyst.clarification import SOURCE_LLM, ClarifiedText
 
     monkeypatch.setattr(
-        "onec_analyst.clarification.choose_clarified_text",
+        PATCH_CHOOSE_CLARIFIED_TEXT,
         lambda *_a, **_k: ClarifiedText(
             "Сколько мы продали за 2024 год?", SOURCE_LLM, "fake-llm"
         ),

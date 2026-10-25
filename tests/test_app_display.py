@@ -9,7 +9,6 @@
 from __future__ import annotations
 
 import math
-from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -26,6 +25,7 @@ from app import (
     _period_column_format,
 )
 from onec_analyst.llm_agent import AgentDecision
+from tests.paths import APP_FILE
 
 
 def _decision(intent: str, **params: object) -> AgentDecision:
@@ -465,9 +465,6 @@ def test_chart_returns_none_for_missing_columns_or_unknown_intent() -> None:
 # --------------------------------------------------------------------------- #
 # Бизнес-подсказка в сайдбаре: возвраты уменьшают выручку, нули не влияют
 # --------------------------------------------------------------------------- #
-APP_FILE = Path(__file__).resolve().parents[1] / "app.py"
-
-
 @pytest.fixture()
 def offline(monkeypatch: pytest.MonkeyPatch) -> None:
     """Офлайн-режим: тест не ходит в API и не зависит от .env."""

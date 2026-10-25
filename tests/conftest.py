@@ -23,6 +23,8 @@ from onec_analyst.analytics import (
     REVENUE,
 )
 
+from tests.paths import REPO_ROOT
+
 
 def make_frame(rows: list[tuple[Any, ...]]) -> pd.DataFrame:
     """Собрать DataFrame витрины из строк ``(date, product, group, counterparty, qty, revenue)``."""
@@ -75,7 +77,7 @@ def rate_limit_db_path() -> Iterator[Path]:
     Системный ``%TEMP%`` в песочнице недоступен для SQLite (файл не создаётся),
     поэтому база кладётся в ``.pytest_tmp/`` проекта и удаляется после теста.
     """
-    directory = Path(__file__).resolve().parents[1] / ".pytest_tmp"
+    directory = REPO_ROOT / ".pytest_tmp"
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"rate_limit_{uuid.uuid4().hex}.db"
     yield path

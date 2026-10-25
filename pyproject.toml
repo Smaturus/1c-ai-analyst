@@ -42,5 +42,5 @@ where = ["src"]
 # Основная конфигурация — в pytest.ini (он имеет приоритет); секция продублирована
 # для инструментов, которые читают настройки только из pyproject.toml.
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = [".", "src"]
 addopts = "-ra"
