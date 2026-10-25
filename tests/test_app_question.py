@@ -1,10 +1,12 @@
-"""Тесты блока вопроса: поле ввода, кнопка очистки и кнопка «Спросить».
+"""Тесты блока вопроса: поле ввода, кнопка очистки, кнопка «Спросить» и Quick Replies.
 
 Форма ``st.form`` заменена обычными виджетами, поэтому поле можно очистить
 одной кнопкой без отправки. Тесты проверяют:
 * кнопка «✖️» очищает ``st.session_state["question_input"]``;
 * «Спросить» отправляет вопрос и строит результат (в офлайн-режиме, без API);
-* пустой вопрос даёт предупреждение, а не исключение.
+* пустой вопрос даёт предупреждение, а не исключение;
+* уточняющий вопрос показывает варианты ответа «таблетками» (``st.pills``) и
+  выбор варианта подставляет текст в поле и отправляет вопрос автоматически.
 """
 
 from __future__ import annotations
@@ -14,8 +16,15 @@ from pathlib import Path
 import pytest
 from streamlit.testing.v1 import AppTest
 
+from llm_agent import INTENT_EXAMPLES, INTENT_NAMES
+
 APP_FILE = Path(__file__).resolve().parents[1] / "app.py"
 TIMEOUT = 120
+
+# Вопрос, который офлайн-правила честно распознают как неоднозначный.
+CLARIFICATION_QUESTION = "Покажи что-нибудь интересное"
+SUGGESTIONS = [INTENT_EXAMPLES[name] for name in INTENT_NAMES]
+TOTAL_SUGGESTION = INTENT_EXAMPLES["total"]
 
 
 @pytest.fixture()
@@ -33,6 +42,17 @@ def _button_with_label(at: AppTest, label: str):
     raise AssertionError(f"кнопка {label!r} не найдена: {[b.label for b in at.button]}")
 
 
+def _set_question(at: AppTest, question: str) -> None:
+    """Записать вопрос в поле ввода.
+
+    Поле живёт внутри ``st.form`` (чтобы Enter отправлял вопрос), а AppTest не
+    применяет ``set_value`` к виджетам формы до её отправки — поэтому состояние
+    задаётся напрямую. В браузере текст, разумеется, вводится в поле.
+    """
+    at.session_state["question_input"] = question
+    at.run()
+
+
 def test_question_input_has_clear_button(offline: None) -> None:
     """Рядом с полем вопроса есть кнопка очистки с подсказкой."""
     at = AppTest.from_file(APP_FILE, default_timeout=TIMEOUT).run()
@@ -42,10 +62,20 @@ def test_question_input_has_clear_button(offline: None) -> None:
     assert clear.help == "Очистить поле"
 
 
-def test_clear_button_empties_question(offline: None) -> None:
-    """Нажатие «✖️» очищает поле ввода без перезагрузки формы."""
+def test_question_form_enables_enter(offline: None) -> None:
+    """Поле вопроса и кнопка «Спросить» — внутри формы: Enter отправляет вопрос."""
     at = AppTest.from_file(APP_FILE, default_timeout=TIMEOUT).run()
-    at.text_input[0].set_value("Динамика по месяцам за 2023").run()
+
+    assert len(at.exception) == 0
+    assert len(at.get("form")) == 1
+    assert len(at.text_input) == 1
+    assert "Спросить" in [button.label for button in at.button]
+
+
+def test_clear_button_empties_question(offline: None) -> None:
+    """Нажатие «✖️» очищает поле ввода и не отправляет вопрос."""
+    at = AppTest.from_file(APP_FILE, default_timeout=TIMEOUT).run()
+    _set_question(at, "Динамика по месяцам за 2023")
 
     _button_with_label(at, "✖️").click()
     at.run()
@@ -58,7 +88,7 @@ def test_clear_button_empties_question(offline: None) -> None:
 def test_question_survives_without_clear_button(offline: None) -> None:
     """Без нажатия «✖️» введённый текст остаётся в поле до отправки."""
     at = AppTest.from_file(APP_FILE, default_timeout=TIMEOUT).run()
-    at.text_input[0].set_value("Итог за 2024").run()
+    _set_question(at, "Итог за 2024")
 
     assert at.text_input[0].value == "Итог за 2024"
 
@@ -66,7 +96,7 @@ def test_question_survives_without_clear_button(offline: None) -> None:
 def test_submit_button_builds_result(offline: None) -> None:
     """«Спросить» отправляет вопрос и показывает результат в офлайн-режиме."""
     at = AppTest.from_file(APP_FILE, default_timeout=TIMEOUT).run()
-    at.text_input[0].set_value("Итог за 2024").run()
+    _set_question(at, "Итог за 2024")
 
     _button_with_label(at, "Спросить").click()
     at.run()
@@ -84,3 +114,87 @@ def test_empty_question_shows_warning(offline: None) -> None:
 
     assert len(at.exception) == 0
     assert any("Введите вопрос" in warning.value for warning in at.warning)
+
+
+def _ask(at: AppTest, question: str) -> None:
+    """Задать вопрос через поле ввода и кнопку «Спросить»."""
+    _set_question(at, question)
+    _button_with_label(at, "Спросить").click()
+    at.run()
+
+
+def test_clarification_renders_pill_suggestions(offline: None) -> None:
+    """Неоднозначный вопрос: варианты ответа — кликабельные pills, а не список."""
+    at = AppTest.from_file(APP_FILE, default_timeout=TIMEOUT).run()
+    _ask(at, CLARIFICATION_QUESTION)
+
+    assert len(at.exception) == 0
+    assert any("Нужно уточнение" in info.value for info in at.info)
+    assert len(at.pills) == 1
+    assert list(at.pills[0].options) == SUGGESTIONS
+    # Старый маркированный список «Варианты:» заменён таблетками.
+    assert not any("**Варианты:**" in element.value for element in at.markdown)
+    assert not any(suggestion in element.value for element in at.markdown for suggestion in SUGGESTIONS)
+
+
+def test_pill_choice_uses_self_sufficient_answer(offline: None) -> None:
+    """Полный вопрос из pills не склеивается с исходным: поле, запрос и история совпадают."""
+    at = AppTest.from_file(APP_FILE, default_timeout=TIMEOUT).run()
+    _ask(at, CLARIFICATION_QUESTION)
+
+    at.pills[0].select(TOTAL_SUGGESTION).run()
+
+    assert len(at.exception) == 0
+    # «Покажи что-нибудь интересное» + полный вопрос → показываем только вторую часть.
+    assert at.session_state["question_input"] == TOTAL_SUGGESTION
+    assert at.text_input[0].value == TOTAL_SUGGESTION
+    assert at.session_state["auto_submit"] is False
+    assert at.session_state["clarification_source"] == "answer"
+    assert at.session_state["history"][-2]["content"] == TOTAL_SUGGESTION
+    assert "Итог за период" in [subheader.value for subheader in at.subheader]
+
+
+def test_pill_choice_merges_fragment_answer(offline: None) -> None:
+    """Фрагмент периода из pills склеивается с исходным вопросом."""
+    at = AppTest.from_file(APP_FILE, default_timeout=TIMEOUT).run()
+    base = "У каких контрагентов выросли продажи?"
+    _ask(at, base)
+
+    assert len(at.pills) == 1
+    fragment = at.pills[0].options[0]  # «2023 и 2024»
+    at.pills[0].select(fragment).run()
+
+    merged = f"{base} {fragment}"
+    assert len(at.exception) == 0
+    assert at.session_state["question_input"] == merged
+    assert at.text_input[0].value == merged
+    assert at.session_state["auto_submit"] is False
+    assert at.session_state["clarification_source"] == "merged"
+    assert at.session_state["history"][-2]["content"] == merged
+    assert "Динамика контрагентов" in [subheader.value for subheader in at.subheader]
+
+
+def test_clarification_rounds_increment_and_reset(offline: None) -> None:
+    """Счётчик уточнений растёт при уточнении и сбрасывается после ответа."""
+    at = AppTest.from_file(APP_FILE, default_timeout=TIMEOUT).run()
+    _ask(at, CLARIFICATION_QUESTION)
+
+    assert at.session_state["clarification_rounds"] == 1
+
+    at.pills[0].select(TOTAL_SUGGESTION).run()
+    assert at.session_state["clarification_rounds"] == 0
+
+
+def test_clarification_limit_stops_loop(offline: None) -> None:
+    """После лимита уточнений новый круг не показывается: цикл гарантированно прерван."""
+    at = AppTest.from_file(APP_FILE, default_timeout=TIMEOUT).run()
+    at.session_state["clarification_rounds"] = 2  # лимит уже исчерпан
+
+    _ask(at, CLARIFICATION_QUESTION)
+
+    assert len(at.exception) == 0
+    assert any("Уточнения исчерпаны" in warning.value for warning in at.warning)
+    assert len(at.pills) == 0  # нового круга уточнений нет
+    assert at.session_state["clarification_rounds"] == 0
+    # Правила тоже не смогли выбрать интент — показываем понятную ошибку и примеры.
+    assert any("Не удалось разобрать вопрос" in error.value for error in at.error)

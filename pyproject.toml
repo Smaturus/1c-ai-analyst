@@ -37,7 +37,7 @@ Homepage = "https://github.com/Smaturus/1c-ai-analyst"
 
 [tool.setuptools]
 # Проект — плоский набор модулей в корне репозитория (без src/).
-py-modules = ["analytics", "app", "data_loader", "llm_agent", "onec_source"]
+py-modules = ["analytics", "app", "clarification", "data_loader", "llm_agent", "onec_source"]
 
 [tool.pytest.ini_options]
 # Основная конфигурация — в pytest.ini (он имеет приоритет); секция продублирована

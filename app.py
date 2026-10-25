@@ -46,6 +46,7 @@ from analytics import (
     dispatch_intent,
     get_data_quality,
 )
+from clarification import choose_clarified_text, force_interpretation
 from data_loader import load_and_clean_1c_report
 from llm_agent import (
     INTENT_EXAMPLES,
@@ -61,6 +62,10 @@ from llm_agent import (
 from onec_source import load_sample_vitrina, load_vitrina
 
 APP_TITLE = "ИИ-ассистент анализа данных 1С"
+
+#: Сколько уточнений подряд показываем, прежде чем выполнить ближайшую
+#: детерминированную интерпретацию (защита от цикла уточнений).
+MAX_CLARIFICATIONS = 2
 
 REVENUE_UNIT = "₽"
 QUANTITY_UNIT = "шт."
@@ -613,8 +618,56 @@ def render_chart(decision: AgentDecision, result: pd.DataFrame) -> None:
     st.altair_chart(chart, use_container_width=True)
 
 
+def apply_suggestion(text: str | None = None) -> None:
+    """Callback выбора варианта уточнения: запомнить ответ и запустить перерисовку.
+
+    Текст в поле подставляет :func:`main` до создания виджета: он вызывает
+    :func:`clarification.choose_clarified_text` — правила решают, оставить только
+    вторую часть (полный вопрос) или склеить её с исходной (фрагмент), а спорный
+    случай уходит в LLM-классификатор. Поэтому сетевой вызов не делается внутри
+    callback и поле не конфликтует с уже созданным виджетом.
+    """
+    choice = text if text is not None else st.session_state.get("clarification_choice")
+    if not choice:
+        return
+    st.session_state["clarification_answer"] = str(choice)
+
+
+def render_suggestion_pills(suggestions: list[str]) -> None:
+    """Показать варианты ответа кликабельными «таблетками» (pills).
+
+    ``st.pills`` доступен с Streamlit 1.36; если компонента нет (старая версия
+    или урезанная сборка), используется запасной вариант — компактные кнопки
+    ``type="tertiary"``, визуально похожие на гиперссылки.
+    """
+    if hasattr(st, "pills"):
+        st.pills(
+            "Варианты ответа",
+            options=suggestions,
+            selection_mode="single",
+            key="clarification_choice",
+            on_change=apply_suggestion,
+            label_visibility="collapsed",
+        )
+        return
+    for index, suggestion in enumerate(suggestions):
+        st.button(
+            suggestion,
+            key=f"clarification_suggestion_{index}",
+            type="tertiary",
+            help="Подставить этот вариант в поле вопроса",
+            on_click=apply_suggestion,
+            args=(suggestion,),
+        )
+
+
 def render_clarification(decision: AgentDecision) -> None:
-    """Показать уточняющий вопрос модели и варианты ответа."""
+    """Показать уточняющий вопрос модели и кликабельные варианты ответа.
+
+    Выбор варианта подставляет в поле умный текст: только вторую часть, если она
+    сама по себе полный вопрос, или склейку с исходным вопросом, если это фрагмент
+    (решение — :func:`clarification.choose_clarified_text`).
+    """
     clarification: ClarificationPlan | None = decision.clarification
     if clarification is not None:
         question = clarification.question
@@ -624,9 +677,10 @@ def render_clarification(decision: AgentDecision) -> None:
         suggestions = [str(item) for item in decision.dsl.get("suggestions", [])]
     st.info(f"Нужно уточнение: {question}")
     if suggestions:
-        st.markdown("**Варианты:**")
-        for suggestion in suggestions:
-            st.markdown(f"- {suggestion}")
+        st.caption(
+            "Выберите вариант ответа — он подставится в поле вопроса и отправится автоматически."
+        )
+        render_suggestion_pills(suggestions)
 
 
 def render_error(decision: AgentDecision) -> None:
@@ -687,34 +741,42 @@ def clear_question() -> None:
     Callback выполняется до перерисовки страницы, поэтому запись в
     ``st.session_state`` не конфликтует с уже созданным виджетом ``question_input``
     (прямая запись после создания виджета в том же прогоне запрещена Streamlit).
+    Заодно сбрасывается база для склейки уточнения: очистка поля означает новый
+    вопрос, а не ответ на предыдущее уточнение.
     """
     st.session_state["question_input"] = ""
+    st.session_state.pop("clarification_base", None)
+    st.session_state.pop("clarification_answer", None)
+    st.session_state["clarification_rounds"] = 0
 
 
 def render_question_input() -> tuple[str, bool]:
-    """Отрисовать поле вопроса с кнопкой быстрой очистки.
+    """Отрисовать поле вопроса: очистка «✖️» и отправка кнопкой или Enter.
 
-    Отказ от ``st.form`` даёт возможность менять состояние поля без отправки:
-    кнопка «✖️» очищает ввод через callback, а обычная кнопка «Спросить»
-    отправляет вопрос.
+    Поле и кнопка «Спросить» находятся внутри ``st.form``: **Enter в поле
+    отправляет форму**, то есть работает как обычная отправка вопроса. Кнопка
+    «✖️» вынесена за пределы формы, поэтому очистка поля не отправляет запрос
+    (это было причиной отказа от формы на шаге 3 — теперь ограничение снято).
 
     Returns
     -------
     tuple[str, bool]
-        Текст вопроса и признак нажатия «Спросить».
+        Текст вопроса и признак отправки (кнопка «Спросить» или Enter).
     """
     question_col, clear_col = st.columns([5, 1], vertical_alignment="bottom")
     with question_col:
-        question = st.text_input(
-            "Вопрос к данным",
-            key="question_input",
-            placeholder="Например: какие 5 товаров продаются хуже остальных за 2024 год?",
-            label_visibility="collapsed",
-        )
+        with st.form("question_form", clear_on_submit=False, border=False):
+            question = st.text_input(
+                "Вопрос к данным",
+                key="question_input",
+                placeholder="Например: какие 5 товаров продаются хуже остальных за 2024 год?",
+                label_visibility="collapsed",
+            )
+            submitted = st.form_submit_button("Спросить", type="primary")
     with clear_col:
         st.button("✖️", help="Очистить поле", on_click=clear_question)
 
-    return question, st.button("Спросить", type="primary")
+    return question, submitted
 
 
 # --------------------------------------------------------------------------- #
@@ -809,6 +871,10 @@ def render_sidebar() -> tuple[str, Any, bool]:
 
     if st.sidebar.button("Очистить историю"):
         st.session_state["history"] = []
+        # Новый диалог — счётчик уточнений и контекст уточнения сбрасываются.
+        st.session_state["clarification_rounds"] = 0
+        st.session_state.pop("clarification_base", None)
+        st.session_state.pop("clarification_choice", None)
     st.sidebar.divider()
     return source_kind, uploaded, use_llm
 
@@ -864,7 +930,34 @@ def main() -> None:
     render_history()
     profile = data_profile(dataset, source_label)
 
+    # Выбранный вариант уточнения: решаем, показать полный склеенный запрос или
+    # только вторую часть (см. clarification.choose_clarified_text). Текст
+    # записывается в поле ДО создания виджета и одинаково уходит в расчёт и историю.
+    pending_answer = st.session_state.pop("clarification_answer", None)
+    if pending_answer:
+        base = str(st.session_state.get("clarification_base") or "")
+        with st.spinner("Уточняю запрос…"):
+            resolved = choose_clarified_text(
+                base,
+                str(pending_answer),
+                use_llm=use_llm,
+                settings=settings,
+                data_profile=profile,
+            )
+        st.session_state["question_input"] = resolved.text
+        st.session_state["clarification_source"] = resolved.source
+        st.session_state["auto_submit"] = True
+
     question, submitted = render_question_input()
+
+    if st.session_state.get("auto_submit"):
+        # Флаг выставлен выбором варианта уточнения (pills/кнопка-ссылка).
+        # Сбрасываем его до расчёта, чтобы не было повторной отправки на
+        # следующем прогоне и бесконечного цикла; выбранный вариант больше не нужен.
+        st.session_state["auto_submit"] = False
+        st.session_state.pop("clarification_choice", None)
+        st.session_state.pop("clarification_base", None)
+        submitted = True
 
     if submitted:
         if not question.strip():
@@ -873,11 +966,41 @@ def main() -> None:
         planner = select_planner(use_llm, settings)
         with st.spinner("Разбираю вопрос…"):
             decision = planner.plan(question, st.session_state["history"], profile)
+
         if decision.intent == "clarification":
-            render_clarification(decision)
-        elif not decision.ok:
+            rounds = int(st.session_state.get("clarification_rounds", 0))
+            if rounds >= MAX_CLARIFICATIONS:
+                # Лимит уточнений исчерпан: вместо нового круга — детерминированная
+                # ближайшая интерпретация, чтобы пользователь гарантированно получил
+                # ответ (составной запрос сводится к одному показателю/периоду).
+                forced = force_interpretation(question, data_profile=profile)
+                st.session_state["clarification_rounds"] = 0
+                st.session_state.pop("clarification_base", None)
+                if forced is not None:
+                    st.warning(
+                        "Уточнения исчерпаны — показываю как понял: "
+                        f"«{question}». Если нужен другой разбор, задайте вопрос точнее."
+                    )
+                    decision = forced
+                else:
+                    st.warning(
+                        "Уточнения исчерпаны, и однозначно разобрать вопрос не удалось. "
+                        "Сформулируйте один показатель и один период."
+                    )
+                    render_error(decision)
+                    decision = None
+            else:
+                st.session_state["clarification_rounds"] = rounds + 1
+                # Запоминаем исходный вопрос: выбранный вариант уточнения будет
+                # склеен с ним, чтобы в поле и в запросе не терялась первая часть.
+                st.session_state["clarification_base"] = question
+                render_clarification(decision)
+                decision = None
+
+        if decision is not None and not decision.ok:
             render_error(decision)
-        else:
+            st.session_state["clarification_rounds"] = 0
+        elif decision is not None:
             try:
                 result = dispatch_intent(decision.intent or "", dataset, decision.params)
             except (ValueError, TypeError, KeyError) as exc:
@@ -895,6 +1018,8 @@ def main() -> None:
                 st.session_state["history"].append(
                     {"role": "assistant", "content": f"{INTENT_TITLES.get(decision.intent or '', '')}: {summary}"}
                 )
+                st.session_state["clarification_rounds"] = 0
+                st.session_state.pop("clarification_base", None)
 
     st.divider()
     st.caption(
