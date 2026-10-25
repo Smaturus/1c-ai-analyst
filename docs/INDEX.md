@@ -1,58 +1,62 @@
 # Навигация по документации
 
-Точка входа для нового чата/участника. Ниже — что читать в каком порядке и где искать факты.
+Точка входа для читателя репозитория. Актуальная картина продукта — **версия 0.6.0**.
 
 ## 1. С чего начать
 
 | Роль | Порядок чтения |
 |---|---|
-| Новый чат / новый участник | [REPORT.md](REPORT.md) → [ARCHITECTURE.md](ARCHITECTURE.md); внутренний журнал `progress.md` — локально, не публикуется |
-| Разработчик | [ARCHITECTURE.md](ARCHITECTURE.md) → [DATA_CONTRACT.md](DATA_CONTRACT.md) → [RUNBOOK.md](RUNBOOK.md) → код |
-| Ревьюер | [REPORT.md](REPORT.md) (разделы 7–9) → [adr/](adr/) → `smoke_test.py` |
-| Эксплуатация | [RUNBOOK.md](RUNBOOK.md) → [DATA_CONTRACT.md](DATA_CONTRACT.md) |
+| Быстрый обзор | [../README.md](../README.md) → [ARCHITECTURE.md](ARCHITECTURE.md) |
+| Разработчик | [ARCHITECTURE.md](ARCHITECTURE.md) → [DATA_CONTRACT.md](DATA_CONTRACT.md) → [adr/](adr/) → код |
+| Эксплуатация / запуск | [RUNBOOK.md](RUNBOOK.md) → [UI_ACCEPTANCE.md](UI_ACCEPTANCE.md) |
+| Ревьюер решений | [adr/](adr/) → [ARCHITECTURE.md](ARCHITECTURE.md) → `smoke_test.py` / pytest |
 
-## 2. Карта документов
+## 2. Актуальные документы
 
-| Документ | Что внутри | Статус |
-|---|---|---|
-| [../README.md](../README.md) | обзор проекта, быстрый старт, структура | актуально |
-| `progress.md` | внутренний журнал: статус, журнал по датам, решения, открытые вопросы, план — **локальный, в репозиторий не публикуется** | живой документ |
-| [../CHANGELOG.md](../CHANGELOG.md) | история изменений по этапам | актуально |
-| [REPORT.md](REPORT.md) | итоговый отчёт: постановка, данные, решения, результаты, проверки, риски | актуально |
-| [REPORT_STEP2.md](REPORT_STEP2.md) | отчёт об инкременте шага 2: UI + LLM-слой, дельта артефактов и проверки | актуально |
-| [REPORT_STEP3.md](REPORT_STEP3.md) | отчёт об инкременте шага 3: UX таблиц и ввода, переключатель LLM, pytest/CI, относительные даты | актуально |
-| [REPORT_STEP4.md](REPORT_STEP4.md) | отчёт об инкременте шага 4: Quick Replies, умный выбор текста, Enter, graceful degradation | актуально |
-| [REPORT_STEP5.md](REPORT_STEP5.md) | отчёт о стресс-тестировании: 10 запросов, умные фильтры, исправленные дефекты, релиз 0.6.0 | актуально |
-| [UI_ACCEPTANCE.md](UI_ACCEPTANCE.md) | локальный запуск UI и 5 контрольных вопросов с ожидаемыми интентами | актуально |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | цели/не-цели, компоненты, потоки данных, окружение, точки роста | актуально |
-| [DATA_CONTRACT.md](DATA_CONTRACT.md) | схема витрины, инварианты, CSV-контракт, правила качества | актуально |
-| [RUNBOOK.md](RUNBOOK.md) | запуск, выгрузка 1С, типовые ошибки, безопасность | актуально |
-| [ITS_ACCESS_NOTES.md](ITS_ACCESS_NOTES.md) | доступ к ИТС, ограничения, как получить цитаты | актуально |
-| [adr/0001-revenue-net.md](adr/0001-revenue-net.md) | выручка без НДС | принято |
-| [adr/0002-onec-direct-source.md](adr/0002-onec-direct-source.md) | 1С как основной источник периодов | принято |
-| [adr/0003-product-groups.md](adr/0003-product-groups.md) | товарные группы = иерархия номенклатуры | принято |
-| [adr/0004-llm-json-dsl.md](adr/0004-llm-json-dsl.md) | JSON-DSL и `dispatch_intent` | принято |
-| [adr/0005-onec-export-split.md](adr/0005-onec-export-split.md) | двухшаговая выгрузка 1С через CSV | принято |
-| [adr/0006-llm-providers.md](adr/0006-llm-providers.md) | LLM-провайдеры (OpenAI-совместимый протокол) и офлайн-правила | принято |
-| [adr/0007-graceful-degradation.md](adr/0007-graceful-degradation.md) | Graceful degradation: лимит уточнений, детерминированный fallback, честная плашка, ограничения составных запросов | принято |
-| [adr/0008-compare-tops-intent.md](adr/0008-compare-tops-intent.md) | интент сравнения топов (L4L) вместо multi-intent | принято |
-| [intent_schema.json](intent_schema.json) | JSON-схема 7 интентов для промпта/LLM-инструмента | генерируется |
+| Документ | Содержание |
+|---|---|
+| [../README.md](../README.md) | Обзор, быстрый старт, возможности |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Компоненты, потоки, ограничения MVP |
+| [DATA_CONTRACT.md](DATA_CONTRACT.md) | Схема витрины, инварианты, нетто-выручка |
+| [RUNBOOK.md](RUNBOOK.md) | Запуск, выгрузка 1С, типовые ошибки |
+| [UI_ACCEPTANCE.md](UI_ACCEPTANCE.md) | Контрольные вопросы и ожидания UI |
+| [intent_schema.json](intent_schema.json) | Схема 7 интентов для LLM/интеграций |
+| [../CHANGELOG.md](../CHANGELOG.md) | История версий (Keep a Changelog) |
 
-## 3. Быстрые факты (для ответов и проверок)
+## 3. Архитектурные решения (ADR)
 
-- Демо-данные (`sample_data.csv`, синтетика): 600 строк, 12 товаров, 6 контрагентов, 2 группы, период 2023–2024, 10 % возвратов.
-- Демо-выручка: **99 708 100,00 ₽**, количество: **5 315** шт (пересчитывается `generate_synthetic_data.py`).
-- Реальные выгрузки 1С (`тест.xlsx`, `1c_export/`) в репозиторий не включаются: данные являются частью программного продукта 1С и не подлежат распространению; `.gitignore` их исключает.
-- Проверка: `python -m pytest` → 241 тест; `smoke_test.py` → `SMOKE TEST PASSED` (10 разделов, 51 проверка); `smoke_llm.py` → 92 проверок (Pydantic).
-- UI и LLM: `app.py` (Streamlit) + `llm_agent.py` (Pydantic + провайдеры); русские заголовки таблиц с сортировкой, очистка поля ввода, отправка по Enter, переключатель «Использовать LLM», графики Altair с русскими осями, AST-регресс на «голые» строки app.py; без ключа — офлайн-режим правил; относительные даты («прошлый/позапрошлый год») поддерживают и LLM, и офлайн-правила.
-- Rate Limiting демо ([rate_limiter.py](../rate_limiter.py)): 15 успешных вызовов LLM на сессию и 100 в день глобально (SQLite, `RATE_LIMIT_DB`); при исчерпании — офлайн-правила, счётчик и демо-сброс в сайдбаре; ошибка SQLite не роняет приложение.
-- Отрицательная выручка / возвраты: интент `negative_revenue` — только строки `revenue < 0`, агрегат по товару или контрагенту (сумма, число строк, количество), красные бары и сводка «Общая сумма возвратов»; защита `guard_decision` не даёт LLM подменить запрос антитопом.
-- Graceful degradation ([ADR 0007](adr/0007-graceful-degradation.md)): `clarification.py` выбирает текст после уточнения; после 2 уточнений — детерминированный fallback с плашкой «Уточнения исчерпаны…»; числа всегда считает pandas.
-- Сравнение топов двух периодов ([ADR 0008](adr/0008-compare-tops-intent.md)): интент `compare_top_products` (L4L) — одна таблица «место в 2023 / место в 2024 / выручка / дельта / статус (вошёл, выпал, поднялся, опустился)» и grouped bar; составной запрос «сравни топ-5 за 2023 и 2024» больше не требует multi-intent.
+| ADR | Решение |
+|---|---|
+| [0001](adr/0001-revenue-net.md) | Выручка без НДС |
+| [0002](adr/0002-onec-direct-source.md) | 1С как основной источник периодов |
+| [0003](adr/0003-product-groups.md) | Товарные группы = иерархия номенклатуры |
+| [0004](adr/0004-llm-json-dsl.md) | JSON-DSL и `dispatch_intent` |
+| [0005](adr/0005-onec-export-split.md) | ETL отделён от UI (Data Snapshot) |
+| [0006](adr/0006-llm-providers.md) | Провайдеры LLM и офлайн-правила |
+| [0007](adr/0007-graceful-degradation.md) | Graceful degradation при уточнениях |
+| [0008](adr/0008-compare-tops-intent.md) | Сравнение топов (L4L) |
 
-## 4. Принципы работы с документацией
+## 4. Быстрые факты (0.6.0)
 
-1. Факт изменился — обновить `REPORT.md`/`DATA_CONTRACT.md`, запись в `progress.md` и `CHANGELOG.md`.
+- Демо: `sample_data.csv` — 600 строк, 12 товаров, 6 контрагентов, 2 группы, 2023–2024, 10 % возвратов.
+- Контрольные суммы демо: выручка **99 708 100,00 ₽**, количество **5 315** шт.
+- Проверки: **241** pytest; `smoke_test.py` — PASSED; `smoke_llm.py` — 92 проверки.
+- 7 интентов; фильтры `product_filter` / `group_filter` / `min_base_revenue`; rate limiting демо; graceful degradation.
+- Реальные выгрузки 1С и секреты в репозиторий не входят.
+
+## 5. История разработки
+
+Инкрементальные отчёты и вспомогательные заметки вынесены в **[history/](history/)**.  
+Они **не заменяют** актуальную спецификацию ([ARCHITECTURE.md](ARCHITECTURE.md)).
+
+Краткий указатель: [history/README.md](history/README.md).
+
+Внутренний журнал `progress.md` ведётся локально и в репозиторий не публикуется.
+
+## 6. Правила ведения документации
+
+1. Факт о продукте изменился — обновить README / ARCHITECTURE / DATA_CONTRACT и запись в CHANGELOG.
 2. Новое архитектурное решение — новый ADR (старые не переписываются).
-3. Числа в документах должны совпадать с выводом `smoke_test.py`; при расхождении источник истины — тест.
-4. Секреты, пароли, копия базы 1С и временные профили в документацию не попадают.
+3. Числа сверять с `pytest` / `smoke_test.py`; при расхождении источник истины — тест.
+4. Секреты, пароли, копия базы 1С в документацию не попадают.
+5. Новые дневниковые отчёты по инкрементам класть в `docs/history/`, не в корень `docs/`.

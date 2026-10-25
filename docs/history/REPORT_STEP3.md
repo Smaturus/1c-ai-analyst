@@ -1,5 +1,8 @@
 # Отчёт об инкременте: шаг 3 — UX, тесты/CI и относительные даты
 
+> **Исторический документ.** Описывает инкремент на дату написания.
+> Актуальная спецификация — [ARCHITECTURE.md](../ARCHITECTURE.md) / [../README.md](../../README.md).
+
 > **Обновление 2026-10-24 (лицензионная чистка).** Реальные выгрузки 1С
 > (`тест.xlsx`, `1c_export/`) удалены из репозитория и истории; цифры ниже
 > относятся к исторической выгрузке и не воспроизводятся на синтетическом
@@ -33,39 +36,39 @@
 
 | Артефакт | Объём | Назначение |
 |---|---|---|
-| [`tests/conftest.py`](../tests/conftest.py) | 63 строки | синтетическая витрина для тестов (без файлов 1С/Excel) |
-| [`tests/test_analytics.py`](../tests/test_analytics.py) | 350 строк, **26 тестов** | расчёты 5 интентов, фильтр периода, качество данных, `dispatch_intent` |
-| [`tests/test_planner.py`](../tests/test_planner.py) | 623 строки, **81 тест** | офлайн-правила: 5 интентов, регрессии `limit`, `only_drops`, лояльные формулировки, относительные даты, Few-Shot |
-| [`tests/test_app_display.py`](../tests/test_app_display.py) | 264 строки, **21 тест** | отображение: заголовки, форматы, сортируемость, сводки |
-| [`tests/test_app_planner.py`](../tests/test_app_planner.py) | 104 строки, **7 тестов** | `select_planner` и переключатель LLM (AppTest) |
-| [`tests/test_app_question.py`](../tests/test_app_question.py) | 87 строк, **5 тестов** | поле вопроса: очистка, отправка, пустой ввод (AppTest) |
-| [`pyproject.toml`](../pyproject.toml) | 42 строки | метаданные пакета `1c-ai-analyst` 0.1.0 (PEP 621), зависимости, `[dev] = pytest`, настройки pytest |
-| [`pytest.ini`](../pytest.ini) | 6 строк | `testpaths = tests`, `pythonpath = .` |
-| [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) | 33 строки | CI: Python 3.12, установка зависимостей, `pytest -q` на push/PR в `main` |
-| [`LICENSE`](../LICENSE) | MIT | лицензия для публикации |
-| [`start_app.bat`](../start_app.bat) | 8,4 КБ | запуск в один клик на Windows: venv → зависимости → Streamlit → браузер, в обход `ExecutionPolicy` |
+| [`tests/conftest.py`](../../tests/conftest.py) | 63 строки | синтетическая витрина для тестов (без файлов 1С/Excel) |
+| [`tests/test_analytics.py`](../../tests/test_analytics.py) | 350 строк, **26 тестов** | расчёты 5 интентов, фильтр периода, качество данных, `dispatch_intent` |
+| [`tests/test_planner.py`](../../tests/test_planner.py) | 623 строки, **81 тест** | офлайн-правила: 5 интентов, регрессии `limit`, `only_drops`, лояльные формулировки, относительные даты, Few-Shot |
+| [`tests/test_app_display.py`](../../tests/test_app_display.py) | 264 строки, **21 тест** | отображение: заголовки, форматы, сортируемость, сводки |
+| [`tests/test_app_planner.py`](../../tests/test_app_planner.py) | 104 строки, **7 тестов** | `select_planner` и переключатель LLM (AppTest) |
+| [`tests/test_app_question.py`](../../tests/test_app_question.py) | 87 строк, **5 тестов** | поле вопроса: очистка, отправка, пустой ввод (AppTest) |
+| [`pyproject.toml`](../../pyproject.toml) | 42 строки | метаданные пакета `1c-ai-analyst` 0.1.0 (PEP 621), зависимости, `[dev] = pytest`, настройки pytest |
+| [`pytest.ini`](../../pytest.ini) | 6 строк | `testpaths = tests`, `pythonpath = .` |
+| [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) | 33 строки | CI: Python 3.12, установка зависимостей, `pytest -q` на push/PR в `main` |
+| [`LICENSE`](../../LICENSE) | MIT | лицензия для публикации |
+| [`start_app.bat`](../../start_app.bat) | 8,4 КБ | запуск в один клик на Windows: venv → зависимости → Streamlit → браузер, в обход `ExecutionPolicy` |
 
 ### 2.2. Изменено
 
 | Артефакт | Что изменилось |
 |---|---|
-| [`llm_agent.py`](../llm_agent.py) | 1 290 строк, 60,5 КБ (было 1 004 / 44,9 КБ): чтение `.env`, `only_drops` у контрагентов, текущая дата + определения относительных периодов + Few-Shot, разбор относительных дат, лояльные регулярки, `build_system_prompt(..., today=)`/`build_messages(..., today=)`, `RuleBasedPlanner.plan(..., today=)` |
-| [`app.py`](../app.py) | 757 строк, 34,2 КБ (было 427 / 19,3 КБ): `select_planner`, переключатель LLM, таблица без технических имён, сортировка, форматирование, поле вопроса с очисткой, «Технические детали» |
-| [`analytics.py`](../analytics.py) | 1 218 строк (было 1 202): `only_drops` в `get_counterparty_dynamics`, `INTENT_PARAMETERS` |
-| [`smoke_llm.py`](../smoke_llm.py) | 86 проверок (было 85): статическая проверка `app.py` переведена с `st.form` на `st.columns`/`st.button` |
-| [`README.md`](../README.md) | бейджи CI/Python/MIT, раздел «Как запустить тесты», UX-описание, структура, счётчики |
-| [`.gitignore`](../.gitignore) | `.env`, `.venv/`, `build/`, `dist/`, `*.egg-info/` |
-| [`docs/intent_schema.json`](intent_schema.json) | перегенерирован: у `counterparty_dynamics` появился `only_drops` |
-| [`docs/RUNBOOK.md`](RUNBOOK.md), [`docs/UI_ACCEPTANCE.md`](UI_ACCEPTANCE.md) | актуальные команды pytest, сценарии приёмки (очистка поля, переключатель LLM, относительные даты, сортировка) |
-| [`docs/INDEX.md`](INDEX.md) | ссылка на этот отчёт, обновлённые «быстрые факты» |
-| корневой `test_planner.py` | перенесён в [`tests/test_planner.py`](../tests/test_planner.py) (18 → 81 тест за счёт новых блоков) |
+| [`llm_agent.py`](../../llm_agent.py) | 1 290 строк, 60,5 КБ (было 1 004 / 44,9 КБ): чтение `.env`, `only_drops` у контрагентов, текущая дата + определения относительных периодов + Few-Shot, разбор относительных дат, лояльные регулярки, `build_system_prompt(..., today=)`/`build_messages(..., today=)`, `RuleBasedPlanner.plan(..., today=)` |
+| [`app.py`](../../app.py) | 757 строк, 34,2 КБ (было 427 / 19,3 КБ): `select_planner`, переключатель LLM, таблица без технических имён, сортировка, форматирование, поле вопроса с очисткой, «Технические детали» |
+| [`analytics.py`](../../analytics.py) | 1 218 строк (было 1 202): `only_drops` в `get_counterparty_dynamics`, `INTENT_PARAMETERS` |
+| [`smoke_llm.py`](../../smoke_llm.py) | 86 проверок (было 85): статическая проверка `app.py` переведена с `st.form` на `st.columns`/`st.button` |
+| [`README.md`](../../README.md) | бейджи CI/Python/MIT, раздел «Как запустить тесты», UX-описание, структура, счётчики |
+| [`.gitignore`](../../.gitignore) | `.env`, `.venv/`, `build/`, `dist/`, `*.egg-info/` |
+| [`docs/intent_schema.json`](../intent_schema.json) | перегенерирован: у `counterparty_dynamics` появился `only_drops` |
+| [`docs/RUNBOOK.md`](../RUNBOOK.md), [`docs/UI_ACCEPTANCE.md`](../UI_ACCEPTANCE.md) | актуальные команды pytest, сценарии приёмки (очистка поля, переключатель LLM, относительные даты, сортировка) |
+| [`docs/INDEX.md`](../INDEX.md) | ссылка на этот отчёт, обновлённые «быстрые факты» |
+| корневой `test_planner.py` | перенесён в [`tests/test_planner.py`](../../tests/test_planner.py) (18 → 81 тест за счёт новых блоков) |
 
 ### 2.3. Не изменялось (важно для заказчика)
 
 | Артефакт | Подтверждение |
 |---|---|
-| [`data_loader.py`](../data_loader.py), [`onec_source.py`](../onec_source.py) | без изменений |
-| [`тест.xlsx`](../тест.xlsx), [`1c_export/*.csv`](../1c_export/) | данные и контрольные суммы не менялись |
+| [`data_loader.py`](../../data_loader.py), [`onec_source.py`](../../onec_source.py) | без изменений |
+| [`тест.xlsx`](../../тест.xlsx), [`1c_export/*.csv`](../../1c_export/) | данные и контрольные суммы не менялись |
 | Методика | выручка без НДС, группы — иерархия номенклатуры (ADR 0001–0003) |
 | Архитектура | вся математика остаётся в `analytics.py`, LLM только возвращает JSON-DSL |
 
@@ -269,6 +272,6 @@ streamlit run app.py
 Пункт 3.2 («Enter больше не отправляет вопрос») **более не действует**: поле вопроса и кнопка
 «Спросить» снова помещены в `st.form` (`border=False`), поэтому Enter в поле отправляет вопрос.
 Исходное ограничение формы (очистка «✖️» отправляла запрос) снято иначе — кнопка очистки вынесена
-**за пределы формы** и только очищает поле. Правка внесена в `app.py` и `app_local.py`.
+**за пределы формы** и только очищает поле. Правка внесена в `app.py`.
 Тесты: `tests/test_app_question.py`, в т.ч. `test_question_form_enables_enter`; в AppTest значение
 поля внутри формы задаётся через `st.session_state` (особенность AppTest, не UI).

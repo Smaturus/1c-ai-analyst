@@ -4,6 +4,9 @@
 
 ## [Unreleased]
 
+### Changed
+- **Документация под продукт 0.6.0 (не дневник разработки):** переписаны [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) и [docs/INDEX.md](docs/INDEX.md); README — блок «Что смотреть за 3 минуты», явно NL2DSL ≠ NL2SQL; `REPORT*` и `ITS_ACCESS_NOTES` перенесены в [docs/history/](docs/history/); убраны ссылки на непубликуемый `app_local.py`/`progress.md` из навигации; docker-compose image `0.6.0`; keyword `nl2dsl`; docstring/smoke — 7 интентов. Методика ИТС свёрнута в [ADR 0001](docs/adr/0001-revenue-net.md).
+
 ## [0.6.0] — 2026-10-25 — Финальный релиз: умные фильтры, стресс-тестирование, полировка UX
 
 ### Added

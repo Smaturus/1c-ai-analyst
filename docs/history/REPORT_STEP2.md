@@ -1,5 +1,8 @@
 # Отчёт об инкременте: шаг 2 — Streamlit UI + LLM-слой
 
+> **Исторический документ.** Описывает инкремент на дату написания.
+> Актуальная спецификация — [ARCHITECTURE.md](../ARCHITECTURE.md) / [../README.md](../../README.md).
+
 > **Обновление 2026-10-24 (лицензионная чистка).** Реальные выгрузки 1С
 > (`тест.xlsx`, `1c_export/`) удалены из репозитория и истории; цифры ниже
 > относятся к исторической выгрузке и не воспроизводятся на синтетическом
@@ -35,36 +38,36 @@
 
 | Артефакт | Объём | Назначение |
 |---|---|---|
-| [`llm_agent.py`](../llm_agent.py) | 1 004 строки, 44,9 КБ | Pydantic-модели DSL, промпт, OpenAI-совместимый клиент, офлайн-правила, разбор/«починка» JSON |
-| [`app.py`](../app.py) | 427 строк, 19,3 КБ | Streamlit UI: источник, качество данных, вопрос, таблица, график, JSON-DSL, fallback |
-| [`smoke_llm.py`](../smoke_llm.py) | 330 строк, 15,7 КБ | 85 проверок LLM-слоя без Streamlit |
-| [`requirements.txt`](../requirements.txt) | — | `pandas`, `streamlit`, `pydantic`, опционально `pywin32` |
-| [`.env.example`](../.env.example) | — | шаблон настроек LLM (`LLM_PROVIDER/API_KEY/MODEL/...`) |
-| [`docs/intent_schema.json`](intent_schema.json) | 5 интентов | схема интентов для промпта/LLM-инструмента |
-| [`docs/adr/0006-llm-providers.md`](adr/0006-llm-providers.md) | ADR | выбор OpenAI-совместимого протокола и офлайн-фолбэка |
-| `docs/REPORT_STEP2.md` | этот документ | отчёт об инкременте |
+| [`llm_agent.py`](../../llm_agent.py) | 1 004 строки, 44,9 КБ | Pydantic-модели DSL, промпт, OpenAI-совместимый клиент, офлайн-правила, разбор/«починка» JSON |
+| [`app.py`](../../app.py) | 427 строк, 19,3 КБ | Streamlit UI: источник, качество данных, вопрос, таблица, график, JSON-DSL, fallback |
+| [`smoke_llm.py`](../../smoke_llm.py) | 330 строк, 15,7 КБ | 85 проверок LLM-слоя без Streamlit |
+| [`requirements.txt`](../../requirements.txt) | — | `pandas`, `streamlit`, `pydantic`, опционально `pywin32` |
+| [`.env.example`](../../.env.example) | — | шаблон настроек LLM (`LLM_PROVIDER/API_KEY/MODEL/...`) |
+| [`docs/intent_schema.json`](../intent_schema.json) | 5 интентов | схема интентов для промпта/LLM-инструмента |
+| [`docs/adr/0006-llm-providers.md`](../adr/0006-llm-providers.md) | ADR | выбор OpenAI-совместимого протокола и офлайн-фолбэка |
+| `docs/history/REPORT_STEP2.md` | этот документ | отчёт об инкременте |
 
 ### 2.2. Изменено
 
 | Артефакт | Что изменилось |
 |---|---|
-| [`smoke_test.py`](../smoke_test.py) | 408 → 430 строк; добавлен раздел 12 — сверка `docs/intent_schema.json` с `analytics.INTENT_PARAMETERS` |
-| [`README.md`](../README.md) | быстрый старт UI/LLM, состав модулей, структура, ограничения |
-| [`docs/ARCHITECTURE.md`](ARCHITECTURE.md) | компоненты `llm_agent.py`/`app.py`, поток LLM (3.4), ADR 0006, точки расширения |
-| [`docs/RUNBOOK.md`](RUNBOOK.md) | раздел 8: установка, запуск UI, настройки LLM, типовые ошибки |
-| [`docs/INDEX.md`](INDEX.md) | ADR 0006, `intent_schema.json`, новые числа проверок |
+| [`smoke_test.py`](../../smoke_test.py) | 408 → 430 строк; добавлен раздел 12 — сверка `docs/intent_schema.json` с `analytics.INTENT_PARAMETERS` |
+| [`README.md`](../../README.md) | быстрый старт UI/LLM, состав модулей, структура, ограничения |
+| [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md) | компоненты `llm_agent.py`/`app.py`, поток LLM (3.4), ADR 0006, точки расширения |
+| [`docs/RUNBOOK.md`](../RUNBOOK.md) | раздел 8: установка, запуск UI, настройки LLM, типовые ошибки |
+| [`docs/INDEX.md`](../INDEX.md) | ADR 0006, `intent_schema.json`, новые числа проверок |
 | [`docs/REPORT.md`](REPORT.md) | статус, раздел 12 «Шаг 2», обновлена таблица проверок |
-| [`progress.md`](../progress.md) | журнал шага 2, статусы плана, файлы, окружение |
+| [`CHANGELOG.md`](../CHANGELOG.md) | запись инкремента шага 2 |
 | [`CHANGELOG.md`](../CHANGELOG.md) | версия 0.4.0 |
 
 ### 2.3. Не изменялось (важно для заказчика)
 
 | Артефакт | Подтверждение |
 |---|---|
-| [`analytics.py`](../analytics.py) | 1 202 строки, сигнатуры функций не менялись; вызовы только через `dispatch_intent` |
-| [`data_loader.py`](../data_loader.py) | 517 строк, без изменений |
-| [`onec_source.py`](../onec_source.py) | 573 строки, без изменений |
-| [`тест.xlsx`](../тест.xlsx), [`1c_export/*.csv`](../1c_export/) | данные и контрольные суммы не менялись |
+| [`analytics.py`](../../analytics.py) | 1 202 строки, сигнатуры функций не менялись; вызовы только через `dispatch_intent` |
+| [`data_loader.py`](../../data_loader.py) | 517 строк, без изменений |
+| [`onec_source.py`](../../onec_source.py) | 573 строки, без изменений |
+| [`тест.xlsx`](../../тест.xlsx), [`1c_export/*.csv`](../../1c_export/) | данные и контрольные суммы не менялись |
 | Методика | выручка без НДС, товарные группы — иерархия номенклатуры (ADR 0001–0003) |
 
 **Итог по объёму:** +1 761 строка нового кода (1 004 + 427 + 330), +22 строки в `smoke_test.py`, +1 ADR, +1 схема, 3 новых документа/настройки.
@@ -131,7 +134,7 @@
 
 ## 5. Принятые решения и отклонения
 
-1. **Офлайн-фолбэк (дополнение к ТЗ).** `RuleBasedPlanner` позволяет демонстрировать и принимать UI без ключа LLM; в интерфейсе режим честно подписан. Обоснование — [ADR 0006](adr/0006-llm-providers.md).
+1. **Офлайн-фолбэк (дополнение к ТЗ).** `RuleBasedPlanner` позволяет демонстрировать и принимать UI без ключа LLM; в интерфейсе режим честно подписан. Обоснование — [ADR 0006](../adr/0006-llm-providers.md).
 2. **OpenAI-совместимый протокол вместо SDK.** Меньше зависимостей, один код для OpenAI/DeepSeek/Ollama; переключение — переменная окружения.
 3. **Pydantic v2** (доступная версия): discriminated union, `TypeAdapter`, `extra="forbid"`.
 4. **LangChain StructuredTool не сделан.** Фреймворк не установлен; контракт (`INTENT_REGISTRY`, `parse_plan_json`, `dispatch_intent`) готов, адаптер — следующий шаг. Это единственный пункт ТЗ, вынесенный за инкремент.
@@ -221,7 +224,7 @@ python -B -X utf8 smoke_test.py
 
 ### Тесты
 
-Добавлен [`test_planner.py`](../tests/test_planner.py) — **18 pytest-тестов** (позже перенесён в `tests/` и расширен до 81 теста на шаге 3):
+Добавлен [`test_planner.py`](../../tests/test_planner.py) — **18 pytest-тестов** (позже перенесён в `tests/` и расширен до 81 теста на шаге 3):
 5 интентов, 6 краевых случаев и 3 регрессии на баг:
 - «за 2024 год, топ 5» → `limit=5`;
 - год без количества → `limit=10`;
@@ -230,7 +233,7 @@ python -B -X utf8 smoke_test.py
 ### Приёмка
 
 Инструкция локального запуска UI и 5 контрольных вопросов с ожидаемыми
-интентами и числами — [UI_ACCEPTANCE.md](UI_ACCEPTANCE.md). Регрессия бага
+интентами и числами — [UI_ACCEPTANCE.md](../UI_ACCEPTANCE.md). Регрессия бага
 включена в чек-лист приёмки.
 
 ### Проверено

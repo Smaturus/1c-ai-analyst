@@ -6,7 +6,14 @@
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-**NL2DSL** (Natural Language to Domain-Specific Language) — подход, при котором LLM не считает числа и не пишет SQL. Она переводит вопрос на естественном языке в строгий JSON-DSL, который валидируется Pydantic и безопасно исполняется в `pandas`. Это даёт точность до копейки и воспроизводимость результата: модель отвечает за понимание вопроса, а расчёты — за детерминированный код.
+**NL2DSL** (Natural Language to Domain-Specific Language) — подход, при котором LLM не считает числа и **не пишет SQL**. Это не NL2SQL: модель переводит вопрос в строгий JSON-DSL, который валидируется Pydantic и исполняется в `pandas`. Точность до копейки и воспроизводимость: понимание вопроса — у модели, расчёты — у детерминированного кода.
+
+## Что смотреть за 3 минуты
+
+1. Поднимите демо: `docker compose up -d --build --wait` → http://localhost:8501 (или `python -m streamlit run app.py`).
+2. Задайте три вопроса: «Топ-5 товаров по выручке за 2024», «Сравни топ-5 за 2023 и 2024», «Покажи товары с отрицательной выручкой за 2024».
+3. Раскройте «Технические детали» — там JSON-DSL, который исполнил pandas (не ответ модели с цифрами).
+4. При желании углубиться: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) и [ADR 0004](docs/adr/0004-llm-json-dsl.md) / [ADR 0005](docs/adr/0005-onec-export-split.md).
 
 ## Архитектура: два независимых слоя
 
@@ -203,17 +210,14 @@ python smoke_llm.py          # SMOKE LLM PASSED: 92 проверок
 
 ## Документация
 
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — компоненты и потоки данных.
+Навигация: [docs/INDEX.md](docs/INDEX.md).
+
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — компоненты и потоки данных (актуальная спецификация).
 - [docs/DATA_CONTRACT.md](docs/DATA_CONTRACT.md) — схема витрины и CSV.
 - [docs/RUNBOOK.md](docs/RUNBOOK.md) — запуск, выгрузка 1С, лицензии, типовые ошибки.
 - [docs/UI_ACCEPTANCE.md](docs/UI_ACCEPTANCE.md) — приёмка UI и контрольные вопросы.
-- [docs/REPORT_STEP3.md](docs/REPORT_STEP3.md) — инкремент UX/CI/относительных дат.
-- [docs/REPORT_STEP4.md](docs/REPORT_STEP4.md) — Quick Replies, умный выбор текста, Enter и graceful degradation.
-- [docs/REPORT_STEP5.md](docs/REPORT_STEP5.md) — стресс-тестирование, умные фильтры и полировка UX.
-- [docs/adr/0005-onec-export-split.md](docs/adr/0005-onec-export-split.md) — почему ETL отделён от UI.
-- [docs/adr/0007-graceful-degradation.md](docs/adr/0007-graceful-degradation.md) — лимит уточнений, fallback и честные плашки.
-- [docs/adr/0008-compare-tops-intent.md](docs/adr/0008-compare-tops-intent.md) — интент сравнения топов (L4L) вместо multi-intent.
-- Внутренний журнал проекта — `progress.md` (локальный файл, в публичный репозиторий не включается).
+- [docs/adr/](docs/adr/) — архитектурные решения (в т.ч. Data Snapshot, graceful degradation, L4L).
+- Исторические отчёты — [docs/history/](docs/history/) (не заменяют ARCHITECTURE).
 
 ## Лицензия и данные
 

@@ -1,23 +1,23 @@
 # Архитектура
 
-Документ описывает устройство проекта на уровне компонентов, потоков данных и контрактов. Методические компромиссы зафиксированы в [ADR](adr/), отчёт о результатах — в [REPORT.md](REPORT.md).
+Актуальное устройство продукта **1c-ai-analyst 0.6.0**: компоненты, потоки данных, контракты и ограничения. Методические решения — в [ADR](adr/). Исторические отчёты по инкрементам — в [history/](history/); они не заменяют этот документ.
 
 ## 1. Цели и не-цели
 
 **Цели**
 
-- Превратить вопрос на естественном языке в ответ по данным 1С без вычислений в LLM.
-- Единая витрина данных из двух источников: Excel-выгрузка «Универсального отчёта» и прямая выгрузка из регистра 1С.
-- Пять аналитических интентов MVP, готовых к отрисовке (таблица/график) и текстовому объяснению.
-- Контракт для LLM: строгий JSON-DSL, реестр интентов, валидация параметров.
-- Воспроизводимость: контрольные суммы, предупреждения о качестве, сквозной smoke-тест.
+- Ответ на вопрос на естественном языке по витрине продаж 1С **без вычислений в LLM** (NL2DSL, не NL2SQL).
+- Единая витрина: синтетическое демо, CSV-снимок из 1С, пользовательский CSV/Excel.
+- Семь аналитических интентов с таблицей, графиком Altair и текстовой сводкой.
+- Контракт LLM: JSON-DSL → Pydantic (`extra="forbid"`) → `dispatch_intent` → pandas.
+- Воспроизводимость: синтетические контрольные суммы, smoke-тесты, pytest/CI.
 
-**Не-цели (сознательно вне текущего этапа)**
+**Не-цели (сознательно вне scope)**
 
-- LLM-агент/промпт-инжиниринг и UI — следующий шаг.
-- Прямое подключение к 1С из рабочего Python-процесса (сейчас — двухшаговый экспорт, см. [ADR 0005](adr/0005-onec-export-split.md)).
-- Поддержка серверных баз 1С, кластеров и прав доступа — MVP рассчитан на файловую базу.
-- Продакшен-SLA.
+- Прямое live-подключение UI к базе 1С (см. [ADR 0005](adr/0005-onec-export-split.md)).
+- Серверные кластеры 1С, ролевая модель прав, продакшен-SLA.
+- Multi-intent в одном ответе (кроме L4L-сравнения топов, [ADR 0008](adr/0008-compare-tops-intent.md)).
+- Расчёт «среднего чека» и произвольного SQL от модели.
 
 ## 2. Компоненты
 
@@ -25,14 +25,15 @@
 flowchart TB
     subgraph Sources["Источники"]
         SAMPLE["sample_data.csv<br/>синтетическая демо-витрина"]
-        OWN["своя база 1С / свой Excel<br/>(локально, не публикуется)"]
+        OWN["своя база 1С / свой Excel<br/>(локально, не в git)"]
+        UP["загрузка CSV/Excel в UI"]
     end
 
     subgraph ETL["Загрузка (offline)"]
-        DL["data_loader.py<br/>load_and_clean_1c_report"]
-        EXP["onec_source.py<br/>export_from_1c (COM)"]
-        CSV["1c_export/*.csv<br/>(локальный артефакт)"]
-        LOAD["onec_source.py<br/>load_vitrina / load_sample_vitrina"]
+        DL["data_loader.py<br/>Excel → витрина"]
+        EXP["onec_source.py<br/>export_from_1c COM"]
+        CSV["1c_export/*.csv"]
+        LOAD["load_vitrina / load_sample_vitrina"]
     end
 
     subgraph Store["Витрина"]
@@ -41,137 +42,133 @@ flowchart TB
 
     subgraph Serving["Аналитика"]
         A["analytics.py<br/>7 интентов"]
-        CP["compare_periods<br/>(ядро сравнения)"]
-        D["dispatch_intent<br/>JSON-DSL → функция"]
-        REG["INTENT_REGISTRY /<br/>INTENT_PARAMETERS"]
+        D["dispatch_intent"]
+        REG["INTENT_REGISTRY"]
     end
 
-    subgraph LLMLayer["llm_agent.py"]
-        PROMPT["Системный промпт"]
-        CLIENT["LLM: openai / deepseek / ollama"]
-        PYD["Pydantic-модели DSL"]
-        RULES["офлайн-правила"]
+    subgraph LLMLayer["Планировщик"]
+        CLIENT["LLM: deepseek / openai / ollama"]
+        RULES["RuleBasedPlanner"]
+        PYD["Pydantic DSL"]
+        CLAR["clarification.py"]
+        RL["rate_limiter.py"]
     end
 
-    subgraph UI["app.py (Streamlit)"]
-        ASK["Вопрос пользователя"]
-        OUT["Таблица / график / сводка / JSON-DSL"]
+    subgraph UI["app.py Streamlit"]
+        ASK["Вопрос"]
+        OUT["Таблица / Altair / сводка / JSON-DSL"]
     end
 
-    XLS --> DL --> V
-    BASE --> EXP --> CSV --> LOAD --> V
+    OWN --> EXP --> CSV --> LOAD --> V
+    OWN --> DL --> V
+    SAMPLE --> LOAD
+    UP --> DL
+    LOAD --> V
     V --> A
-    A --> CP
     REG --> D --> A
-    ASK --> PROMPT --> CLIENT --> PYD --> D
+    ASK --> RL
+    ASK --> CLIENT --> PYD --> D
     ASK --> RULES --> PYD
+    PYD --> CLAR
     A --> OUT
 ```
 
-| Модуль | Ответственность | Ключевые точки входа |
+| Модуль | Ответственность | Точки входа |
 |---|---|---|
-| `data_loader.py` | ETL Excel: шапка, «Итого», склейки, даты, типы, валидация, предупреждения | `load_and_clean_1c_report` |
-| `analytics.py` | Интенты, сравнение периодов, группы, диагностика, DSL | `get_*`, `compare_periods`, `dispatch_intent` |
-| `onec_source.py` | COM-подключение, выгрузка регистра/справочника, CSV, загрузка витрины | `export_from_1c`, `load_vitrina` |
-| `llm_agent.py` | Pydantic-модели DSL, промпт, LLM-клиент, офлайн-правила, разбор/«починка» JSON | `parse_plan_json`, `make_planner`, `check_schema_sync` |
-| `app.py` | Streamlit UI: источник, качество данных, вопрос, результат, JSON-DSL | `main` |
-| `smoke_test.py` | Сквозная проверка данных и интентов | CLI |
-| `smoke_llm.py` | Самопроверка LLM-слоя на Pydantic | CLI |
+| `data_loader.py` | ETL Excel «Универсального отчёта» | `load_and_clean_1c_report` |
+| `onec_source.py` | COM-выгрузка 1С → CSV; загрузка витрины | `export_from_1c`, `load_vitrina`, `load_sample_vitrina` |
+| `analytics.py` | 7 интентов, периоды, фильтры, DSL | `dispatch_intent`, `INTENT_REGISTRY` |
+| `llm_agent.py` | Pydantic-модели, промпт, LLM-клиент, офлайн-правила, `guard_decision` | `make_planner`, `parse_plan_json` |
+| `clarification.py` | Текст после уточнения; принудительная интерпретация | `choose_clarified_text`, `force_interpretation` |
+| `rate_limiter.py` | Лимиты вызовов LLM для демо (SQLite) | `check_limit`, `increment` |
+| `app.py` | Streamlit UI | `main` |
+| `smoke_test.py` / `smoke_llm.py` | Сквозные проверки данных и LLM-слоя | CLI |
+
+**Семь интентов:** `top_bottom_products`, `compare_top_products`, `negative_revenue`, `timeseries`, `counterparty_dynamics`, `group_dynamics`, `total`.
 
 ## 3. Потоки данных
 
-### 3.1. Путь Excel
+### 3.1. Excel
 
-1. `pandas.read_excel(sheet_name=0, skiprows=7)` → строка 8 становится заголовком.
-2. Удаление строк «Итого»/пустых; проверка структуры по контрольным заголовкам (позиции колонок фиксированы).
-3. Разбор склеек: `A` → товар до `;`, `V` → контрагент до `;`, `E` → дата регуляркой.
-4. Числа → `float64`, `NaN → 0`; отрицательные сохраняются.
-5. Сортировка `date, product, counterparty` (`NaT` в конце), `RangeIndex`.
-6. Предупреждение о качестве: строки/выручка без даты, отрицательные строки, удалённые строки.
+`data_loader`: шапка отчёта, удаление «Итого», разбор склеек товар/контрагент, дата из текста документа, типы, предупреждения о качестве. Позиции колонок — константы `COL_*`.
 
-### 3.2. Путь 1С
+### 3.2. 1С (Data Snapshot)
 
-1. `export_from_1c` → COM (`V83.COMConnector`) → запрос к `РегистрНакопления.ВыручкаИСебестоимостьПродаж`.
-2. Отдельный запрос справочника «Номенклатура» и построение групп (ближайший родитель + полный путь).
-3. Запись `sales_1c.csv` (11 колонок, см. [DATA_CONTRACT.md](DATA_CONTRACT.md)) и `nomenclature_1c.csv` — только локально, каталог `1c_export/` в `.gitignore`.
-4. `load_vitrina` (pandas) → витрина + `product_group`; режим выручки `net`/`gross`.
-5. Для демо-запуска без 1С используется `load_sample_vitrina("sample_data.csv")` — синтетическая витрина с той же схемой.
+1. `export_from_1c` → COM → регистр «Выручка и себестоимость продаж» + справочник «Номенклатура».
+2. Локальные CSV в `1c_export/` (в `.gitignore`).
+3. `load_vitrina` → единая схема витрины; выручка по умолчанию **без НДС** ([ADR 0001](adr/0001-revenue-net.md)).
+4. Демо без 1С: `sample_data.csv` через `load_sample_vitrina`.
 
 ### 3.3. Аналитика
 
-- `filter_by_period` — единая политика периодов: при заданных границах строки без даты исключаются и об этом выпускается предупреждение.
-- Интенты собирают таблицу, готовую к `st.dataframe`/`st.plotly_chart`.
-- `compare_periods` — общее ядро интентов 2 и 4: `period1_value`, `period2_value`, `delta`, `delta_pct`, `direction`.
-- `dispatch_intent` валидирует JSON-DSL (имя интента, лишние/недостающие параметры) и вызывает функцию.
+- `filter_by_period` — единая политика периодов (строки без даты при заданных границах исключаются).
+- Фильтры: `product_filter`, `group_filter`, `min_base_revenue`, `only_drops`.
+- `dispatch_intent` валидирует имя интента и параметры по `INTENT_PARAMETERS`.
 
 ### 3.4. LLM-путь
 
-1. `app.py` собирает вопрос, историю диалога и профиль данных (строки, диапазон дат, товары/контрагенты).
-2. `llm_agent.build_messages` → системный промпт + история + вопрос → OpenAI-совместимый клиент (`openai`/`deepseek`/`ollama`).
-3. Ответ модели извлекается из текста (в т.ч. из ```json), валидируется Pydantic-моделями (discriminated union по `intent`, `extra="forbid"`); при ошибке — одна «починка» JSON.
-4. `to_dispatch_params` → `analytics.dispatch_intent` → DataFrame.
-5. Без провайдера (`LLM_PROVIDER=none`) используется `RuleBasedPlanner`; неоднозначный вопрос возвращает `clarification`, UI показывает уточнение.
-6. `check_schema_sync()` при старте приложения сверяет модели с `analytics.INTENT_PARAMETERS`; `docs/intent_schema.json` — та же схема для интеграций.
+1. UI собирает вопрос, историю и профиль данных.
+2. При включённой LLM — проверка `rate_limiter`; при исчерпании — офлайн-правила.
+3. Ответ модели → извлечение JSON → Pydantic → при ошибке одна «починка».
+4. `guard_decision` не даёт подменить запрос про возвраты антитопом.
+5. `to_dispatch_params` → `dispatch_intent` → DataFrame → таблица / Altair / сводка.
+6. `check_schema_sync()` сверяет Pydantic с `INTENT_PARAMETERS`; схема также в `docs/intent_schema.json`.
+
+Офлайн-правила (`RuleBasedPlanner`) — safety net без ключа API, не второй «движок расчётов».
 
 ### 3.5. Graceful degradation ([ADR 0007](adr/0007-graceful-degradation.md))
 
-Вопросы бывают неоднозначными и составными, а DSL — один интент на запрос. Поэтому сбой понимания не приводит к падению или бесконечному уточнению:
+1. Уточнение через Quick Replies; `clarification` выбирает полный вопрос или склейку.
+2. После 2 уточнений — детерминированный fallback без LLM.
+3. Если разобрать нельзя — понятный отказ, без трейсбека.
 
-1. **Уточнение:** `clarification.choose_clarified_text` решает, показывать в поле только вторую часть (полный вопрос) или склейку с исходным вопросом (фрагмент); спорный случай — LLM-классификатор, при ошибке — безопасная склейка.
-2. **Лимит:** `MAX_CLARIFICATIONS = 2`; после второго уточнения `clarification.force_interpretation` разбирает вопрос **детерминированными правилами** (без LLM) и показывает результат с плашкой «Уточнения исчерпаны — показываю как понял…».
-3. **Отказ:** если правила тоже не выбрали интент — понятное сообщение и список доступных вопросов; трейсбека нет.
-
-Составной запрос про два рейтинга («топ за 2023 и отдельно за 2024») поддерживается отдельным интентом **L4L** ([ADR 0008](adr/0008-compare-tops-intent.md)): одна сравнительная таблица со статусами, без multi-intent. Прочие составные сценарии по-прежнему сводятся к одному показателю с честной плашкой. Числа во всех уровнях считает только pandas.
+Сравнение двух топов — отдельный интент L4L ([ADR 0008](adr/0008-compare-tops-intent.md)).
 
 ## 4. Хранение
 
 | Объект | Где | В git |
 |---|---|---|
 | Синтетическая демо-витрина | `sample_data.csv` | да |
-| Реальная выгрузка 1С | `1c_export/*.csv` | нет (`.gitignore`) |
-| Excel-выгрузка | `тест.xlsx` | нет (`.gitignore`) |
-| Код | `*.py` в корне | да |
-| Документация | `docs/`, `progress.md`, `CHANGELOG.md` | да |
-| Временные профили/сессии | не хранятся | нет |
+| Реальная выгрузка 1С | `1c_export/*.csv` | нет |
+| Excel-выгрузка | локально | нет |
+| Код и публичная документация | корень, `docs/` | да |
+| Внутренний журнал разработки | `progress.md` (локально) | нет |
+| Лимиты LLM | `rate_limit.db` | нет |
 
 ## 5. Окружение
 
-| Компонент | Версия/факт |
+| Компонент | Факт |
 |---|---|
-| Python проекта | 3.12.14 (DSH runtime), pandas 3.0.1, numpy 2.3.5, openpyxl 3.1.5 |
-| Python для выгрузки 1С | 3.14, `pywin32` 312 (pandas отсутствует) |
-| 1С:Предприятие | 8.3.27.1688 |
-| Конфигурация | «Управление торговлей, редакция 11», 11.5.22.77 |
-| База | `<путь к базе 1С>` (файловая, `1Cv8.1CD` 2,77 ГБ) |
-| Лицензия | `C:\ProgramData\1C\licenses\*.lic` |
+| Python (приложение / CI) | 3.12+; зависимости — `requirements.txt` / `pyproject.toml` |
+| UI / аналитика | Streamlit, Altair, pandas, numpy, Pydantic v2 |
+| Выгрузка 1С | Windows, `pywin32`, платформа 8.3.23+, COM `V83.COMConnector` |
+| Конфигурация (проверено) | УТ 11.5 (файловая база; путь и учётные данные не публикуются) |
+| Контейнер | `Dockerfile` + `docker-compose.yml`, образ без 1С и без реальных выгрузок |
 
 ## 6. Решения (ADR)
 
 | ADR | Решение |
 |---|---|
-| [0001](adr/0001-revenue-net.md) | Выручка по умолчанию — без НДС; с НДС — отдельным режимом |
-| [0002](adr/0002-onec-direct-source.md) | Для периодической аналитики предпочтителен источник 1С, Excel — fallback |
-| [0003](adr/0003-product-groups.md) | Товарные группы — иерархия номенклатуры (ближайшая группа + путь), эвристика — fallback |
-| [0004](adr/0004-llm-json-dsl.md) | Граница LLM → код — JSON-DSL, реестр интентов и `dispatch_intent` без жёсткой зависимости от Pydantic |
-| [0005](adr/0005-onec-export-split.md) | Выгрузка 1С и анализ разделены на два шага; CSV — контракт |
-| [0006](adr/0006-llm-providers.md) | LLM-провайдеры через OpenAI-совместимый протокол; офлайн-правила как фолбэк |
-| [0007](adr/0007-graceful-degradation.md) | Graceful degradation: умный текст уточнения, лимит 2 уточнения, детерминированный fallback, честная плашка |
-| [0008](adr/0008-compare-tops-intent.md) | Сравнение топов двух периодов (L4L) — один интент вместо multi-intent |
+| [0001](adr/0001-revenue-net.md) | Выручка по умолчанию без НДС |
+| [0002](adr/0002-onec-direct-source.md) | Для периодики предпочтителен источник 1С |
+| [0003](adr/0003-product-groups.md) | Группы = иерархия номенклатуры |
+| [0004](adr/0004-llm-json-dsl.md) | Граница LLM → код: JSON-DSL + `dispatch_intent` |
+| [0005](adr/0005-onec-export-split.md) | ETL и UI разделены; CSV — контракт |
+| [0006](adr/0006-llm-providers.md) | OpenAI-совместимые провайдеры + офлайн-правила |
+| [0007](adr/0007-graceful-degradation.md) | Лимит уточнений и детерминированный fallback |
+| [0008](adr/0008-compare-tops-intent.md) | Сравнение топов (L4L) одним интентом |
 
-## 7. Ограничения и точки роста
+## 7. Ограничения MVP и точки роста
 
-1. **Даты:** в Excel-выгрузке периода нет; источник 1С обязателен для полной динамики.
-2. **Имена товаров:** Excel-представления обрезаны; канонические имена — из справочника 1С.
-3. **`pywin32`:** не входит в рабочий Python; либо установить (`pip install pywin32`), либо использовать раздельные интерпретаторы (текущая схема).
-4. **Права на файловую базу:** 1С нужны lock-файлы; в ограниченной песочнице используется копия базы.
-5. **Товарные группы:** в выгрузке Excel их нет; для Excel-режима остаётся эвристика.
-6. **Единая схема:** при появлении новых источников (ERP, КА) расширять `COL_*` и `OUTPUT_COLUMNS`, не размазывая позиции по коду.
-7. **Составные запросы:** один DSL-интент на запрос; сравнение двух рейтингов покрыто отдельным интентом L4L ([ADR 0008](adr/0008-compare-tops-intent.md)), остальные multi-intent-сценарии (например, топ + динамика в одном ответе) не поддерживаются.
+1. Плоская раскладка модулей в корне репозитория (без `src/`) — осознанный MVP.
+2. Офлайн-планировщик на правилах/регулярках растёт вместе с формулировками — только fallback.
+3. Rate limit демо: `session_id` в браузере и кнопка сброса ослабляют защиту на публичном хосте.
+4. Excel-выгрузка слабее снимка 1С по датам и группам.
+5. Составные запросы кроме L4L-топов не разбиваются на несколько интентов.
 
-**Точки расширения**
+**Расширение**
 
-- Новый интент → функция + запись в `INTENT_REGISTRY`/`INTENT_PARAMETERS` + Pydantic-модель в `llm_agent.py`.
-- Другой LLM-провайдер → переменные окружения (`LLM_PROVIDER`/`LLM_BASE_URL`), без правки кода.
-- Другая метрика → расширить `METRICS` и обработку в агрегациях.
-- Новый источник → функция `load_*`, возвращающая витрину с тем же контрактом.
-- UI → `app.py`; LLM-инструмент для LangChain → обёртка над `dispatch_intent`/`parse_plan_json`.
+- Новый интент → функция + `INTENT_REGISTRY`/`INTENT_PARAMETERS` + Pydantic + промпт/правила + тест.
+- Другой LLM → переменные окружения, без правки кода.
+- Новый источник → `load_*` с тем же контрактом витрины.
+- LangChain StructuredTool → тонкая обёртка над `parse_plan_json` / `dispatch_intent`.
