@@ -230,13 +230,17 @@ def main() -> int:
             "intent": "group_dynamics",
             "params": {"period1": ["2023-01-01", "2023-06-30"], "period2": ["2023-07-01", "2023-12-31"]},
         },
+        {
+            "intent": "compare_top_products",
+            "params": {"period1": ["2023-01-01", "2023-12-31"], "period2": ["2024-01-01", "2024-12-31"], "top_n": 5},
+        },
     ]
     for payload in dsl_payloads:
         result = dispatch_intent(payload["intent"], vitrina, payload["params"])
         print(f"  {payload['intent']:22s} -> {result.shape[0]} строк, колонки {list(result.columns)}")
     _check(
         set(INTENT_REGISTRY) == {p["intent"] for p in dsl_payloads},
-        "все 5 интентов доступны через диспетчер",
+        "все 6 интентов доступны через диспетчер",
     )
     try:
         dispatch_intent("unknown_intent", vitrina)

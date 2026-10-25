@@ -70,6 +70,10 @@ __all__ = [
     "PERIOD_END",
     "ROWS_COUNT",
     "UNDATED_ROWS",
+    "RANK_P1",
+    "RANK_P2",
+    "STATUS",
+    "STATUS_SAME",
     "CHECK",
     "VALUE",
     "PRODUCT_GROUP",
@@ -85,6 +89,7 @@ __all__ = [
     "dispatch_intent",
     "filter_by_period",
     "get_top_bottom_products",
+    "compare_top_products",
     "get_timeseries",
     "compare_periods",
     "get_counterparty_dynamics",
@@ -127,6 +132,14 @@ PERIOD_START: Final[str] = "period_start"
 PERIOD_END: Final[str] = "period_end"
 ROWS_COUNT: Final[str] = "rows_count"
 UNDATED_ROWS: Final[str] = "undated_rows"
+RANK_P1: Final[str] = "rank_p1"
+"""Место товара в топе первого периода (``NA``, если товар не вошёл в топ)."""
+RANK_P2: Final[str] = "rank_p2"
+"""Место товара в топе второго периода (``NA``, если товар не вошёл в топ)."""
+STATUS: Final[str] = "status"
+"""Статус товара в сравнении топов: ``new`` / ``lost`` / ``up`` / ``down`` / ``same``."""
+STATUS_SAME: Final[str] = "same"
+"""Товар остался в топе на том же месте в обоих периодах."""
 CHECK: Final[str] = "check"
 VALUE: Final[str] = "value"
 
@@ -231,6 +244,138 @@ def get_top_bottom_products(
     table.insert(0, RANK, range(1, len(table) + 1))
     table[SHARE_PCT] = (table[metric] / total * 100.0) if total else np.nan
     return table.loc[:, [RANK, PRODUCT, metric, SHARE_PCT]]
+
+
+def compare_top_products(
+    df: pd.DataFrame,
+    period1: Period,
+    period2: Period,
+    top_n: int = 5,
+    metric: MetricName = REVENUE,
+) -> pd.DataFrame:
+    """Интент 6 (L4L): сравнить топ-товары двух периодов.
+
+    Like-for-Like: берутся топ-N товаров за каждый период (по сумме метрики),
+    объединяются по названию, после чего видно, кто удержал место, кто поднялся
+    или опустился, кто вошёл в топ, а кто выпал.
+
+    Parameters
+    ----------
+    df:
+        Очищенный DataFrame витрины.
+    period1, period2:
+        Пары дат ``(начало, конец)`` включительно; каждая дата -- ISO-строка,
+        строка ``ДД.ММ.ГГГГ``, ``date`` или ``Timestamp``.
+    top_n:
+        Размер топа каждого периода (целое > 0), по умолчанию 5.
+    metric:
+        ``"revenue"`` (выручка без НДС) или ``"quantity"``.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Колонки ``rank_p1``, ``rank_p2``, ``product``, ``<metric>_p1``,
+        ``<metric>_p2``, ``delta``, ``status``. ``rank_p1``/``rank_p2`` --
+        nullable ``Int64`` (``NA``, если товар не входил в топ периода), суммы --
+        ``float64``, ``delta = <metric>_p2 - <metric>_p1`` (``NaN``, если товара
+        не было в топе одного из периодов), ``status``:
+
+        * ``new`` -- товар вошёл в топ во втором периоде;
+        * ``lost`` -- товар выпал из топа во втором периоде;
+        * ``up`` -- остался в топе, место улучшилось;
+        * ``down`` -- остался в топе, место ухудшилось;
+        * ``same`` -- остался на том же месте.
+
+    Notes
+    -----
+    Возвраты и сторно (отрицательная выручка) не отбрасываются -- см.
+    «Бизнес-правила» в ``docs/DATA_CONTRACT.md``. Строки с нулевой выручкой
+    могут попасть в топ, только если товаров с ненулевой выручкой меньше ``top_n``.
+
+    Examples
+    --------
+    >>> compare_top_products(df, ("2023-01-01", "2023-12-31"),       # doctest: +SKIP
+    ...                      ("2024-01-01", "2024-12-31"), top_n=5)
+    """
+    metric = _check_metric(metric)
+    top_n = _positive_int(top_n, "top_n")
+    _ensure_columns(df, (DATE, PRODUCT, metric))
+    p1_start, p1_end = _as_period(period1, "period1")
+    p2_start, p2_end = _as_period(period2, "period2")
+
+    value_p1 = f"{metric}_p1"
+    value_p2 = f"{metric}_p2"
+    columns = [RANK_P1, RANK_P2, PRODUCT, value_p1, value_p2, DELTA, STATUS]
+
+    first = _top_products_table(
+        df, metric, p1_start, p1_end, top_n, rank_name=RANK_P1, value_name=value_p1
+    )
+    second = _top_products_table(
+        df, metric, p2_start, p2_end, top_n, rank_name=RANK_P2, value_name=value_p2
+    )
+    if first.empty and second.empty:
+        return pd.DataFrame(
+            {
+                RANK_P1: pd.Series(dtype="Int64"),
+                RANK_P2: pd.Series(dtype="Int64"),
+                PRODUCT: pd.Series(dtype="string"),
+                value_p1: pd.Series(dtype="float64"),
+                value_p2: pd.Series(dtype="float64"),
+                DELTA: pd.Series(dtype="float64"),
+                STATUS: pd.Series(dtype="string"),
+            }
+        ).loc[:, columns]
+
+    table = first.merge(second, on=PRODUCT, how="outer")
+    table[DELTA] = table[value_p2] - table[value_p1]
+    table[STATUS] = _compare_top_status(table[RANK_P1], table[RANK_P2])
+    table[RANK_P1] = table[RANK_P1].astype("Int64")
+    table[RANK_P2] = table[RANK_P2].astype("Int64")
+    table = table.sort_values(
+        [RANK_P2, RANK_P1, PRODUCT],
+        ascending=[True, True, True],
+        na_position="last",
+        kind="stable",
+    ).reset_index(drop=True)
+    return table.loc[:, columns]
+
+
+def _top_products_table(
+    df: pd.DataFrame,
+    metric: str,
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+    top_n: int,
+    *,
+    rank_name: str,
+    value_name: str,
+) -> pd.DataFrame:
+    """Топ-N товаров за период: колонки ``rank_name``, ``product``, ``value_name``."""
+    grouped = _sum_by_dimension(df, PRODUCT, metric, start, end)
+    grouped = grouped[grouped.notna()]
+    if grouped.empty:
+        return pd.DataFrame(
+            {
+                rank_name: pd.Series(dtype="int64"),
+                PRODUCT: pd.Series(dtype="string"),
+                value_name: pd.Series(dtype="float64"),
+            }
+        )
+    top = grouped.sort_values(ascending=False, kind="stable").head(top_n)
+    table = top.rename(value_name).reset_index()
+    table.insert(0, rank_name, range(1, len(table) + 1))
+    return table.loc[:, [rank_name, PRODUCT, value_name]]
+
+
+def _compare_top_status(rank_p1: pd.Series, rank_p2: pd.Series) -> pd.Series:
+    """Статус товара в L4L-сравнении топов."""
+    status = pd.Series(STATUS_SAME, index=rank_p1.index, dtype="object")
+    status[rank_p1.isna()] = TREND_NEW
+    status[rank_p2.isna()] = TREND_LOST
+    both = rank_p1.notna() & rank_p2.notna()
+    status[both & (rank_p2 < rank_p1)] = TREND_UP
+    status[both & (rank_p2 > rank_p1)] = TREND_DOWN
+    return status.astype("string")
 
 
 def get_timeseries(
@@ -771,6 +916,7 @@ def get_data_quality(df: pd.DataFrame) -> pd.DataFrame:
 # --------------------------------------------------------------------------- #
 INTENT_REGISTRY: Final[dict[str, Callable[..., pd.DataFrame]]] = {
     "top_bottom_products": get_top_bottom_products,
+    "compare_top_products": compare_top_products,
     "timeseries": get_timeseries,
     "counterparty_dynamics": get_counterparty_dynamics,
     "group_dynamics": get_group_dynamics,
@@ -780,6 +926,7 @@ INTENT_REGISTRY: Final[dict[str, Callable[..., pd.DataFrame]]] = {
 
 INTENT_PARAMETERS: Final[dict[str, tuple[str, ...]]] = {
     "top_bottom_products": ("metric", "limit", "ascending", "start_date", "end_date"),
+    "compare_top_products": ("period1", "period2", "top_n", "metric"),
     "timeseries": ("freq", "metric", "agg", "start_date", "end_date", "fill_gaps"),
     "counterparty_dynamics": (
         "period1",

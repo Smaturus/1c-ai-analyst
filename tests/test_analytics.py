@@ -23,9 +23,13 @@ from analytics import (
     P2_VALUE,
     PRODUCT,
     QUANTITY,
+    RANK_P1,
+    RANK_P2,
     REVENUE,
     ROWS_COUNT,
+    STATUS,
     VALUE,
+    compare_top_products,
     dispatch_intent,
     filter_by_period,
     get_counterparty_dynamics,
@@ -347,3 +351,118 @@ def test_registry_and_parameters_are_in_sync() -> None:
     """Реестр интентов и словарь допустимых параметров описывают одно и то же."""
     assert set(INTENT_REGISTRY) == set(INTENT_PARAMETERS)
     assert "only_drops" in INTENT_PARAMETERS["counterparty_dynamics"]
+    assert "compare_top_products" in INTENT_REGISTRY
+
+
+# --------------------------------------------------------------------------- #
+# Интент 6: сравнение топов двух периодов (L4L)
+# --------------------------------------------------------------------------- #
+def _l4l_frame() -> pd.DataFrame:
+    """Витрина для L4L: товар C выпадает, D появляется, A и B меняются местами."""
+    return pd.DataFrame(
+        [
+            ("2023-01-10", "A", "G", "X", 10, 100.0),
+            ("2023-01-10", "B", "G", "X", 20, 200.0),
+            ("2023-01-10", "C", "G", "X", 30, 300.0),
+            ("2024-02-10", "A", "G", "X", 40, 400.0),
+            ("2024-02-10", "B", "G", "X", 50, 150.0),
+            ("2024-02-10", "D", "G", "X", 60, 500.0),
+        ],
+        columns=[DATE, PRODUCT, "product_group", COUNTERPARTY, QUANTITY, REVENUE],
+    ).assign(**{DATE: lambda frame: pd.to_datetime(frame[DATE])})
+
+
+def test_compare_top_products_statuses_and_order() -> None:
+    """L4L: new/lost/up/down и порядок строк по месту во втором периоде."""
+    result = compare_top_products(_l4l_frame(), PERIOD_2023, PERIOD_2024, top_n=3)
+
+    assert list(result.columns) == [
+        RANK_P1,
+        RANK_P2,
+        PRODUCT,
+        f"{REVENUE}_p1",
+        f"{REVENUE}_p2",
+        DELTA,
+        STATUS,
+    ]
+    assert list(result[PRODUCT]) == ["D", "A", "B", "C"]
+    assert dict(zip(result[PRODUCT], result[STATUS])) == {
+        "D": "new",
+        "A": "up",
+        "B": "down",
+        "C": "lost",
+    }
+    # Товар D не входил в топ 2023, товар C не вошёл в топ 2024.
+    assert pd.isna(result.loc[result[PRODUCT] == "D", RANK_P1]).all()
+    assert pd.isna(result.loc[result[PRODUCT] == "C", RANK_P2]).all()
+
+
+def test_compare_top_products_values_and_delta() -> None:
+    """Суммы и delta считаются по периодам; у new/lost delta = NaN (нет базы)."""
+    result = compare_top_products(_l4l_frame(), PERIOD_2023, PERIOD_2024, top_n=3)
+    by_product = result.set_index(PRODUCT)
+
+    assert by_product.loc["A", f"{REVENUE}_p1"] == 100.0
+    assert by_product.loc["A", f"{REVENUE}_p2"] == 400.0
+    assert by_product.loc["A", DELTA] == 300.0
+    assert by_product.loc["B", DELTA] == -50.0
+    assert pd.isna(by_product.loc["D", DELTA])
+    assert pd.isna(by_product.loc["C", DELTA])
+
+
+def test_compare_top_products_respects_top_n() -> None:
+    """top_n ограничивает оба рейтинга: при top_n=2 наборы полностью меняются."""
+    result = compare_top_products(_l4l_frame(), PERIOD_2023, PERIOD_2024, top_n=2)
+
+    assert len(result) == 4  # B, C (2023) + D, A (2024)
+    assert dict(zip(result[PRODUCT], result[STATUS])) == {
+        "D": "new",
+        "A": "new",
+        "B": "lost",
+        "C": "lost",
+    }
+
+
+def test_compare_top_products_by_quantity() -> None:
+    """Метрика quantity меняет рейтинги и имена колонок, но не логику статусов."""
+    result = compare_top_products(
+        _l4l_frame(), PERIOD_2023, PERIOD_2024, top_n=3, metric=QUANTITY
+    )
+
+    assert f"{QUANTITY}_p1" in result.columns
+    assert f"{QUANTITY}_p2" in result.columns
+    # По количеству в 2023 лидер C (30), в 2024 — D (60); C выпадает из топа.
+    assert list(result[PRODUCT])[:2] == ["D", "B"]
+    assert dict(zip(result[PRODUCT], result[STATUS]))["C"] == "lost"
+
+
+def test_compare_top_products_empty_period_keeps_contract() -> None:
+    """Пустые периоды — пустая таблица с ожидаемыми колонками и типами."""
+    result = compare_top_products(
+        _l4l_frame(), ("2030-01-01", "2030-12-31"), ("2031-01-01", "2031-12-31")
+    )
+
+    assert result.empty
+    assert list(result.columns) == [
+        RANK_P1,
+        RANK_P2,
+        PRODUCT,
+        f"{REVENUE}_p1",
+        f"{REVENUE}_p2",
+        DELTA,
+        STATUS,
+    ]
+    assert str(result[RANK_P1].dtype) == "Int64"
+
+
+def test_compare_top_products_via_dispatch() -> None:
+    """Интент доступен через dispatch_intent; без второго периода — ValueError."""
+    result = dispatch_intent(
+        "compare_top_products",
+        _l4l_frame(),
+        {"period1": PERIOD_2023, "period2": PERIOD_2024, "top_n": 3},
+    )
+    assert len(result) == 4
+
+    with pytest.raises(ValueError, match="не хватает обязательных параметров"):
+        dispatch_intent("compare_top_products", _l4l_frame(), {"period1": PERIOD_2023})

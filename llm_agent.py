@@ -65,6 +65,8 @@ __all__ = [
     "INTENT_DESCRIPTIONS",
     "INTENT_EXAMPLES",
     "ClarificationPlan",
+    "CompareTopsParams",
+    "CompareTopsPlan",
     "IntentDSL",
     "LLMSettings",
     "LLMClient",
@@ -88,6 +90,7 @@ __all__ = [
 # --------------------------------------------------------------------------- #
 INTENT_NAMES: Final[tuple[str, ...]] = (
     "top_bottom_products",
+    "compare_top_products",
     "timeseries",
     "counterparty_dynamics",
     "group_dynamics",
@@ -96,6 +99,7 @@ INTENT_NAMES: Final[tuple[str, ...]] = (
 
 INTENT_PARAMETER_NAMES: Final[dict[str, tuple[str, ...]]] = {
     "top_bottom_products": ("metric", "limit", "ascending", "start_date", "end_date"),
+    "compare_top_products": ("period1", "period2", "top_n", "metric"),
     "timeseries": ("freq", "metric", "agg", "start_date", "end_date", "fill_gaps"),
     "counterparty_dynamics": (
         "period1",
@@ -121,6 +125,7 @@ INTENT_PARAMETER_NAMES: Final[dict[str, tuple[str, ...]]] = {
 
 INTENT_DESCRIPTIONS: Final[dict[str, str]] = {
     "top_bottom_products": "лучшие/худшие товары за период (топ или антитоп).",
+    "compare_top_products": "сравнение топ-товаров двух периодов (L4L): кто вошёл в топ, кто выпал, кто поднялся или опустился.",
     "timeseries": "динамика продаж по месяцам/кварталам/годам (временной ряд).",
     "counterparty_dynamics": "сравнение контрагентов в двух периодах: кто вырос/упал (only_drops оставляет только падения).",
     "group_dynamics": "сравнение товарных групп в двух периодах: что просело/выросло (only_drops оставляет только падения).",
@@ -129,6 +134,7 @@ INTENT_DESCRIPTIONS: Final[dict[str, str]] = {
 
 INTENT_EXAMPLES: Final[dict[str, str]] = {
     "top_bottom_products": "Какие 5 товаров продаются хуже остальных за 2024 год?",
+    "compare_top_products": "Сравни топ-5 товаров за 2023 и 2024 годы",
     "timeseries": "Как менялись продажи по месяцам в 2023 году?",
     "counterparty_dynamics": "У каких контрагентов упали продажи в 2024 по сравнению с 2023?",
     "group_dynamics": "Какие товарные группы просели в 2024 по сравнению с 2023?",
@@ -194,9 +200,17 @@ class TopBottomParams(_Params):
     end_date: DateValue | None = None
 
 
+class CompareTopsParams(_Params):
+    """Параметры интента «сравнение топов» (L4L)."""
+
+    period1: PeriodPair
+    period2: PeriodPair
+    top_n: int = Field(default=5, ge=1, le=1000)
+    metric: MetricName = "revenue"
+
+
 class TimeseriesParams(_Params):
     """Параметры интента «временной ряд»."""
-
     freq: FreqName = "M"
     metric: MetricName = "revenue"
     agg: Literal["sum", "mean", "count"] = "sum"
@@ -255,6 +269,14 @@ class TopBottomPlan(BaseModel):
     params: TopBottomParams = Field(default_factory=TopBottomParams)
 
 
+class CompareTopsPlan(BaseModel):
+    """DSL интента 6: сравнение топ-товаров двух периодов (L4L)."""
+
+    model_config = ConfigDict(extra="forbid")
+    intent: Literal["compare_top_products"] = "compare_top_products"
+    params: CompareTopsParams
+
+
 class TimeseriesPlan(BaseModel):
     """DSL интента 3: временной ряд."""
 
@@ -299,6 +321,7 @@ class ClarificationPlan(BaseModel):
 
 IntentDSL = Annotated[
     TopBottomPlan
+    | CompareTopsPlan
     | TimeseriesPlan
     | CounterpartyDynamicsPlan
     | GroupDynamicsPlan
@@ -463,6 +486,9 @@ SYSTEM_PROMPT: Final[str] = f"""Ты — переводчик вопросов �
 ПРИМЕРЫ
 Q: Какие 5 товаров продаются хуже остальных за 2024 год?
 A: {{"intent":"top_bottom_products","params":{{"metric":"revenue","limit":5,"ascending":true,"start_date":"2024-01-01","end_date":"2024-12-31"}}}}
+
+Q: Сравни топ-5 товаров за 2023 и 2024 годы.
+A: {{"intent":"compare_top_products","params":{{"period1":["2023-01-01","2023-12-31"],"period2":["2024-01-01","2024-12-31"],"top_n":5,"metric":"revenue"}}}}
 
 Q: Как менялись продажи по месяцам в 2023 году?
 A: {{"intent":"timeseries","params":{{"freq":"M","metric":"revenue","start_date":"2023-01-01","end_date":"2023-12-31"}}}}
@@ -1041,7 +1067,25 @@ class RuleBasedPlanner:
                 params: dict[str, Any] = {"freq": freq, "metric": metric}
                 params.update(_dates_to_bounds(periods))
                 return self._make("timeseries", params, source="rules")
-            # 5. Топ/антитоп: «топ», «первые», «лучшие/худшие», «лидеры/
+            # 5. Сравнение топов двух периодов (L4L): «сравни топ-5 за 2023 и 2024».
+            # Запросы про топ всегда сначала проверяем на два периода: если их два,
+            # пользователь почти наверняка просит сравнить рейтинги, а не один топ
+            # за суммарный диапазон.
+            if len(periods) >= 2 and re.search(
+                r"топ|top|лучш|худш|лидер|аутсайд|продают|рейтинг|первые|наибольш|наименьш",
+                lowered,
+            ):
+                return self._make(
+                    "compare_top_products",
+                    {
+                        "period1": list(periods[0]),
+                        "period2": list(periods[1]),
+                        "top_n": _extract_limit(lowered),
+                        "metric": metric,
+                    },
+                    source="rules",
+                )
+            # 6. Топ/антитоп: «топ», «первые», «лучшие/худшие», «лидеры/
             # аутсайдеры», «продаются хуже/лучше».
             if re.search(
                 r"топ|top|первые|лучш\w*|худш\w*|лидер\w*|аутсайд\w*|"
@@ -1077,6 +1121,7 @@ class RuleBasedPlanner:
         """Собрать решение из имени интента и параметров (с валидацией моделью)."""
         model_name = {
             "top_bottom_products": TopBottomPlan,
+            "compare_top_products": CompareTopsPlan,
             "timeseries": TimeseriesPlan,
             "counterparty_dynamics": CounterpartyDynamicsPlan,
             "group_dynamics": GroupDynamicsPlan,

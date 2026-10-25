@@ -620,3 +620,42 @@ def test_relative_pair_without_comparison_keeps_mention_order() -> None:
     assert decision.intent == "counterparty_dynamics", decision.error
     assert decision.params["period1"] == (date(2025, 1, 1), date(2025, 12, 31))
     assert decision.params["period2"] == (date(2024, 1, 1), date(2024, 12, 31))
+
+
+# --------------------------------------------------------------------------- #
+# Интент 6: сравнение топов двух периодов (L4L)
+# --------------------------------------------------------------------------- #
+def test_compare_tops_by_rules() -> None:
+    """«Сравни топ-5 за 2023 и 2024» → compare_top_products с двумя периодами."""
+    decision = _plan("Сравни топ-5 товаров за 2023 и 2024 годы")
+
+    assert decision.intent == "compare_top_products", decision.error
+    assert decision.params["period1"] == PERIOD_2023
+    assert decision.params["period2"] == PERIOD_2024
+    assert decision.params["top_n"] == 5
+    assert decision.params["metric"] == "revenue"
+
+
+def test_compare_tops_for_two_separate_ratings() -> None:
+    """«топ-5 ... и топ-5 ...» (два рейтинга) тоже даёт compare_top_products."""
+    decision = _plan("топ-5 товаров за 2023 и топ-5 товаров за 2024")
+
+    assert decision.intent == "compare_top_products", decision.error
+    assert decision.params["period1"] == PERIOD_2023
+    assert decision.params["period2"] == PERIOD_2024
+
+
+def test_single_period_top_stays_top_bottom() -> None:
+    """Один период — по-прежнему обычный топ, а не L4L-сравнение."""
+    decision = _plan("Топ-5 товаров по выручке за 2023 год")
+
+    assert decision.intent == "top_bottom_products", decision.error
+    assert decision.params["limit"] == 5
+
+
+def test_compare_tops_requires_two_periods_in_dsl() -> None:
+    """В DSL у compare_top_products обязательны оба периода."""
+    with pytest.raises(ValidationError):
+        parse_plan_json(
+            '{"intent":"compare_top_products","params":{"period1":["2023-01-01","2023-12-31"]}}'
+        )

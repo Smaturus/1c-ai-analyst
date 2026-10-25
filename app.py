@@ -40,8 +40,11 @@ from analytics import (
     PERIOD,
     PRODUCT,
     QUANTITY,
+    RANK_P1,
+    RANK_P2,
     REVENUE,
     ROWS_COUNT,
+    STATUS,
     VALUE,
     dispatch_intent,
     get_data_quality,
@@ -79,6 +82,7 @@ DATASET_1C = "1c_export/sales_1c.csv"
 
 INTENT_TITLES: dict[str, str] = {
     "top_bottom_products": "Топ/антитоп товаров",
+    "compare_top_products": "Сравнение топов (L4L)",
     "timeseries": "Временной ряд продаж",
     "counterparty_dynamics": "Динамика контрагентов",
     "group_dynamics": "Срез по товарным группам",
@@ -243,6 +247,9 @@ COLUMN_LABELS: dict[str, str] = {
     "share_pct": "Доля, %",
     "delta_pct": "Изменение, %",
     "direction": "Направление",
+    "rank_p1": "Место в периоде 1",
+    "rank_p2": "Место в периоде 2",
+    "status": "Статус",
     "rows_count": "Строк в выборке",
     "undated_rows": "Строк без даты",
 }
@@ -286,6 +293,22 @@ def _number_column(label: str, *, step: float | None = None) -> Any:
     return st.column_config.NumberColumn(label, **options)
 
 
+def _period_short_label(period: Any) -> str:
+    """Короткая подпись периода для заголовков L4L: «2023», «03.2024», «01.2024–06.2024»."""
+    try:
+        start, end = period
+        start_ts = pd.Timestamp(start)
+        end_ts = pd.Timestamp(end)
+        if (start_ts.month, start_ts.day) == (1, 1) and (end_ts.month, end_ts.day) == (12, 31):
+            if start_ts.year == end_ts.year:
+                return str(start_ts.year)
+        if (start_ts.year, start_ts.month) == (end_ts.year, end_ts.month):
+            return start_ts.strftime("%m.%Y")
+        return f"{start_ts.strftime('%d.%m.%Y')}–{end_ts.strftime('%d.%m.%Y')}"
+    except (TypeError, ValueError):
+        return ""
+
+
 def _column_labels(decision: AgentDecision) -> dict[str, str]:
     """Русские подписи столбцов результата (JSON-DSL виден только в деталях)."""
     params = decision.params or {}
@@ -298,10 +321,16 @@ def _column_labels(decision: AgentDecision) -> dict[str, str]:
         labels["period1_value"] = _period_value_label(
             params["period1"], unit, f"Период 1, {unit}"
         )
+        short1 = _period_short_label(params["period1"])
+        labels[RANK_P1] = f"Место {short1}".strip()
+        labels[f"{metric}_p1"] = f"{labels.get(metric, metric)} ({short1})" if short1 else labels.get(metric, metric)
     if "period2" in params:
         labels["period2_value"] = _period_value_label(
             params["period2"], unit, f"Период 2, {unit}"
         )
+        short2 = _period_short_label(params["period2"])
+        labels[RANK_P2] = f"Место {short2}".strip()
+        labels[f"{metric}_p2"] = f"{labels.get(metric, metric)} ({short2})" if short2 else labels.get(metric, metric)
     labels["delta"] = f"Изменение, {unit}"
     return labels
 
@@ -323,7 +352,21 @@ def build_result_table(decision: AgentDecision, result: pd.DataFrame) -> pd.Data
     if DIRECTION in display.columns:
         # Слова «рост/падение» вместо технических up/down; сортировка по тексту остаётся.
         display[DIRECTION] = display[DIRECTION].map(_direction_label)
+    if STATUS in display.columns:
+        # Статусы L4L: цветной маркер + русская подпись; сортировка по тексту.
+        display[STATUS] = display[STATUS].map(_status_label)
     return display
+
+
+def _status_label(value: Any) -> str:
+    """Человекочитаемый статус L4L-сравнения с цветным маркером."""
+    return {
+        "new": "🔵 вошёл в топ",
+        "lost": "🔴 выпал из топа",
+        "up": "🟢 поднялся",
+        "down": "🟠 опустился",
+        "same": "⚪ на том же месте",
+    }.get(str(value), str(value))
 
 
 def build_column_config(decision: AgentDecision, result: pd.DataFrame) -> dict[str, Any]:
@@ -349,13 +392,19 @@ def build_column_config(decision: AgentDecision, result: pd.DataFrame) -> dict[s
             )
         elif column in ("period_start", "period_end"):
             config[column] = st.column_config.DateColumn(label, format="DD.MM.YYYY")
-        elif column == REVENUE or column in ("period1_value", "period2_value", DELTA):
+        elif column == REVENUE or column in (
+            "period1_value",
+            "period2_value",
+            DELTA,
+            f"{metric}_p1",
+            f"{metric}_p2",
+        ):
             config[column] = _number_column(label, step=money_step)
         elif column == QUANTITY:
             config[column] = _number_column(label)
         elif column in ("share_pct", "delta_pct"):
             config[column] = _number_column(label, step=0.01)
-        elif column in ("rank", ROWS_COUNT, "undated_rows"):
+        elif column in ("rank", RANK_P1, RANK_P2, ROWS_COUNT, "undated_rows"):
             config[column] = _number_column(label, step=1)
         else:
             config[column] = st.column_config.TextColumn(label)
@@ -437,7 +486,49 @@ def build_summary(decision: AgentDecision, result: pd.DataFrame) -> str:
             f"количество: {format_quantity(row[QUANTITY])} {QUANTITY_UNIT}; "
             f"строк в выборке: {rows}; строк без даты: {int(row.get('undated_rows', 0))}."
         )
+    if intent == "compare_top_products":
+        return _compare_tops_summary(result, params, metric, unit)
     return f"Получено строк: {len(result)}."
+
+
+def _compare_tops_summary(
+    result: pd.DataFrame,
+    params: dict[str, Any],
+    metric: str,
+    unit: str,
+) -> str:
+    """Сводка L4L-сравнения: сколько удержали/вошли/выпали и самый заметный рост."""
+    top_n = int(params.get("top_n", 5))
+    statuses = result[STATUS].astype(str) if STATUS in result.columns else pd.Series(dtype=str)
+    counts = statuses.value_counts()
+    same = int(counts.get("same", 0))
+    up = int(counts.get("up", 0))
+    down = int(counts.get("down", 0))
+    new = int(counts.get("new", 0))
+    lost = int(counts.get("lost", 0))
+    parts = [
+        f"Сравнение топ-{top_n}: удержали место — {same}, поднялись — {up}, опустились — {down}, "
+        f"вошли в топ — {new}, выпали — {lost}."
+    ]
+    value_p1 = f"{metric}_p1"
+    value_p2 = f"{metric}_p2"
+    if DELTA in result.columns and result[DELTA].notna().any():
+        growth = result.loc[result[DELTA].idxmax()]
+        parts.append(
+            f"Наибольший рост: «{growth[PRODUCT]}» (+{format_metric(growth[DELTA], metric)} {unit}"
+            f" — {format_metric(growth[value_p1], metric)} → {format_metric(growth[value_p2], metric)} {unit})."
+        )
+    if new:
+        newcomer = result.loc[result[STATUS].astype(str) == "new"].iloc[0]
+        parts.append(
+            f"Новичок топа: «{newcomer[PRODUCT]}» — {format_metric(newcomer[value_p2], metric)} {unit}."
+        )
+    if lost:
+        outsider = result.loc[result[STATUS].astype(str) == "lost"].iloc[0]
+        parts.append(
+            f"Выпал из топа: «{outsider[PRODUCT]}» (было {format_metric(outsider[value_p1], metric)} {unit})."
+        )
+    return " ".join(parts)
 
 
 # --------------------------------------------------------------------------- #
@@ -575,6 +666,50 @@ def build_chart(decision: AgentDecision, result: pd.DataFrame) -> alt.Chart | No
                 )
             )
         return chart.properties(height=_chart_height(len(result)))
+
+    if intent == "compare_top_products":
+        value_p1 = f"{metric}_p1"
+        value_p2 = f"{metric}_p2"
+        if (
+            PRODUCT not in result.columns
+            or value_p1 not in result.columns
+            or value_p2 not in result.columns
+        ):
+            return None
+        data = result.copy()
+        order = [str(item) for item in data[PRODUCT].tolist()]
+        label_p1 = labels.get(value_p1, value_p1)
+        label_p2 = labels.get(value_p2, value_p2)
+        # Wide -> long: два бара рядом (grouped bar) по каждому товару.
+        melted = data.melt(
+            id_vars=[PRODUCT],
+            value_vars=[value_p1, value_p2],
+            var_name="comparison_period",
+            value_name=metric,
+        )
+        melted["comparison_period"] = melted["comparison_period"].map(
+            {value_p1: label_p1, value_p2: label_p2}
+        )
+        return (
+            alt.Chart(melted)
+            .mark_bar()
+            .encode(
+                x=alt.X(
+                    PRODUCT,
+                    type="nominal",
+                    title=labels.get(PRODUCT, PRODUCT),
+                    sort=order,
+                ),
+                xOffset=alt.XOffset(
+                    "comparison_period",
+                    sort=[label_p1, label_p2],
+                    title="Период",
+                ),
+                y=alt.Y(metric, type="quantitative", title=metric_title),
+                color=alt.Color("comparison_period", type="nominal", title="Период"),
+            )
+            .properties(height=_chart_height(len(result)))
+        )
 
     if intent == "timeseries":
         if PERIOD not in result.columns or metric not in result.columns:

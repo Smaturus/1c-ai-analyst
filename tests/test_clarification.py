@@ -192,12 +192,12 @@ def test_force_interpretation_returns_none_on_clarification() -> None:
 
 
 def test_force_interpretation_collapses_compound_question() -> None:
-    """Составной запрос сводится к одному показателю за общий диапазон."""
+    """Составной запрос теперь разбирается как L4L-сравнение топов."""
     decision = force_interpretation(
         "топ-5 по выручке за 2023 и отдельно топ-5 за 2024"
     )
     assert decision is not None
-    assert decision.intent == "top_bottom_products"
-    assert decision.params["start_date"] == date(2023, 1, 1)
-    assert decision.params["end_date"] == date(2024, 12, 31)
-    assert decision.params["limit"] == 5
+    assert decision.intent == "compare_top_products"
+    assert decision.params["period1"] == (date(2023, 1, 1), date(2023, 12, 31))
+    assert decision.params["period2"] == (date(2024, 1, 1), date(2024, 12, 31))
+    assert decision.params["top_n"] == 5
