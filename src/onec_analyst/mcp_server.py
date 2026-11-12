@@ -44,6 +44,7 @@ from onec_analyst.answer_contract import (
     format_refusal,
     resolve_period,
 )
+from onec_analyst.audit import AuditLog
 from onec_analyst.llm_agent import (
     CompareTopsParams,
     CounterpartyDynamicsParams,
@@ -158,6 +159,7 @@ class Dataset:
 
 _lock = threading.Lock()
 _dataset: Dataset | None = None
+_audit = AuditLog()
 
 
 def _get_dataset() -> Dataset | None:
@@ -365,12 +367,26 @@ def _answer_params(params: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
+def _dataset_ref(dataset: Dataset | None) -> str | None:
+    return _display_path(dataset.path) if dataset is not None else None
+
+
+def _period_bounds(period: PeriodResolution) -> list[str | None] | None:
+    if period.start is None and period.end is None:
+        return None
+    return [
+        period.start.isoformat() if period.start is not None else None,
+        period.end.isoformat() if period.end is not None else None,
+    ]
+
+
 def _execute(intent: str, raw_params: dict[str, Any]) -> str:
     dataset = _get_dataset()
     if dataset is None:
         _ensure_default_dataset()
         dataset = _get_dataset()
     if dataset is None:
+        _audit.record("refusal", intent=intent, reason="витрина не загружена")
         return format_refusal(
             "витрина не загружена — вызовите load_dataset",
             AVAILABLE,
@@ -378,15 +394,37 @@ def _execute(intent: str, raw_params: dict[str, Any]) -> str:
     try:
         params = _validated_params(intent, raw_params)
     except ValidationError as exc:
-        return _error(f"неверные параметры среза {intent}: {_short_validation(exc)}", dataset)
+        message = f"неверные параметры среза {intent}: {_short_validation(exc)}"
+        _audit.record("error", intent=intent, reason="неверные параметры", details=message)
+        return _error(message, dataset)
     period, notes = _period_for(params, dataset.frame)
     logger.info("срез %s: %s", intent, params)
     try:
         frame = dispatch_intent(intent, dataset.frame, params)
     except (ValueError, TypeError) as exc:
+        message = f"срез {intent} не выполнен: {exc}"
+        _audit.record(
+            "error",
+            intent=intent,
+            reason="ошибка движка",
+            details=message,
+            dataset=_dataset_ref(dataset),
+        )
         logger.exception("Срез %s не выполнен", intent)
-        return _error(f"срез {intent} не выполнен: {exc}", dataset, period)
+        return _error(message, dataset, period)
     body, shown, total_rows = _render_table(frame)
+    _audit.record(
+        "slice",
+        intent=intent,
+        params=params,
+        dataset=_dataset_ref(dataset),
+        period=_period_bounds(period),
+        period_specified=period.specified,
+        rows=total_rows,
+        shown=shown,
+        exported_at=dataset.frame.attrs.get("exported_at"),
+        exported_at_source=dataset.frame.attrs.get("exported_at_source"),
+    )
     meta = AnswerMeta(
         intent=intent,
         params=_answer_params(params),
@@ -440,8 +478,16 @@ def load_dataset(
         resolved = _resolve_dataset_path(path, kind)
         frame = _load_frame(resolved, kind)
     except (DatasetError, FileNotFoundError) as exc:
+        _audit.record("refusal", intent="load_dataset", reason=str(exc))
         return format_refusal(str(exc), AVAILABLE)
     dataset = _set_dataset(resolved, frame)
+    _audit.record(
+        "dataset_loaded",
+        dataset=_display_path(resolved),
+        rows=len(frame),
+        exported_at=frame.attrs.get("exported_at"),
+        exported_at_source=frame.attrs.get("exported_at_source"),
+    )
     return _describe(dataset, intent="load_dataset")
 
 

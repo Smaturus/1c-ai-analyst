@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import os
 import uuid
 from collections.abc import Iterator
 from pathlib import Path
@@ -94,3 +95,22 @@ def _isolated_rate_limit_db(
 ) -> None:
     """Все тесты (включая AppTest) используют временную базу лимитов."""
     monkeypatch.setenv("RATE_LIMIT_DB", str(rate_limit_db_path))
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _isolated_audit_log() -> Iterator[Path]:
+    """Все тесты пишут аудит MCP в ``.pytest_tmp``, а не в ``.mcp_state``."""
+    directory = REPO_ROOT / ".pytest_tmp"
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"audit_{uuid.uuid4().hex}.jsonl"
+    previous = os.environ.get("ONEC_MCP_AUDIT_FILE")
+    os.environ["ONEC_MCP_AUDIT_FILE"] = str(path)
+    yield path
+    if previous is None:
+        os.environ.pop("ONEC_MCP_AUDIT_FILE", None)
+    else:
+        os.environ["ONEC_MCP_AUDIT_FILE"] = previous
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
