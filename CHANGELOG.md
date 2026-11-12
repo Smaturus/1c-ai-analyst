@@ -8,6 +8,7 @@
 - **Корень репо для `rate_limit.db`:** вместо хрупкого `parents[2]` — `find_repo_root()` по `pyproject.toml` / `.git`. В тестах единая цель monkeypatch `PATCH_CHOOSE_CLARIFIED_TEXT` и `APP_FILE` через `tests/paths.py`.
 
 ### Changed
+- **Два режима выгрузки из 1С в документации:** RUNBOOK §3.3 разделён на «период» (2022–2024: 2568 записей, 19 313 936,63 ₽ без НДС — эталонные цифры) и «полная история» (3859 записей, 2021-09-01 … 2026-01-20, 27 465 893,44 ₽), добавлена пометка, что в рабочей копии лежит полная выгрузка; README и [ADR 0002](docs/adr/0002-onec-direct-source.md) согласованы с этим. `gen_py/` (кэш pywin32/win32com) добавлен в `.gitignore`.
 - **Дневник `docs/history/`** исключён из репозитория (`.gitignore`); ссылки на него убраны из README / INDEX / ARCHITECTURE / ADR 0001. Локальные файлы у разработчика сохраняются.
 - **Пакет `src/onec_analyst/`:** доменные модули (`analytics`, `llm_agent`, `clarification`, `data_loader`, `onec_source`, `rate_limiter`) перенесены из корня; `app.py` остаётся тонким UI-входом. `pip install -e .`, pytest `pythonpath=src`, CI/Docker ставят пакет; `rate_limit.db` по-прежнему в корне репозитория.
 
