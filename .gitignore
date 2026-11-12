@@ -4,6 +4,9 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 
+# Кэш pywin32/win32com (создаётся при COM-подключении к 1С)
+gen_py/
+
 # Временные профили браузера и выгрузка копии базы 1С (не коммитить)
 .browser_profile/
 1c_base/
@@ -43,6 +46,9 @@ progress.md
 
 # Дневник разработки (локально; не для GitHub)
 docs/history/
+
+# Локальная папка Hermes (не публикуется)
+Hermes/
 
 # Локальные правила Cursor (не публикуются)
 .cursor/
