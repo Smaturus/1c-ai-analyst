@@ -29,6 +29,7 @@ EXPECTED_TOOLS = {
     "timeseries",
     "counterparty_dynamics",
     "group_dynamics",
+    "returns_alert",
 }
 
 

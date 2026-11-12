@@ -32,6 +32,8 @@ def test_transcript_contains_engine_numbers() -> None:
     assert "Ноутбук Beta" in transcript
     assert "Аксессуары" in transcript
     assert "ООО Лютик" in transcript
+    assert "350 000,00" in transcript
+    assert "⚠️ Алерт" in transcript
 
 
 def test_unsupported_dataset_is_refused() -> None:

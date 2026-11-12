@@ -89,6 +89,11 @@ STEPS: tuple[Step, ...] = (
         },
     ),
     Step(
+        "Что с возвратами за вчера?",
+        "returns_alert",
+        {"today": date(2023, 2, 16)},
+    ),
+    Step(
         "Попытка загрузить файл вне проекта",
         "load_dataset",
         {"path": "../secrets.csv"},

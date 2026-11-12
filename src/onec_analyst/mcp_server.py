@@ -35,6 +35,12 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from pydantic import ValidationError
 
+from onec_analyst.alerts import (
+    AlertPolicy,
+    alert_reason,
+    alert_window,
+    collect_returns,
+)
 from onec_analyst.analytics import dispatch_intent
 from onec_analyst.answer_contract import (
     AnswerMeta,
@@ -536,6 +542,10 @@ def describe_capabilities() -> str:
     """
     lines = ["Поддерживаемые срезы:"]
     lines.extend(f"- {name} — {description}" for name, description in SUPPORTED)
+    lines.append(
+        "- returns_alert — ежедневный алерт возвратов за вчера "
+        "(понедельник — за выходные; порог настраивается)"
+    )
     lines.append("")
     lines.append(f"Не поддерживается: {UNSUPPORTED}.")
     dataset = _get_dataset()
@@ -642,6 +652,86 @@ def negative_revenue(
             "end_date": end_date,
             "group_by": group_by,
         },
+    )
+
+
+@mcp.tool(annotations=READ_ONLY)
+def returns_alert(
+    today: date | None = None,
+    min_abs: float | None = None,
+    min_rows: int | None = None,
+) -> str:
+    """Ежедневный алерт возвратов: сумма отрицательной выручки за окно.
+
+    Окно — предыдущий день; в понедельник — суббота и воскресенье; в субботу и
+    воскресенье алерт не отправляется. Порог по умолчанию 50 000 ₽ и
+    калибруется на истории (``python -m onec_analyst.alerts``). Возвращает
+    вердикт, сумму, долю и товары — все числа из движка.
+    """
+    dataset = _get_dataset()
+    if dataset is None:
+        _ensure_default_dataset()
+        dataset = _get_dataset()
+    if dataset is None:
+        return format_refusal("витрина не загружена — вызовите load_dataset", AVAILABLE)
+    anchor = today or date.today()
+    window = alert_window(anchor)
+    if window is None:
+        data_min, data_max = _data_bounds(dataset.frame)
+        body = (
+            "Сегодня выходной — алерт не отправляется. "
+            "В понедельник придёт сводка за субботу и воскресенье."
+        )
+        return format_answer(
+            body,
+            AnswerMeta(
+                intent="returns_alert",
+                period=PeriodResolution(data_min, data_max, True),
+                **_as_of_kwargs(dataset.frame),
+            ),
+        )
+    policy = AlertPolicy.from_env(min_abs=min_abs, min_rows=min_rows)
+    stats = collect_returns(dataset.frame, window)
+    reason = alert_reason(stats, policy)
+    table = dispatch_intent(
+        "negative_revenue",
+        dataset.frame,
+        {
+            "start_date": window.start,
+            "end_date": window.end,
+            "group_by": "product",
+        },
+    )
+    table_text, _shown, _total = _render_table(table)
+    window_label = f" {window.label}" if window.label else ""
+    lines = [
+        f"Возвраты{window_label}: {_format_number(stats.negative_total)} ₽, "
+        f"строк: {stats.rows}, доля в выручке: {_format_number(stats.share_pct)} %.",
+        f"Порог: {_format_number(policy.min_abs)} ₽, минимум строк: {policy.min_rows}.",
+    ]
+    if reason is not None:
+        lines.append(f"⚠️ Алерт: {reason}.")
+        if table.empty:
+            lines.append("Строк возвратов нет.")
+        else:
+            lines.extend(["", table_text])
+    else:
+        lines.append("Превышения нет — алерт не отправляется.")
+    _audit.record(
+        "alert",
+        window=window.as_dict(),
+        amount=stats.negative_total,
+        rows=stats.rows,
+        triggered=reason is not None,
+        dataset=_dataset_ref(dataset),
+    )
+    return format_answer(
+        "\n".join(lines),
+        AnswerMeta(
+            intent="returns_alert",
+            period=PeriodResolution(window.start, window.end, True),
+            **_as_of_kwargs(dataset.frame),
+        ),
     )
 
 
