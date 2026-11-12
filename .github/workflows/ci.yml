@@ -40,6 +40,9 @@ jobs:
         run: |
           python -c "import asyncio; from onec_analyst.mcp_server import mcp; print(len(asyncio.run(mcp.list_tools())), 'tools')"
 
+      - name: Verify demo transcript contract
+        run: python -X utf8 demo_transcript.py --check
+
       - name: Run pytest
         run: python -m pytest -q
 
