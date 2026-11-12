@@ -46,7 +46,6 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
-from pathlib import Path
 from typing import Annotated, Any, Final, Literal, Sequence
 
 from pydantic import (
@@ -58,6 +57,8 @@ from pydantic import (
     TypeAdapter,
     ValidationError,
 )
+
+from onec_analyst.paths import find_repo_root
 
 __all__ = [
     "INTENT_NAMES",
@@ -761,7 +762,7 @@ _DEFAULT_BASE_URLS: Final[dict[str, str]] = {
     "ollama": "http://localhost:11434/v1",
 }
 
-_DOTENV_FILE: Final = Path(__file__).resolve().parent / ".env"
+_DOTENV_FILE: Final = find_repo_root() / ".env"
 
 
 def _parse_dotenv(text: str) -> dict[str, str]:

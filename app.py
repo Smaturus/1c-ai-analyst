@@ -231,7 +231,7 @@ def load_dataframe(kind: str, uploaded: Any) -> tuple[pd.DataFrame | None, str]:
         if not path.is_file():
             st.warning(
                 "Файл выгрузки из 1С не найден. Пожалуйста, используйте скрипт "
-                "`onec_source.py` для выгрузки данных или выберите Демо-данные / "
+                "`python -m onec_analyst.onec_source` для выгрузки данных или выберите Демо-данные / "
                 "Загрузите свой файл."
             )
             return None, "1C"
@@ -1155,7 +1155,7 @@ def render_sidebar(
         index=0,
         help=(
             "По умолчанию — синтетические демо-данные. Источник 1С доступен, если "
-            "локально есть 1c_export/sales_1c.csv (создаётся onec_source.py). "
+            "локально есть 1c_export/sales_1c.csv (создаётся onec_analyst.onec_source). "
             "Свой CSV из 1С или Excel можно загрузить третьим пунктом."
         ),
     )

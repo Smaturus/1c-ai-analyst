@@ -807,3 +807,15 @@ def test_default_period_does_not_skip_missing_periods_clarification() -> None:
     decision = _plan("У каких контрагентов выросли продажи?")
 
     assert decision.ok and decision.intent == "clarification", decision.error
+
+
+# --------------------------------------------------------------------------- #
+# Регрессия: .env ищется в корне репозитория, а не внутри src/onec_analyst/
+# --------------------------------------------------------------------------- #
+def test_dotenv_file_is_in_repo_root() -> None:
+    """Ключи LLM читаются из ``.env`` рядом с ``pyproject.toml``."""
+    from onec_analyst import llm_agent
+    from tests.paths import REPO_ROOT
+
+    assert llm_agent._DOTENV_FILE == REPO_ROOT / ".env"
+    assert (llm_agent._DOTENV_FILE.parent / "pyproject.toml").is_file()
