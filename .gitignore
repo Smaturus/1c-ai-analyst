@@ -57,3 +57,6 @@ Hermes/
 rate_limit.db
 .pytest_tmp/
 *.xlsx
+
+# Аудит MCP-сервера: локальный журнал вызовов, не публикуется
+.mcp_state/
