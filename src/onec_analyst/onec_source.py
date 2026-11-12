@@ -46,6 +46,7 @@ from __future__ import annotations
 import argparse
 import csv
 import datetime as dt
+import json
 import sys
 from pathlib import Path
 from typing import Any, Iterable, Literal
@@ -65,8 +66,13 @@ __all__ = [
     "load_nomenclature",
     "SALES_CSV",
     "NOMENCLATURE_CSV",
+    "EXPORT_META_SUFFIX",
     "VITRINA_COLUMNS",
     "SAMPLE_COLUMNS",
+    "meta_path_for",
+    "read_export_meta",
+    "write_export_meta",
+    "parse_exported_at",
 ]
 
 DEFAULT_USR: str = "Администратор"
@@ -79,6 +85,12 @@ CONFIG_EXPECTED: str = "УправлениеТорговлей"
 
 SALES_CSV: str = "sales_1c.csv"
 NOMENCLATURE_CSV: str = "nomenclature_1c.csv"
+EXPORT_META_SUFFIX: str = ".meta.json"
+"""Суффикс файла метаданных выгрузки: ``sales_1c.csv.meta.json``.
+
+Дата выгрузки не должна подменяться датой последней продажи: метаданные лежат
+рядом с CSV и читаются только для отображения, в расчётах не участвуют.
+"""
 
 RevenueMode = Literal["net", "gross"]
 
@@ -310,6 +322,101 @@ def resolve_product_groups(
     return resolved
 
 
+# --------------------------------------------------------------------------- #
+# Метаданные выгрузки: дата выгрузки, а не дата последней продажи
+# --------------------------------------------------------------------------- #
+def meta_path_for(sales_csv: str | Path) -> Path:
+    """Путь к файлу метаданных рядом с CSV выгрузки."""
+    path = Path(sales_csv)
+    return path.with_name(path.name + EXPORT_META_SUFFIX)
+
+
+def write_export_meta(
+    sales_csv: str | Path,
+    *,
+    rows: int,
+    revenue_mode: RevenueMode | None = None,
+    source: str = "1c",
+    exported_at: dt.datetime | None = None,
+    extra: dict[str, Any] | None = None,
+) -> Path:
+    """Записать метаданные выгрузки рядом с CSV.
+
+    ``exported_at`` — момент выгрузки, а не дата последней продажи. Если момент
+    не передан, берётся текущее локальное время с часовым поясом.
+    """
+    moment = exported_at or dt.datetime.now().astimezone()
+    payload: dict[str, Any] = {
+        "exported_at": moment.isoformat(timespec="seconds"),
+        "rows": int(rows),
+        "source": source,
+        "csv": Path(sales_csv).name,
+    }
+    if revenue_mode is not None:
+        payload["revenue_mode"] = revenue_mode
+    if extra:
+        payload.update(extra)
+    target = meta_path_for(sales_csv)
+    target.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return target
+
+
+def read_export_meta(sales_csv: str | Path) -> dict[str, Any] | None:
+    """Прочитать метаданные выгрузки; ``None``, если файла нет или он повреждён."""
+    target = meta_path_for(sales_csv)
+    try:
+        payload = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _exported_at_attrs(sales_csv: Path, meta: dict[str, Any] | None) -> dict[str, Any]:
+    """Дата данных для ``DataFrame.attrs`` в JSON-безопасном виде.
+
+    ``DataFrame.attrs`` сериализуются Streamlit, поэтому ``datetime`` там
+    недопустим: attrs молча теряются. Храним ISO-строку, а разбирает её
+    потребитель через :func:`parse_exported_at`.
+    """
+    moment = parse_exported_at(_meta_exported_at(meta))
+    if moment is not None:
+        return {
+            "exported_at": moment.isoformat(timespec="seconds"),
+            "exported_at_source": "meta",
+        }
+    try:
+        mtime = dt.datetime.fromtimestamp(sales_csv.stat().st_mtime)
+    except OSError:
+        return {"exported_at": None, "exported_at_source": "unknown"}
+    return {
+        "exported_at": mtime.isoformat(timespec="seconds"),
+        "exported_at_source": "file_mtime",
+    }
+
+
+def parse_exported_at(value: str | None) -> dt.datetime | None:
+    """Разобрать ISO-строку даты выгрузки; пустое или битое значение — ``None``."""
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        moment = dt.datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if moment.tzinfo is not None:
+        moment = moment.astimezone()
+    return moment
+
+
+def _meta_exported_at(meta: dict[str, Any] | None) -> str | None:
+    if not meta:
+        return None
+    raw = meta.get("exported_at")
+    return raw if isinstance(raw, str) else None
+
+
 def export_from_1c(
     base_path: str,
     out_dir: str,
@@ -373,7 +480,7 @@ def export_from_1c(
                 }
             )
 
-    return {
+    stats: dict[str, Any] = {
         "config": config,
         "rows": len(records),
         "nomenclature": len(nomenclature),
@@ -386,6 +493,19 @@ def export_from_1c(
         "start_date": start_date.isoformat() if start_date else None,
         "end_date": end_date.isoformat() if end_date else None,
     }
+    meta_file = write_export_meta(
+        sales_path,
+        rows=len(records),
+        source="1c",
+        extra={
+            "config": config,
+            "start_date": stats["start_date"],
+            "end_date": stats["end_date"],
+            "nomenclature": len(nomenclature),
+        },
+    )
+    stats["meta_json"] = str(meta_file)
+    return stats
 
 
 # --------------------------------------------------------------------------- #
@@ -458,6 +578,7 @@ def load_vitrina(
             "source": "1c",
             "revenue_mode": revenue_mode,
             "rows": len(vitrina),
+            **_exported_at_attrs(path, read_export_meta(path)),
         }
     )
     return vitrina
@@ -515,6 +636,7 @@ def load_sample_vitrina(sample_csv: str = "sample_data.csv") -> "Any":
             "source_file": str(path),
             "source": "synthetic",
             "rows": len(vitrina),
+            **_exported_at_attrs(path, read_export_meta(path)),
         }
     )
     return vitrina
