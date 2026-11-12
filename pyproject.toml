@@ -31,6 +31,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+mcp = ["mcp>=1.20,<2"]
 
 [project.urls]
 Homepage = "https://github.com/Smaturus/1c-ai-analyst"
