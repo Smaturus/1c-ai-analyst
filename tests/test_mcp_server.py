@@ -10,6 +10,7 @@ from onec_analyst.mcp_server import (
     describe_capabilities,
     describe_dataset,
     group_dynamics,
+    list_dimensions,
     load_dataset,
     mcp,
     negative_revenue,
@@ -30,6 +31,7 @@ EXPECTED_TOOLS = {
     "counterparty_dynamics",
     "group_dynamics",
     "returns_alert",
+    "list_dimensions",
 }
 
 
@@ -98,6 +100,20 @@ def test_top_bottom_summary_is_skipped_for_group_filter() -> None:
     )
 
     assert "Сумма по показанным строкам" not in text
+    assert "Фильтр: группа «Аксессуары»." in text
+
+
+def test_list_dimensions_lists_groups() -> None:
+    text = list_dimensions(kind="groups")
+
+    assert "Аксессуары" in text
+    assert "Электроника" in text
+
+
+def test_list_dimensions_lists_counterparties() -> None:
+    text = list_dimensions(kind="counterparties", limit=10)
+
+    assert "ООО Лютик" in text
 
 
 def test_pair_periods_are_reported() -> None:

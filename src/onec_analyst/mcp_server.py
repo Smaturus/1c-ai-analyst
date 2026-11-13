@@ -376,6 +376,18 @@ def _answer_params(params: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
+def _filter_note(params: dict[str, Any]) -> str:
+    """Подтвердить в ответе, что фильтр среза действительно применён."""
+    parts: list[str] = []
+    if params.get("group_filter"):
+        parts.append(f"группа «{params['group_filter']}»")
+    if params.get("product_filter"):
+        parts.append(f"товар «{params['product_filter']}»")
+    if not parts:
+        return ""
+    return "Фильтр: " + ", ".join(parts) + "."
+
+
 def _summary_note(
     intent: str,
     params: dict[str, Any],
@@ -465,9 +477,9 @@ def _execute(intent: str, raw_params: dict[str, Any]) -> str:
         logger.exception("Срез %s не выполнен", intent)
         return _error(message, dataset, period)
     body, shown, total_rows = _render_table(frame)
-    summary = _summary_note(intent, params, dataset.frame, frame)
-    if summary:
-        body = f"{body}\n\n{summary}"
+    extras = [line for line in (_filter_note(params), _summary_note(intent, params, dataset.frame, frame)) if line]
+    if extras:
+        body = f"{body}\n\n" + "\n".join(extras)
     _audit.record(
         "slice",
         intent=intent,
@@ -596,6 +608,10 @@ def describe_capabilities() -> str:
         "(понедельник — за выходные; порог настраивается)"
     )
     lines.append(
+        "- list_dimensions — имена товарных групп, контрагентов или товаров "
+        "для фильтров (только имена, без чисел)"
+    )
+    lines.append(
         f"- Алерты возвратов: {'включены' if alerts_enabled() else 'отключены'}"
     )
     lines.append("")
@@ -610,6 +626,46 @@ def describe_capabilities() -> str:
         **_as_of_kwargs(dataset.frame),
     )
     return format_answer("\n".join(lines), meta)
+
+
+@mcp.tool(annotations=READ_ONLY)
+def list_dimensions(
+    kind: Literal["groups", "counterparties", "products"] = "groups",
+    limit: int = 50,
+) -> str:
+    """Перечислить значения измерения: группы, контрагенты или товары.
+
+    Только имена, без чисел. Нужен, чтобы не угадывать названия для
+    ``group_filter`` / ``product_filter``: взяли имя из списка — передали в
+    фильтр среза. ``limit`` ограничивает вывод, в ответе помечается усечение.
+    """
+    dataset = _get_dataset()
+    if dataset is None:
+        _ensure_default_dataset()
+        dataset = _get_dataset()
+    if dataset is None:
+        return format_refusal("витрина не загружена — вызовите load_dataset", AVAILABLE)
+    columns = {
+        "groups": "product_group",
+        "counterparties": "counterparty",
+        "products": "product",
+    }
+    column = columns[kind]
+    if column not in dataset.frame.columns:
+        return _error(f"в витрине нет колонки {column}", dataset)
+    values = sorted({str(value) for value in dataset.frame[column].dropna().unique()})
+    shown = values[: max(1, limit)]
+    body_lines = [f"Значения {kind} (всего {len(values)}):"]
+    body_lines.extend(f"- {value}" for value in shown)
+    data_min, data_max = _data_bounds(dataset.frame)
+    meta = AnswerMeta(
+        intent="list_dimensions",
+        period=PeriodResolution(data_min, data_max, True),
+        shown=len(shown),
+        total=len(values),
+        **_as_of_kwargs(dataset.frame),
+    )
+    return format_answer("\n".join(body_lines), meta)
 
 
 @mcp.tool(annotations=READ_ONLY)
