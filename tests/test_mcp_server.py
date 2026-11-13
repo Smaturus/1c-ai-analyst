@@ -78,6 +78,28 @@ def test_top_bottom_returns_engine_numbers() -> None:
     assert "Показаны все 5." in text
 
 
+def test_top_bottom_summary_is_computed_by_server() -> None:
+    text = top_bottom_products(
+        limit=5,
+        start_date=date(2024, 1, 1),
+        end_date=date(2024, 12, 31),
+    )
+
+    assert "Сумма по показанным строкам: 48 105 000,00 ₽" in text
+    assert "доля в выручке за период: 92,06 %" in text
+
+
+def test_top_bottom_summary_is_skipped_for_group_filter() -> None:
+    text = top_bottom_products(
+        limit=5,
+        group_filter="Аксессуары",
+        start_date=date(2024, 1, 1),
+        end_date=date(2024, 12, 31),
+    )
+
+    assert "Сумма по показанным строкам" not in text
+
+
 def test_pair_periods_are_reported() -> None:
     text = group_dynamics(
         period1_start=date(2023, 1, 1),

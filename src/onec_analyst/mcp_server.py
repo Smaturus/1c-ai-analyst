@@ -376,6 +376,49 @@ def _answer_params(params: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
+def _summary_note(
+    intent: str,
+    params: dict[str, Any],
+    frame: pd.DataFrame,
+    table: pd.DataFrame,
+) -> str:
+    """Детерминированный итог по показанным строкам — чтобы агент не считал сам.
+
+    Считается только для ``top_bottom_products`` без ``group_filter``: сумма
+    метрики по строкам таблицы и её доля в итоге периода (итог берётся из
+    среза ``total`` тем же периодом и фильтром).
+    """
+    if intent != "top_bottom_products" or table.empty:
+        return ""
+    if params.get("group_filter"):
+        return ""
+    metric = str(params.get("metric", "revenue"))
+    if metric not in table.columns:
+        return ""
+    shown_sum = float(table[metric].sum())
+    total_table = dispatch_intent(
+        "total",
+        frame,
+        {
+            "start_date": params.get("start_date"),
+            "end_date": params.get("end_date"),
+            "product_filter": params.get("product_filter"),
+        },
+    )
+    if total_table.empty:
+        return ""
+    period_total = float(total_table[metric].iloc[0])
+    if period_total == 0:
+        return ""
+    share = shown_sum / period_total * 100.0
+    metric_label = "выручке" if metric == "revenue" else "количеству"
+    unit = "₽" if metric == "revenue" else "шт"
+    return (
+        f"Сумма по показанным строкам: {_format_number(shown_sum)} {unit}; "
+        f"доля в {metric_label} за период: {_format_number(share)} %."
+    )
+
+
 def _dataset_ref(dataset: Dataset | None) -> str | None:
     return _display_path(dataset.path) if dataset is not None else None
 
@@ -422,6 +465,9 @@ def _execute(intent: str, raw_params: dict[str, Any]) -> str:
         logger.exception("Срез %s не выполнен", intent)
         return _error(message, dataset, period)
     body, shown, total_rows = _render_table(frame)
+    summary = _summary_note(intent, params, dataset.frame, frame)
+    if summary:
+        body = f"{body}\n\n{summary}"
     _audit.record(
         "slice",
         intent=intent,
@@ -601,6 +647,8 @@ def top_bottom_products(
 
     ``ascending=True`` — худшие товары. ``group_filter`` — подстрока названия
     товарной группы. Если период не указан, берётся весь период витрины.
+    В конце ответа сервер сам считает сумму по показанным строкам и её долю
+    в итоге периода — агенту не нужно складывать и делить.
     """
     return _execute(
         "top_bottom_products",
