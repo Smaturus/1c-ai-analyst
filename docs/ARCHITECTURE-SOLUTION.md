@@ -178,6 +178,11 @@
 пометка «взят весь период витрины»; отказ содержит причину и список доступных
 срезов; параметры среза скрыты из чата (`ONEC_MCP_VERBOSE=1` — показать).
 
+**Версия контракта.** Первой строкой каждого ответа (включая отказ) идёт
+`Contract-Version: 1`; в пределах версии допускаются только обратносовместимые
+изменения. Решение — [ADR 0011](adr/0011-answer-contract-version.md) (предложено;
+реализация — следующий шаг).
+
 ### 5.7 Последовательности
 
 **UC-1: ad-hoc вопрос**
@@ -199,6 +204,13 @@
 ![Сценарий проактивного алерта](architecture/07-returns-alert-flow.png)
 
 *Вектор: [architecture/07-returns-alert-flow.svg](architecture/07-returns-alert-flow.svg) · исходник: `architecture/src/07-returns-alert-flow.dot`*
+
+
+**UC-3: смена витрины**
+
+![Сценарий UC-3: смена витрины](architecture/13-dataset-switch-flow.png)
+
+*Вектор: [architecture/13-dataset-switch-flow.svg](architecture/13-dataset-switch-flow.svg) · исходник: `architecture/src/13-dataset-switch-flow.dot`*
 
 
 ### 5.8 Состояние и согласованность
@@ -272,6 +284,29 @@
 
 ---
 
+### 7.4 Конфигурационное представление (Hermes profile)
+
+Поверхность инструментов и поведение агента задаются не только кодом, но и
+профилем Hermes. Эти настройки — часть архитектуры решения:
+
+| Ключ | Значение | Эффект |
+|---|---|---|
+| `mcp_servers.1c-analyst` | command / args / cwd / env / timeout | запуск stdio-процесса сервера |
+| `platform_toolsets.local`, `.desktop` | `[mcp-1c-analyst, skills, todo]` | только MCP + навыки/задачи |
+| `agent.disabled_toolsets` | terminal, file, web, search, browser, code_execution, vision, image_gen | нет доступа к ФС, сети и коду |
+| `tools.tool_search` | `off` | инструменты не откладываются |
+| `terminal.cwd` | корень репозитория | обнаружение `.hermes.md` |
+| `.hermes.md` | правила проекта | числа только из MCP, без самосчёта |
+| `ONEC_MCP_STATE_DIR` | `.mcp_state` | путь состояния |
+| `ONEC_MCP_AUDIT_FILE` | `audit.jsonl` | журнал вызовов |
+| `ONEC_ALERTS_ENABLED` | `0/1` | kill switch алертов |
+
+![Конфигурационное представление](architecture/12-configuration-view.png)
+
+*Вектор: [architecture/12-configuration-view.svg](architecture/12-configuration-view.svg) · исходник: `architecture/src/12-configuration-view.dot`*
+
+---
+
 ## 8. ArchiMate-отношения (трассировка слоёв)
 
 | Отношение | Источник | Цель |
@@ -331,6 +366,17 @@
 - Стоимость вопроса = стоимость токенов агента; детерминированные срезы — 0 ₽.
 - Ограничение вывода: 50 строк на таблицу с пометкой усечения.
 
+**Метрики (целевые, для пилота):**
+
+| Метрика | Как измерять | Цель |
+|---|---|---|
+| p50/p95 времени MCP-вызова | поле `duration_ms` в аудите (следующий шаг) | p95 < 300 мс |
+| `refusal_rate` | `summarize_audit(days=30)` | рост — сигнал пробелов в срезах |
+| число смен витрины | аудит `dataset_loaded` | контроль свежести данных |
+| доля ошибок | аудит `error` / все вызовы | < 1 % |
+| срабатывания алертов | аудит `alert` | по политике (baseline) |
+
+
 ### 9.5 Качество (ISO/IEC 25010)
 
 | Характеристика | Как обеспечена |
@@ -359,6 +405,22 @@
 
 ---
 
+### 10.1 Тестовая архитектура
+
+| Уровень | Что проверяет | Файлы | Кол-во |
+|---|---|---|---|
+| Модульный (движок, DSL) | срезы, периоды, фильтры, планировщик, уточнения, лимиты | `test_analytics`, `test_planner`, `test_clarification`, `test_rate_limiter` | 188 |
+| Приложение/UI | отображение, вопросы, planner UI, статика | `test_app_display`, `test_app_question`, `test_app_planner`, `test_app_static` | 60 |
+| Контракт ответа/MCP | период, дата данных, отказы, 16 инструментов | `test_answer_contract`, `test_mcp_server` | 29 |
+| Аудит и stdio | записи журнала, handshake, `list_tools` | `test_mcp_audit`, `test_mcp_stdio` | 10 |
+| Алерты | окна, пороги, kill switch, калибровка | `test_alerts` | 15 |
+| Метаданные выгрузки | `exported_at`, fallback, Streamlit-safe | `test_export_meta` | 9 |
+| Демо-транскрипт | контракт в сгенерированном диалоге | `test_demo_transcript` | 8 |
+| **Итого** | | | **319** |
+
+Приёмочные прогоны (20 демо + 10 реальных вопросов) выполняются вручную в
+Hermes и фиксируются в локальном протоколе; в CI они не входят.
+
 ## 11. Риски архитектуры
 
 | Риск | Влияние | Мера |
@@ -377,8 +439,9 @@
 |---|---|---|
 | 0004 | JSON-DSL + Pydantic + `dispatch_intent` | принят |
 | 0008 | Сравнение топов (L4L) | принят |
-| 0009 | MCP-фасад над JSON-DSL (тонкий адаптер, 7 типовых срезов, отказы) | планируется |
-| 0010 | `exported_at` в витрине (метаданные выгрузки) | планируется |
+| [0009](adr/0009-mcp-facade.md) | MCP-фасад над JSON-DSL | принято |
+| [0010](adr/0010-export-timestamp.md) | `exported_at` из метаданных выгрузки | принято |
+| [0011](adr/0011-answer-contract-version.md) | Версия контракта ответа | предложено |
 
 **Эволюция:** v1 — stdio, одна витрина, read-only; v2 — dataset-id/сессии,
 изоляция пользователей, HTTP-транспорт, мультиюзер; v3 — Skills/каналы,
@@ -445,6 +508,14 @@
 ### ArchiMate: слои
 
 ![ArchiMate: слои](architecture/11-archimate-layers.png)
+
+### Конфигурационное представление
+
+![Конфигурационное представление](architecture/12-configuration-view.png)
+
+### Сценарий UC-3: смена витрины
+
+![UC-3](architecture/13-dataset-switch-flow.png)
 
 Все схемы — векторные (`architecture/*.svg`) и растровые (`architecture/*.png`, 200 dpi).
 Исходники — `architecture/src/*.dot`; сборка — `python docs/architecture/build_diagrams.py`.

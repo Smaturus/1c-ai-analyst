@@ -17,6 +17,8 @@
 | `09-deployment-view` | deployment | узлы, venv, gateway, файлы |
 | `10-trust-zones` | trust boundaries | зоны доверия и контроли |
 | `11-archimate-layers` | ArchiMate 3.2 | слои Business → Application → Technology |
+| `12-configuration-view` | configuration | настройки Hermes и tool surface |
+| `13-dataset-switch-flow` | flow | UC-3: смена витрины |
 
 Для каждой схемы три артефакта: `src/<name>.dot` (источник), `<name>.svg`
 (вектор), `<name>.png` (200 dpi для вставки в чат/презентацию).
