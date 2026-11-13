@@ -56,13 +56,13 @@ def test_window_for_weekday_is_previous_day() -> None:
     assert window == ReturnsWindow(start=date(2024, 1, 9), end=date(2024, 1, 9))
 
 
-def test_window_for_monday_covers_weekend() -> None:
+def test_window_for_monday_covers_friday_and_weekend() -> None:
     window = alert_window(MONDAY)
 
     assert window is not None
-    assert window.start == date(2024, 1, 6)
+    assert window.start == date(2024, 1, 5)
     assert window.end == date(2024, 1, 7)
-    assert window.label == "за выходные"
+    assert window.label == "за пятницу–воскресенье"
 
 
 def test_no_alert_on_weekend() -> None:
@@ -162,11 +162,11 @@ def test_returns_alert_tool_respects_threshold() -> None:
     assert "Превышения нет" in text
 
 
-def test_returns_alert_monday_uses_weekend_window() -> None:
+def test_returns_alert_monday_uses_friday_weekend_window() -> None:
     text = returns_alert(today=date(2023, 2, 20))
 
-    assert "Период: 18.02.2023–19.02.2023" in text
-    assert "за выходные" in text
+    assert "Период: 17.02.2023–19.02.2023" in text
+    assert "за пятницу–воскресенье" in text
 
 
 def test_returns_alert_is_silent_on_weekend() -> None:

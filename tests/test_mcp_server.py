@@ -91,6 +91,35 @@ def test_top_bottom_summary_is_computed_by_server() -> None:
     assert "доля в выручке за период: 92,06 %" in text
 
 
+def test_negative_revenue_summary_is_computed_by_server() -> None:
+    text = negative_revenue(
+        start_date=date(2024, 1, 1),
+        end_date=date(2024, 12, 31),
+    )
+
+    assert "Итого по строкам: -1 111 000,00 ₽" in text
+    assert "строк: 9." in text
+
+
+def test_timeseries_summary_is_computed_by_server() -> None:
+    text = timeseries(
+        start_date=date(2024, 1, 1),
+        end_date=date(2024, 12, 31),
+        freq="M",
+    )
+
+    assert "Точек: 12;" in text
+    assert "сумма: 52 253 500,00 ₽" in text
+    assert "минимум: 145 600,00 ₽" in text
+    assert "максимум: 15 820 000,00 ₽" in text
+
+
+def test_direction_lost_is_translated() -> None:
+    from onec_analyst.mcp_server import _format_cell
+
+    assert _format_cell("lost", column="direction") == "потеряно"
+
+
 def test_top_bottom_summary_is_skipped_for_group_filter() -> None:
     text = top_bottom_products(
         limit=5,

@@ -8,7 +8,8 @@
 Окно оповещения:
 
 * вторник–пятница — предыдущий день;
-* понедельник — суббота и воскресенье (сводка за выходные);
+* понедельник — пятница, суббота и воскресенье (иначе пятничные возвраты
+  не попадали бы ни в одно окно);
 * суббота и воскресенье — алерты не отправляются.
 
 Запуск калибровки::
@@ -172,11 +173,11 @@ def alert_window(today: date) -> ReturnsWindow | None:
     weekday = today.weekday()
     if weekday in (5, 6):  # суббота, воскресенье
         return None
-    if weekday == 0:  # понедельник — сводка за выходные
+    if weekday == 0:  # понедельник — сводка за пятницу и выходные
         return ReturnsWindow(
-            start=today - timedelta(days=2),
+            start=today - timedelta(days=3),
             end=today - timedelta(days=1),
-            label="за выходные",
+            label="за пятницу–воскресенье",
         )
     day = today - timedelta(days=1)
     return ReturnsWindow(start=day, end=day)

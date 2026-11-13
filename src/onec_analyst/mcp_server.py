@@ -133,6 +133,7 @@ _DIRECTION_LABELS: dict[str, str] = {
     "same": "без изменений",
     "new": "новый",
     "out": "выпал",
+    "lost": "потеряно",
 }
 
 VERBOSE_ENV: str = "ONEC_MCP_VERBOSE"
@@ -394,17 +395,37 @@ def _summary_note(
     frame: pd.DataFrame,
     table: pd.DataFrame,
 ) -> str:
-    """Детерминированный итог по показанным строкам — чтобы агент не считал сам.
+    """Детерминированные итоги — чтобы агент не складывал строки сам.
 
-    Считается только для ``top_bottom_products`` без ``group_filter``: сумма
-    метрики по строкам таблицы и её доля в итоге периода (итог берётся из
-    среза ``total`` тем же периодом и фильтром).
+    * ``top_bottom_products`` — сумма по показанным строкам и доля в итоге
+      периода (без ``group_filter``);
+    * ``negative_revenue`` — итог по строкам и их число;
+    * ``timeseries`` (agg=sum) — число точек, сумма, минимум и максимум.
     """
-    if intent != "top_bottom_products" or table.empty:
+    if table.empty:
+        return ""
+    metric = str(params.get("metric", "revenue"))
+    unit = "₽" if metric == "revenue" else "шт"
+
+    if intent == "negative_revenue" and metric in table.columns:
+        total = float(table[metric].sum())
+        return (
+            f"Итого по строкам: {_format_number(total)} {unit}; "
+            f"строк: {len(table)}."
+        )
+
+    if intent == "timeseries" and metric in table.columns and params.get("agg", "sum") == "sum":
+        values = table[metric]
+        return (
+            f"Точек: {len(table)}; сумма: {_format_number(float(values.sum()))} {unit}; "
+            f"минимум: {_format_number(float(values.min()))} {unit}; "
+            f"максимум: {_format_number(float(values.max()))} {unit}."
+        )
+
+    if intent != "top_bottom_products":
         return ""
     if params.get("group_filter"):
         return ""
-    metric = str(params.get("metric", "revenue"))
     if metric not in table.columns:
         return ""
     shown_sum = float(table[metric].sum())
@@ -424,7 +445,6 @@ def _summary_note(
         return ""
     share = shown_sum / period_total * 100.0
     metric_label = "выручке" if metric == "revenue" else "количеству"
-    unit = "₽" if metric == "revenue" else "шт"
     return (
         f"Сумма по показанным строкам: {_format_number(shown_sum)} {unit}; "
         f"доля в {metric_label} за период: {_format_number(share)} %."
@@ -605,7 +625,7 @@ def describe_capabilities() -> str:
     lines.extend(f"- {name} — {description}" for name, description in SUPPORTED)
     lines.append(
         "- returns_alert — ежедневный алерт возвратов за вчера "
-        "(понедельник — за выходные; порог настраивается)"
+        "(понедельник — за пятницу–воскресенье; порог настраивается)"
     )
     lines.append(
         "- list_dimensions — имена товарных групп, контрагентов или товаров "
@@ -773,10 +793,10 @@ def returns_alert(
 ) -> str:
     """Ежедневный алерт возвратов: сумма отрицательной выручки за окно.
 
-    Окно — предыдущий день; в понедельник — суббота и воскресенье; в субботу и
-    воскресенье алерт не отправляется. Порог по умолчанию 50 000 ₽ и
-    калибруется на истории (``python -m onec_analyst.alerts``). Возвращает
-    вердикт, сумму, долю и товары — все числа из движка.
+    Окно — предыдущий день; в понедельник — пятница, суббота и воскресенье;
+    в субботу и воскресенье алерт не отправляется. Порог по умолчанию
+    50 000 ₽ и калибруется на истории (``python -m onec_analyst.alerts``).
+    Возвращает вердикт, сумму, долю и товары — все числа из движка.
     """
     dataset = _get_dataset()
     if dataset is None:
