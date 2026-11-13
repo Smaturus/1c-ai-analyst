@@ -114,3 +114,16 @@ def _isolated_audit_log() -> Iterator[Path]:
         path.unlink()
     except FileNotFoundError:
         pass
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _isolated_mcp_state() -> Iterator[Path]:
+    """Служебное состояние MCP (флаг алертов) — тоже в ``.pytest_tmp``."""
+    directory = REPO_ROOT / ".pytest_tmp" / f"mcp_state_{uuid.uuid4().hex}"
+    previous = os.environ.get("ONEC_MCP_STATE_DIR")
+    os.environ["ONEC_MCP_STATE_DIR"] = str(directory)
+    yield directory
+    if previous is None:
+        os.environ.pop("ONEC_MCP_STATE_DIR", None)
+    else:
+        os.environ["ONEC_MCP_STATE_DIR"] = previous

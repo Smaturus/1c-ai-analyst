@@ -30,22 +30,32 @@ from typing import Any, Callable
 import pandas as pd
 
 from onec_analyst.analytics import dispatch_intent
+from onec_analyst.paths import find_repo_root
 
 __all__ = [
+    "ALERTS_ENABLED_ENV",
     "AlertPolicy",
     "CalibrationReport",
     "ReturnsStats",
     "ReturnsWindow",
+    "STATE_DIR_ENV",
+    "alert_flag_path",
     "alert_reason",
+    "alert_status",
     "alert_window",
+    "alerts_enabled",
     "calibrate",
     "collect_returns",
     "main",
+    "set_alerts_enabled",
 ]
 
 MIN_ABS_ENV: str = "ONEC_ALERT_MIN_ABS"
 MIN_ROWS_ENV: str = "ONEC_ALERT_MIN_ROWS"
 SHARE_ENV: str = "ONEC_ALERT_SHARE_PCT"
+STATE_DIR_ENV: str = "ONEC_MCP_STATE_DIR"
+ALERTS_ENABLED_ENV: str = "ONEC_ALERTS_ENABLED"
+DISABLED_FLAG_NAME: str = "alerts.disabled"
 
 DEFAULT_MIN_ABS: float = 50_000.0
 """Стартовый порог, ₽. Калибруется на истории реальной базы, а не берётся на веру."""
@@ -170,6 +180,57 @@ def alert_window(today: date) -> ReturnsWindow | None:
         )
     day = today - timedelta(days=1)
     return ReturnsWindow(start=day, end=day)
+
+
+def state_dir() -> Path:
+    """Каталог служебного состояния MCP (по умолчанию ``.mcp_state``)."""
+    raw = os.environ.get(STATE_DIR_ENV, "").strip()
+    return Path(raw) if raw else find_repo_root() / ".mcp_state"
+
+
+def alert_flag_path() -> Path:
+    """Файл-выключатель: его наличие означает «алерты отключены»."""
+    return state_dir() / DISABLED_FLAG_NAME
+
+
+def alerts_enabled() -> bool:
+    """Включены ли алерты.
+
+    Выключить можно двумя способами: переменной ``ONEC_ALERTS_ENABLED=0``
+    (или ``false/no/off``) либо файлом-флагом. Любой из них означает «выключено»;
+    включение — явное ``set_alerts_enabled(True)`` или ``ONEC_ALERTS_ENABLED=1``
+    без файла-флага.
+    """
+    raw = os.environ.get(ALERTS_ENABLED_ENV)
+    if raw is not None and raw.strip().lower() in {"0", "false", "no", "off"}:
+        return False
+    return not alert_flag_path().exists()
+
+
+def set_alerts_enabled(enabled: bool) -> Path | None:
+    """Включить или выключить алерты; возвращает путь к флагу при выключении."""
+    path = alert_flag_path()
+    if enabled:
+        path.unlink(missing_ok=True)
+        return None
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "Алерты возвратов отключены администратором.\n"
+        "Включить: python -X utf8 -m onec_analyst.alerts --enable\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def alert_status() -> dict[str, Any]:
+    """Текущее состояние выключателя — для runbook и CLI."""
+    flag = alert_flag_path()
+    return {
+        "enabled": alerts_enabled(),
+        "env": os.environ.get(ALERTS_ENABLED_ENV),
+        "flag_path": str(flag),
+        "flag_present": flag.exists(),
+    }
 
 
 def collect_returns(
@@ -321,7 +382,22 @@ def main(argv: list[str] | None = None) -> int:
         help="желаемая частота алертов в месяц для подбора порога",
     )
     parser.add_argument("--json", action="store_true", help="вывести отчёт в JSON")
+    parser.add_argument("--disable", action="store_true", help="отключить алерты (файл-флаг)")
+    parser.add_argument("--enable", action="store_true", help="включить алерты")
+    parser.add_argument("--status", action="store_true", help="показать состояние выключателя")
     args = parser.parse_args(argv)
+
+    if args.status:
+        print(json.dumps(alert_status(), ensure_ascii=False, indent=2))
+        return 0
+    if args.disable:
+        flag = set_alerts_enabled(False)
+        print(f"Алерты отключены: {flag}")
+        return 0
+    if args.enable:
+        set_alerts_enabled(True)
+        print("Алерты включены")
+        return 0
 
     frame = _load_dataset(args.dataset)
     today = date.fromisoformat(args.today) if args.today else None
