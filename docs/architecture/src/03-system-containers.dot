@@ -1,0 +1,44 @@
+digraph "c4-container" {
+  graph [rankdir="LR", bgcolor="white", pad="0.45", nodesep="0.55", ranksep="0.85", fontname="Segoe UI", fontsize="11", labelloc="t", labeljust="l",
+         label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="2">
+           <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="16"><B>C4 · Уровень 2: контейнеры</B></FONT></TD></TR>
+           <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="10" COLOR="#5A6B7B">Процессы, хранилища и протоколы между ними</FONT></TD></TR>
+           
+         </TABLE>>,
+         dpi="200"];
+  node [shape="box", style="rounded,filled", fontname="Segoe UI", fontsize="11", penwidth="1.2", margin="0.10,0.06"];
+  edge [fontname="Segoe UI", fontsize="9", color="#5A6B7B", fontcolor="#1F2933", arrowsize="0.75", penwidth="1.1"];
+  "dir" [shape="box", fillcolor="#08427B", fontcolor="#FFFFFF", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">person</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#FFFFFF"><B>Пользователь</B></FONT></TD></TR></TABLE>>];
+  "ana" [shape="box", fillcolor="#08427B", fontcolor="#FFFFFF", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">person</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#FFFFFF"><B>Аналитик</B></FONT></TD></TR></TABLE>>];
+  subgraph cluster_hermes {
+    label=<<FONT POINT-SIZE="10" COLOR="#5A6B7B"><B>Hermes Agent (внешний агент)</B></FONT>>;
+    labeljust="l"; style="rounded,dashed"; color="#9AA7B4"; penwidth="1.1";
+    fontname="Segoe UI"; margin="14";
+  "gw" [shape="box", fillcolor="#7D8B99", fontcolor="#FFFFFF", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">external</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#FFFFFF"><B>Gateway</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#D6E4F0">сессии, cron, каналы</FONT></TD></TR></TABLE>>];
+  "desk" [shape="box", fillcolor="#7D8B99", fontcolor="#FFFFFF", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">external</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#FFFFFF"><B>Desktop / CLI</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#D6E4F0">чат</FONT></TD></TR></TABLE>>];
+  "cron" [shape="box", fillcolor="#7D8B99", fontcolor="#FFFFFF", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">external</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#FFFFFF"><B>Cron scheduler</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#D6E4F0">проактивные задачи</FONT></TD></TR></TABLE>>];
+  }
+  subgraph cluster_sys {
+    label=<<FONT POINT-SIZE="10" COLOR="#5A6B7B"><B>1c-ai-analyst</B></FONT>>;
+    labeljust="l"; style="rounded,dashed"; color="#9AA7B4"; penwidth="1.1";
+    fontname="Segoe UI"; margin="14";
+  "mcp" [shape="box", fillcolor="#438DD5", fontcolor="#FFFFFF", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">container</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#FFFFFF"><B>MCP Server</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#D6E4F0">12 прикладных + 4 служебных</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">[Python, stdio]</FONT></TD></TR></TABLE>>];
+  "streamlit" [shape="box", fillcolor="#438DD5", fontcolor="#FFFFFF", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">container</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#FFFFFF"><B>Streamlit UI</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#D6E4F0">глубокий разбор</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">[Python]</FONT></TD></TR></TABLE>>];
+  "engine" [shape="box", fillcolor="#438DD5", fontcolor="#FFFFFF", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">container</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#FFFFFF"><B>Движок аналитики</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#D6E4F0">7 срезов, DSL</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">[pandas]</FONT></TD></TR></TABLE>>];
+  "vitrina" [shape="box", fillcolor="#2E6DA4", fontcolor="#FFFFFF", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">store</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#FFFFFF"><B>Витрина</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#D6E4F0">CSV + meta</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">[файлы]</FONT></TD></TR></TABLE>>];
+  "audit" [shape="box", fillcolor="#2E6DA4", fontcolor="#FFFFFF", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">store</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#FFFFFF"><B>Аудит</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#D6E4F0">JSONL</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">[файлы]</FONT></TD></TR></TABLE>>];
+  "etl" [shape="box", fillcolor="#438DD5", fontcolor="#FFFFFF", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">container</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#FFFFFF"><B>ETL 1С → CSV</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#D6E4F0">выгрузка</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">[onec_source.py]</FONT></TD></TR></TABLE>>];
+  }
+  "onec" [shape="box", fillcolor="#7D8B99", fontcolor="#FFFFFF", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">external</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#FFFFFF"><B>1С:УТ</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#D6E4F0">источник</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">[COM]</FONT></TD></TR></TABLE>>];
+  "dir" -> "desk" [style="solid", arrowhead="vee", label="чат"];
+  "ana" -> "streamlit" [style="solid", arrowhead="vee", label="браузер"];
+  "desk" -> "gw" [style="solid", arrowhead="vee", label="IPC"];
+  "cron" -> "gw" [style="solid", arrowhead="vee", label="задачи"];
+  "gw" -> "mcp" [style="solid", arrowhead="vee", label="MCP / stdio"];
+  "mcp" -> "engine" [style="solid", arrowhead="vee", label="dispatch_intent"];
+  "engine" -> "vitrina" [style="solid", arrowhead="vee", label="чтение"];
+  "mcp" -> "audit" [style="solid", arrowhead="vee", label="запись"];
+  "etl" -> "vitrina" [style="solid", arrowhead="vee", label="запись"];
+  "onec" -> "etl" [style="solid", arrowhead="vee", label="COM"];
+  "streamlit" -> "engine" [style="solid", arrowhead="vee", label="Python API"];
+}

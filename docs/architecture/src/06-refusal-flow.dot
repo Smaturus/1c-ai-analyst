@@ -1,0 +1,21 @@
+digraph "flow-refusal" {
+  graph [rankdir="LR", bgcolor="white", pad="0.45", nodesep="0.55", ranksep="0.85", fontname="Segoe UI", fontsize="11", labelloc="t", labeljust="l",
+         label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="2">
+           <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="16"><B>Сценарий: отказ вместо подмены</B></FONT></TD></TR>
+           <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="10" COLOR="#5A6B7B">Нет среза — нет числа: агент перечисляет доступное и не считает сам</FONT></TD></TR>
+           
+         </TABLE>>,
+         dpi="200"];
+  node [shape="box", style="rounded,filled", fontname="Segoe UI", fontsize="11", penwidth="1.2", margin="0.10,0.06"];
+  edge [fontname="Segoe UI", fontsize="9", color="#5A6B7B", fontcolor="#1F2933", arrowsize="0.75", penwidth="1.1"];
+  "q" [shape="box", fillcolor="#08427B", fontcolor="#FFFFFF", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">person</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#FFFFFF"><B>Вопрос вне срезов</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#D6E4F0">например, «маржа»</FONT></TD></TR></TABLE>>];
+  "llm" [shape="box", fillcolor="#7D8B99", fontcolor="#FFFFFF", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">external</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#FFFFFF"><B>Hermes Agent</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#D6E4F0">проверяет каталог</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">[LLM]</FONT></TD></TR></TABLE>>];
+  "caps" [shape="box", fillcolor="#438DD5", fontcolor="#FFFFFF", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">container</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#FFFFFF"><B>describe_capabilities</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#D6E4F0">список срезов</FONT></TD></TR></TABLE>>];
+  "refuse" [shape="box", fillcolor="#85BBF0", fontcolor="#1F2933", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#5A6B7B">component</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#1F2933"><B>Отказ</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#5A6B7B">причина + доступное</FONT></TD></TR></TABLE>>];
+  "dir" [shape="box", fillcolor="#08427B", fontcolor="#FFFFFF", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">person</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#FFFFFF"><B>Пользователь</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#D6E4F0">получает отказ</FONT></TD></TR></TABLE>>];
+  "q" -> "llm" [style="solid", arrowhead="vee", label="1"];
+  "llm" -> "caps" [style="solid", arrowhead="vee", label="2 · MCP"];
+  "caps" -> "refuse" [style="solid", arrowhead="vee", label="3 · список"];
+  "refuse" -> "llm" [style="dashed", arrowhead="vee", label="4"];
+  "llm" -> "dir" [style="dashed", arrowhead="vee", label="5 · без вычислений"];
+}
