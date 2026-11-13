@@ -1,0 +1,30 @@
+digraph "dataset-switch-flow" {
+  graph [rankdir="LR", bgcolor="white", pad="0.45", nodesep="0.55", ranksep="0.85", fontname="Segoe UI", fontsize="11", labelloc="t", labeljust="l",
+         label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="2">
+           <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="16"><B>Сценарий UC-3: смена витрины</B></FONT></TD></TR>
+           <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="10" COLOR="#5A6B7B">Загрузка новой выгрузки с проверкой пути, метаданных и аудитом</FONT></TD></TR>
+           
+         </TABLE>>,
+         dpi="200"];
+  node [shape="box", style="rounded,filled", fontname="Segoe UI", fontsize="11", penwidth="1.2", margin="0.10,0.06"];
+  edge [fontname="Segoe UI", fontsize="9", color="#5A6B7B", fontcolor="#1F2933", arrowsize="0.75", penwidth="1.1"];
+  "user" [shape="box", fillcolor="#08427B", fontcolor="#FFFFFF", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">person</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#FFFFFF"><B>Пользователь</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#D6E4F0">«Загрузи витрину …»</FONT></TD></TR></TABLE>>];
+  "agent" [shape="box", fillcolor="#7D8B99", fontcolor="#FFFFFF", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">external</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#FFFFFF"><B>Hermes Agent</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#D6E4F0">вызывает инструмент</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">[LLM]</FONT></TD></TR></TABLE>>];
+  "load" [shape="box", fillcolor="#438DD5", fontcolor="#FFFFFF", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">container</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#FFFFFF"><B>load_dataset(path)</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#D6E4F0">MCP tool</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">[stdio]</FONT></TD></TR></TABLE>>];
+  "check" [shape="diamond", fillcolor="#85BBF0", fontcolor="#1F2933", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#5A6B7B">component</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#1F2933"><B>Проверка allowlist</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#5A6B7B">путь внутри репозитория</FONT></TD></TR></TABLE>>];
+  "read" [shape="box", fillcolor="#438DD5", fontcolor="#FFFFFF", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">container</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#FFFFFF"><B>Чтение CSV + meta</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#D6E4F0">exported_at / rows</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">[pandas]</FONT></TD></TR></TABLE>>];
+  "set" [shape="box", fillcolor="#85BBF0", fontcolor="#1F2933", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#5A6B7B">component</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#1F2933"><B>Смена витрины</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#5A6B7B">dataset в процессе</FONT></TD></TR></TABLE>>];
+  "audit" [shape="box", fillcolor="#2E6DA4", fontcolor="#FFFFFF", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">store</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#FFFFFF"><B>audit: dataset_loaded</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#D6E4F0">JSONL</FONT></TD></TR></TABLE>>];
+  "answer" [shape="box", fillcolor="#85BBF0", fontcolor="#1F2933", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#5A6B7B">component</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#1F2933"><B>describe_dataset</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#5A6B7B">строки, период, дата данных</FONT></TD></TR></TABLE>>];
+  "refuse" [shape="box", fillcolor="#F4C7C3", fontcolor="#1F2933", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#5A6B7B">risk</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#1F2933"><B>Отказ</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#5A6B7B">путь вне репозитория</FONT></TD></TR></TABLE>>];
+  "user" -> "agent" [style="solid", arrowhead="vee", label="1 · запрос"];
+  "agent" -> "load" [style="solid", arrowhead="vee", label="2 · MCP"];
+  "load" -> "check" [style="solid", arrowhead="vee", label="3 · путь"];
+  "check" -> "read" [style="solid", arrowhead="vee", label="4 · разрешён"];
+  "read" -> "set" [style="solid", arrowhead="vee", label="5 · DataFrame"];
+  "set" -> "audit" [style="solid", arrowhead="vee", label="6 · событие"];
+  "set" -> "answer" [style="solid", arrowhead="vee", label="7 · сводка"];
+  "answer" -> "agent" [style="dashed", arrowhead="vee", label="8 · ответ"];
+  "check" -> "refuse" [style="dashed", arrowhead="vee", label="4′ · запрещён"];
+  "refuse" -> "agent" [style="dashed", arrowhead="vee", label="5′ · отказ"];
+}

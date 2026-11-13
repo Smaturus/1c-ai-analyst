@@ -597,6 +597,84 @@ def archimate_layers() -> str:
     )
 
 
+# --- 12. Configuration view (Hermes profile) --------------------------------
+def configuration_view() -> str:
+    body = (
+        cluster(
+            "profile",
+            "Hermes profile · config.yaml",
+            node("mcp_srv", "app", "mcp_servers.1c-analyst", "command / args / cwd / env / timeout")
+            + node("toolsets", "app", "platform_toolsets", "local / desktop")
+            + node("disabled", "app", "agent.disabled_toolsets", "terminal, file, web, search…")
+            + node("search", "app", "tools.tool_search", "off — инструменты видны сразу")
+            + node("cwd", "app", "terminal.cwd", "корень репозитория"),
+        )
+        + cluster(
+            "context",
+            "Контекст проекта",
+            node("rules", "app", ".hermes.md", "правила: числа только из MCP")
+            + node("state", "app", "ONEC_MCP_STATE_DIR", ".mcp_state")
+            + node("audit", "app", "ONEC_MCP_AUDIT_FILE", "audit.jsonl")
+            + node("alerts", "app", "ONEC_ALERTS_ENABLED", "kill switch"),
+        )
+        + cluster(
+            "runtime",
+            "Среда",
+            node("venv", "tech", "venv Python 3.12+", "зависимости mcp/pandas")
+            + node("proc", "tech", "Процесс MCP", "stdio, дочерний у Hermes")
+            + node("surface", "tech", "Tool surface", "12 + 4 инструмента"),
+        )
+        + edge("mcp_srv", "proc", "запускает", "dashed", "onormal")
+        + edge("cwd", "rules", "обнаруживает", "dashed", "onormal")
+        + edge("toolsets", "surface", "ограничивает")
+        + edge("disabled", "surface", "вычитает")
+        + edge("search", "surface", "не откладывает")
+        + edge("state", "audit", "задаёт путь", "dashed", "onormal")
+        + edge("alerts", "state", "включает/выключает", "dashed", "onormal")
+        + edge("venv", "proc", "среда исполнения", "dashed", "onormal")
+        + edge("rules", "surface", "политика использования", "dashed", "onormal")
+    )
+    return wrap(
+        "configuration-view",
+        "Конфигурационное представление",
+        "Какие настройки Hermes формируют поверхность инструментов и поведение агента",
+        body,
+        rankdir="LR",
+    )
+
+
+# --- 13. Flow: dataset switch (UC-3) ---------------------------------------
+def dataset_switch_flow() -> str:
+    body = (
+        node("user", "person", "Пользователь", "«Загрузи витрину …»")
+        + node("agent", "external", "Hermes Agent", "вызывает инструмент", "LLM")
+        + node("load", "container", "load_dataset(path)", "MCP tool", "stdio")
+        + node("check", "component", "Проверка allowlist", "путь внутри репозитория", shape="diamond")
+        + node("read", "container", "Чтение CSV + meta", "exported_at / rows", "pandas")
+        + node("set", "component", "Смена витрины", "dataset в процессе")
+        + node("audit", "store", "audit: dataset_loaded", "JSONL")
+        + node("answer", "component", "describe_dataset", "строки, период, дата данных")
+        + node("refuse", "risk", "Отказ", "путь вне репозитория")
+        + edge("user", "agent", "1 · запрос")
+        + edge("agent", "load", "2 · MCP")
+        + edge("load", "check", "3 · путь")
+        + edge("check", "read", "4 · разрешён")
+        + edge("read", "set", "5 · DataFrame")
+        + edge("set", "audit", "6 · событие")
+        + edge("set", "answer", "7 · сводка")
+        + edge("answer", "agent", "8 · ответ", "dashed")
+        + edge("check", "refuse", "4′ · запрещён", "dashed")
+        + edge("refuse", "agent", "5′ · отказ", "dashed")
+    )
+    return wrap(
+        "dataset-switch-flow",
+        "Сценарий UC-3: смена витрины",
+        "Загрузка новой выгрузки с проверкой пути, метаданных и аудитом",
+        body,
+        rankdir="LR",
+    )
+
+
 DIAGRAMS = {
     "01-business-architecture": business_layer,
     "02-system-context": c4_context,
@@ -609,6 +687,8 @@ DIAGRAMS = {
     "09-deployment-view": deployment,
     "10-trust-zones": security_zones,
     "11-archimate-layers": archimate_layers,
+    "12-configuration-view": configuration_view,
+    "13-dataset-switch-flow": dataset_switch_flow,
 }
 
 

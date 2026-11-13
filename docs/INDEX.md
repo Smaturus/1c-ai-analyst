@@ -37,6 +37,9 @@
 | [0006](adr/0006-llm-providers.md) | Провайдеры LLM и офлайн-правила |
 | [0007](adr/0007-graceful-degradation.md) | Graceful degradation при уточнениях |
 | [0008](adr/0008-compare-tops-intent.md) | Сравнение топов (L4L) |
+| [0009](adr/0009-mcp-facade.md) | MCP-фасад над JSON-DSL |
+| [0010](adr/0010-export-timestamp.md) | Дата данных из метаданных выгрузки |
+| [0011](adr/0011-answer-contract-version.md) | Версия контракта ответа (предложено) |
 
 ## 4. Быстрые факты (0.6.0)
 
