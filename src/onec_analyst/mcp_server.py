@@ -36,9 +36,12 @@ from mcp.types import ToolAnnotations
 from pydantic import ValidationError
 
 from onec_analyst.alerts import (
+    ALERTS_ENABLED_ENV,
     AlertPolicy,
+    alert_flag_path,
     alert_reason,
     alert_window,
+    alerts_enabled,
     collect_returns,
 )
 from onec_analyst.analytics import dispatch_intent
@@ -546,6 +549,9 @@ def describe_capabilities() -> str:
         "- returns_alert — ежедневный алерт возвратов за вчера "
         "(понедельник — за выходные; порог настраивается)"
     )
+    lines.append(
+        f"- Алерты возвратов: {'включены' if alerts_enabled() else 'отключены'}"
+    )
     lines.append("")
     lines.append(f"Не поддерживается: {UNSUPPORTED}.")
     dataset = _get_dataset()
@@ -674,6 +680,21 @@ def returns_alert(
         dataset = _get_dataset()
     if dataset is None:
         return format_refusal("витрина не загружена — вызовите load_dataset", AVAILABLE)
+    if not alerts_enabled():
+        data_min, data_max = _data_bounds(dataset.frame)
+        body = (
+            "Алерты отключены администратором "
+            f"({ALERTS_ENABLED_ENV}=0 или файл {alert_flag_path()}). "
+            "Срезы и данные не затронуты; ручной отчёт доступен в веб-приложении."
+        )
+        return format_answer(
+            body,
+            AnswerMeta(
+                intent="returns_alert",
+                period=PeriodResolution(data_min, data_max, True),
+                **_as_of_kwargs(dataset.frame),
+            ),
+        )
     anchor = today or date.today()
     window = alert_window(anchor)
     if window is None:

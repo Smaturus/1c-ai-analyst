@@ -8,16 +8,22 @@ import pandas as pd
 import pytest
 
 from onec_analyst.alerts import (
+    ALERTS_ENABLED_ENV,
     MIN_ABS_ENV,
     MIN_ROWS_ENV,
     AlertPolicy,
     ReturnsStats,
     ReturnsWindow,
+    alert_flag_path,
     alert_reason,
+    alert_status,
     alert_window,
+    alerts_enabled,
     calibrate,
     collect_returns,
+    set_alerts_enabled,
 )
+from onec_analyst.alerts import main as alerts_main
 from onec_analyst.mcp_server import returns_alert
 
 WEEKDAY = date(2024, 1, 10)
@@ -169,3 +175,48 @@ def test_returns_alert_is_silent_on_weekend() -> None:
     assert "выходной" in text
     assert "Период:" in text
     assert "Данные:" in text
+
+
+def test_alerts_disabled_by_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(ALERTS_ENABLED_ENV, "0")
+
+    assert alerts_enabled() is False
+
+
+def test_alerts_flag_file_toggles_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(ALERTS_ENABLED_ENV, raising=False)
+    assert alerts_enabled() is True
+
+    flag = set_alerts_enabled(False)
+
+    assert flag == alert_flag_path()
+    assert flag is not None and flag.exists()
+    assert alerts_enabled() is False
+    assert alert_status()["enabled"] is False
+
+    set_alerts_enabled(True)
+
+    assert alerts_enabled() is True
+    assert not flag.exists()
+
+
+def test_returns_alert_respects_kill_switch(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(ALERTS_ENABLED_ENV, "0")
+
+    text = returns_alert(today=date(2023, 2, 16))
+
+    assert "Алерты отключены" in text
+    assert "Период:" in text
+    assert "Данные:" in text
+    assert "350 000,00" not in text
+
+
+def test_cli_status_reports_switch(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv(ALERTS_ENABLED_ENV, "0")
+
+    assert alerts_main(["--status"]) == 0
+
+    assert '"enabled": false' in capsys.readouterr().out
