@@ -1,0 +1,42 @@
+digraph "business-layer" {
+  graph [rankdir="LR", bgcolor="white", pad="0.45", nodesep="0.55", ranksep="0.85", fontname="Segoe UI", fontsize="11", labelloc="t", labeljust="l",
+         label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="2">
+           <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="16"><B>Бизнес-архитектура: аналитика продаж 1С</B></FONT></TD></TR>
+           <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="10" COLOR="#5A6B7B">ArchiMate 3.2 · Business Layer · акторы, сервисы, объекты</FONT></TD></TR>
+           <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#5A6B7B">Источник: docs/ARCHITECTURE-SOLUTION.md · build_diagrams.py</FONT></TD></TR>
+         </TABLE>>,
+         dpi="200"];
+  node [shape="box", style="rounded,filled", fontname="Segoe UI", fontsize="11", penwidth="1.2", margin="0.10,0.06"];
+  edge [fontname="Segoe UI", fontsize="9", color="#5A6B7B", fontcolor="#1F2933", arrowsize="0.75", penwidth="1.1"];
+  subgraph cluster_actors {
+    label=<<FONT POINT-SIZE="10" COLOR="#5A6B7B"><B>Business Layer · Акторы</B></FONT>>;
+    labeljust="l"; style="rounded,dashed"; color="#9AA7B4"; penwidth="1.1";
+    fontname="Segoe UI"; margin="14";
+  "dir" [shape="box", fillcolor="#FFF2B2", fontcolor="#1F2933", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#5A6B7B">business</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#1F2933"><B>Пользователь</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#5A6B7B">вопросы, решения</FONT></TD></TR></TABLE>>];
+  "ana" [shape="box", fillcolor="#FFF2B2", fontcolor="#1F2933", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#5A6B7B">business</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#1F2933"><B>Аналитик</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#5A6B7B">витрина, сверка</FONT></TD></TR></TABLE>>];
+  "it" [shape="box", fillcolor="#FFF2B2", fontcolor="#1F2933", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#5A6B7B">business</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#1F2933"><B>ИТ / ИБ</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#5A6B7B">доступы, канал</FONT></TD></TR></TABLE>>];
+  }
+  subgraph cluster_services {
+    label=<<FONT POINT-SIZE="10" COLOR="#5A6B7B"><B>Business Layer · Сервисы</B></FONT>>;
+    labeljust="l"; style="rounded,dashed"; color="#9AA7B4"; penwidth="1.1";
+    fontname="Segoe UI"; margin="14";
+  "sales" [shape="box", fillcolor="#FFF2B2", fontcolor="#1F2933", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#5A6B7B">business</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#1F2933"><B>Аналитика продаж</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#5A6B7B">ответ на вопрос</FONT></TD></TR></TABLE>>];
+  "returns" [shape="box", fillcolor="#FFF2B2", fontcolor="#1F2933", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#5A6B7B">business</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#1F2933"><B>Контроль возвратов</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#5A6B7B">ежедневный алерт</FONT></TD></TR></TABLE>>];
+  "accept" [shape="box", fillcolor="#FFF2B2", fontcolor="#1F2933", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#5A6B7B">business</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#1F2933"><B>Сверка с 1С</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#5A6B7B">30 вопросов, подпись</FONT></TD></TR></TABLE>>];
+  }
+  subgraph cluster_objects {
+    label=<<FONT POINT-SIZE="10" COLOR="#5A6B7B"><B>Business Layer · Объекты</B></FONT>>;
+    labeljust="l"; style="rounded,dashed"; color="#9AA7B4"; penwidth="1.1";
+    fontname="Segoe UI"; margin="14";
+  "report" [shape="box", fillcolor="#FFF2B2", fontcolor="#1F2933", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#5A6B7B">business</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#1F2933"><B>Отчёт о продажах</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#5A6B7B">таблица + провенанс</FONT></TD></TR></TABLE>>];
+  "refund" [shape="box", fillcolor="#FFF2B2", fontcolor="#1F2933", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#5A6B7B">business</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#1F2933"><B>Возвраты</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#5A6B7B">строки, суммы</FONT></TD></TR></TABLE>>];
+  "protocol" [shape="box", fillcolor="#FFF2B2", fontcolor="#1F2933", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#5A6B7B">business</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#1F2933"><B>Протокол сверки</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#5A6B7B">вердикты</FONT></TD></TR></TABLE>>];
+  }
+  "dir" -> "sales" [style="solid", arrowhead="vee", label="UC-1, UC-2"];
+  "dir" -> "returns" [style="solid", arrowhead="vee", label="UC-2"];
+  "ana" -> "accept" [style="solid", arrowhead="vee", label="UC-5"];
+  "it" -> "sales" [style="solid", arrowhead="vee", label="канал, доступ"];
+  "sales" -> "report" [style="solid", arrowhead="vee", label="формирует"];
+  "returns" -> "refund" [style="solid", arrowhead="vee", label="фиксирует"];
+  "accept" -> "protocol" [style="solid", arrowhead="vee", label="фиксирует"];
+}

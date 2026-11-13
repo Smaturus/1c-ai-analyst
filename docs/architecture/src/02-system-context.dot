@@ -1,0 +1,29 @@
+digraph "c4-context" {
+  graph [rankdir="LR", bgcolor="white", pad="0.45", nodesep="0.55", ranksep="0.85", fontname="Segoe UI", fontsize="11", labelloc="t", labeljust="l",
+         label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="2">
+           <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="16"><B>C4 · Уровень 1: контекст системы</B></FONT></TD></TR>
+           <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="10" COLOR="#5A6B7B">Кто пользуется, с чем интегрируется, где проходит граница ответственности</FONT></TD></TR>
+           <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#5A6B7B">Источник: docs/ARCHITECTURE-SOLUTION.md · build_diagrams.py</FONT></TD></TR>
+         </TABLE>>,
+         dpi="200"];
+  node [shape="box", style="rounded,filled", fontname="Segoe UI", fontsize="11", penwidth="1.2", margin="0.10,0.06"];
+  edge [fontname="Segoe UI", fontsize="9", color="#5A6B7B", fontcolor="#1F2933", arrowsize="0.75", penwidth="1.1"];
+  "dir" [shape="box", fillcolor="#08427B", fontcolor="#FFFFFF", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">person</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#FFFFFF"><B>Пользователь</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#D6E4F0">задаёт вопросы в чате</FONT></TD></TR></TABLE>>];
+  "ana" [shape="box", fillcolor="#08427B", fontcolor="#FFFFFF", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">person</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#FFFFFF"><B>Аналитик</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#D6E4F0">владелец витрины и сверки</FONT></TD></TR></TABLE>>];
+  "hermes" [shape="box", fillcolor="#7D8B99", fontcolor="#FFFFFF", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">external</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#FFFFFF"><B>Hermes Agent</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#D6E4F0">диалог, канал, cron</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">[Hermes / Python]</FONT></TD></TR></TABLE>>];
+  "messenger" [shape="box", fillcolor="#7D8B99", fontcolor="#FFFFFF", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">external</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#FFFFFF"><B>Мессенджер / почта</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#D6E4F0">Mattermost, Teams, e-mail</FONT></TD></TR></TABLE>>];
+  "llm" [shape="box", fillcolor="#7D8B99", fontcolor="#FFFFFF", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">external</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#FFFFFF"><B>LLM-провайдер</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#D6E4F0">планирование диалога</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">[по выбору заказчика]</FONT></TD></TR></TABLE>>];
+  "onec" [shape="box", fillcolor="#7D8B99", fontcolor="#FFFFFF", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">external</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#FFFFFF"><B>1С:УТ</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#D6E4F0">регистр продаж</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">[COM]</FONT></TD></TR></TABLE>>];
+  subgraph cluster_boundary {
+    label=<<FONT POINT-SIZE="10" COLOR="#5A6B7B"><B>Система: 1c-ai-analyst</B></FONT>>;
+    labeljust="l"; style="rounded,dashed"; color="#9AA7B4"; penwidth="1.1";
+    fontname="Segoe UI"; margin="14";
+  "system" [shape="box", fillcolor="#1168BD", fontcolor="#FFFFFF", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">system</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#FFFFFF"><B>1c-ai-analyst</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#D6E4F0">детерминированные срезы продаж 1С</FONT></TD></TR></TABLE>>];
+  }
+  "dir" -> "hermes" [style="solid", arrowhead="vee", label="чат"];
+  "hermes" -> "messenger" [style="dashed", arrowhead="vee", label="доставка"];
+  "hermes" -> "llm" [style="dashed", arrowhead="vee", label="HTTPS"];
+  "hermes" -> "system" [style="solid", arrowhead="vee", label="MCP / stdio"];
+  "ana" -> "system" [style="solid", arrowhead="vee", label="Streamlit UI"];
+  "onec" -> "system" [style="solid", arrowhead="vee", label="выгрузка CSV + meta"];
+}

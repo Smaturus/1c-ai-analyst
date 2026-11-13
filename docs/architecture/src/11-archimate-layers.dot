@@ -1,0 +1,53 @@
+digraph "archimate-layers" {
+  graph [rankdir="TB", bgcolor="white", pad="0.45", nodesep="0.55", ranksep="0.85", fontname="Segoe UI", fontsize="11", labelloc="t", labeljust="l",
+         label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="2">
+           <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="16"><B>ArchiMate: слои и реализации</B></FONT></TD></TR>
+           <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="10" COLOR="#5A6B7B">Business → Application → Technology: сервисы, компоненты, инфраструктура</FONT></TD></TR>
+           
+         </TABLE>>,
+         dpi="200"];
+  node [shape="box", style="rounded,filled", fontname="Segoe UI", fontsize="11", penwidth="1.2", margin="0.10,0.06"];
+  edge [fontname="Segoe UI", fontsize="9", color="#5A6B7B", fontcolor="#1F2933", arrowsize="0.75", penwidth="1.1"];
+  subgraph cluster_business {
+    label=<<FONT POINT-SIZE="10" COLOR="#5A6B7B"><B>Business Layer</B></FONT>>;
+    labeljust="l"; style="rounded,dashed"; color="#9AA7B4"; penwidth="1.1";
+    fontname="Segoe UI"; margin="14";
+  "user" [shape="box", fillcolor="#FFF2B2", fontcolor="#1F2933", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#5A6B7B">business</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#1F2933"><B>Пользователь</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#5A6B7B">вопросы</FONT></TD></TR></TABLE>>];
+  "analyst" [shape="box", fillcolor="#FFF2B2", fontcolor="#1F2933", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#5A6B7B">business</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#1F2933"><B>Аналитик</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#5A6B7B">сверка</FONT></TD></TR></TABLE>>];
+  "sales" [shape="box", fillcolor="#FFF2B2", fontcolor="#1F2933", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#5A6B7B">business</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#1F2933"><B>Аналитика продаж</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#5A6B7B">сервис</FONT></TD></TR></TABLE>>];
+  "returns" [shape="box", fillcolor="#FFF2B2", fontcolor="#1F2933", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#5A6B7B">business</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#1F2933"><B>Контроль возвратов</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#5A6B7B">сервис</FONT></TD></TR></TABLE>>];
+  }
+  subgraph cluster_application {
+    label=<<FONT POINT-SIZE="10" COLOR="#5A6B7B"><B>Application Layer</B></FONT>>;
+    labeljust="l"; style="rounded,dashed"; color="#9AA7B4"; penwidth="1.1";
+    fontname="Segoe UI"; margin="14";
+  "mcp" [shape="box", fillcolor="#B5E0F5", fontcolor="#1F2933", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#5A6B7B">app</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#1F2933"><B>MCP Server</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#5A6B7B">12 + 4 инструмента</FONT></TD></TR></TABLE>>];
+  "engine" [shape="box", fillcolor="#B5E0F5", fontcolor="#1F2933", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#5A6B7B">app</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#1F2933"><B>Движок аналитики</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#5A6B7B">7 срезов</FONT></TD></TR></TABLE>>];
+  "streamlit" [shape="box", fillcolor="#B5E0F5", fontcolor="#1F2933", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#5A6B7B">app</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#1F2933"><B>Streamlit UI</B></FONT></TD></TR></TABLE>>];
+  "etl" [shape="box", fillcolor="#B5E0F5", fontcolor="#1F2933", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#5A6B7B">app</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#1F2933"><B>ETL 1С → CSV</B></FONT></TD></TR></TABLE>>];
+  "audit" [shape="box", fillcolor="#B5E0F5", fontcolor="#1F2933", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#5A6B7B">app</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#1F2933"><B>Аудит</B></FONT></TD></TR></TABLE>>];
+  }
+  subgraph cluster_technology {
+    label=<<FONT POINT-SIZE="10" COLOR="#5A6B7B"><B>Technology Layer</B></FONT>>;
+    labeljust="l"; style="rounded,dashed"; color="#9AA7B4"; penwidth="1.1";
+    fontname="Segoe UI"; margin="14";
+  "host" [shape="box", fillcolor="#C9E7B7", fontcolor="#1F2933", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#5A6B7B">tech</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#1F2933"><B>Windows host</B></FONT></TD></TR></TABLE>>];
+  "python" [shape="box", fillcolor="#C9E7B7", fontcolor="#1F2933", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#5A6B7B">tech</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#1F2933"><B>Python venv</B></FONT></TD></TR></TABLE>>];
+  "stdio" [shape="box", fillcolor="#C9E7B7", fontcolor="#1F2933", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#5A6B7B">tech</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#1F2933"><B>MCP over stdio</B></FONT></TD></TR></TABLE>>];
+  "files" [shape="box", fillcolor="#C9E7B7", fontcolor="#1F2933", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#5A6B7B">tech</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#1F2933"><B>Витрина · meta · audit</B></FONT></TD></TR></TABLE>>];
+  }
+  "user" -> "mcp" [style="dashed", arrowhead="onormal", label="использует"];
+  "analyst" -> "streamlit" [style="dashed", arrowhead="onormal", label="использует"];
+  "sales" -> "mcp" [style="dashed", arrowhead="onormal", label="realized by"];
+  "returns" -> "mcp" [style="dashed", arrowhead="onormal", label="realized by"];
+  "mcp" -> "engine" [style="solid", arrowhead="vee", label="uses"];
+  "streamlit" -> "engine" [style="solid", arrowhead="vee", label="uses"];
+  "engine" -> "files" [style="solid", arrowhead="vee", label="reads"];
+  "etl" -> "files" [style="solid", arrowhead="vee", label="writes"];
+  "mcp" -> "stdio" [style="dashed", arrowhead="onormal", label="served by"];
+  "mcp" -> "python" [style="dashed", arrowhead="onormal", label="runs on"];
+  "etl" -> "python" [style="dashed", arrowhead="onormal", label="runs on"];
+  "stdio" -> "host" [style="dashed", arrowhead="onormal", label="hosted by"];
+  "python" -> "host" [style="dashed", arrowhead="onormal", label="hosted by"];
+  "files" -> "host" [style="dashed", arrowhead="onormal", label="stored on"];
+}

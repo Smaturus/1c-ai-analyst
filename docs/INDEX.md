@@ -16,7 +16,9 @@
 | Документ | Содержание |
 |---|---|
 | [../README.md](../README.md) | Обзор, быстрый старт, возможности |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Компоненты, потоки, ограничения MVP |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Архитектура приложения: компоненты, потоки, ограничения MVP |
+| [ARCHITECTURE-SOLUTION.md](ARCHITECTURE-SOLUTION.md) | Архитектура решения: MCP-фасад, C4/ArchiMate, 11 схем |
+| [architecture/](architecture/) | Исходники `.dot` и рендеры схем (SVG/PNG) |
 | [DATA_CONTRACT.md](DATA_CONTRACT.md) | Схема витрины, инварианты, нетто-выручка |
 | [RUNBOOK.md](RUNBOOK.md) | Запуск, выгрузка 1С, типовые ошибки |
 | [UI_ACCEPTANCE.md](UI_ACCEPTANCE.md) | Контрольные вопросы и ожидания UI |
@@ -40,7 +42,7 @@
 
 - Демо: `sample_data.csv` — 600 строк, 12 товаров, 6 контрагентов, 2 группы, 2023–2024, 10 % возвратов.
 - Контрольные суммы демо: выручка **99 708 100,00 ₽**, количество **5 315** шт.
-- Проверки: **241** pytest; `smoke_test.py` — PASSED; `smoke_llm.py` — 92 проверки.
+- Проверки: **319** pytest; `smoke_test.py` — PASSED; `smoke_llm.py` — 92 проверки.
 - 7 интентов; фильтры `product_filter` / `group_filter` / `min_base_revenue`; rate limiting демо; graceful degradation.
 - Реальные выгрузки 1С и секреты в репозиторий не входят.
 

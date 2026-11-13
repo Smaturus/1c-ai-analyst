@@ -164,9 +164,32 @@ volumes:
 - **Вручную:** повторно запустите `onec_source.py`; приложение подхватит новый файл при следующем запросе (кеш привязан к времени изменения файла).
 - **По расписанию:** Планировщик задач Windows (Task Scheduler) или Cron на машине с 1С. Пример: `update_1c.bat` с командой выгрузки, ежедневный запуск в 02:00. UI при этом остаётся переносимым и просто читает последний снимок.
 
+## MCP-сервер (интеграция с ИИ-агентом)
+
+Помимо Streamlit, движок доступен через MCP — стандартный протокол инструментов
+для агентов (Hermes Agent, любые MCP-клиенты). Сервер намеренно тонкий:
+
+- **12 прикладных инструментов** (`total`, `top_bottom_products`,
+  `compare_top_products`, `negative_revenue`, `timeseries`,
+  `counterparty_dynamics`, `group_dynamics`, `returns_alert`,
+  `load_dataset`, `describe_dataset`, `describe_capabilities`,
+  `list_dimensions`) + 4 служебных метода MCP SDK;
+- каждый ответ несёт **период и дату данных**, при отсутствии среза — отказ,
+  а не похожий ответ; числа считает только движок;
+- JSONL-аудит вызовов, read-only доступ к витрине, kill switch алертов.
+
+Запуск из корня репозитория:
+
+```powershell
+python -m onec_analyst.mcp_server
+```
+
+Архитектура решения со схемами (C4/ArchiMate):
+[docs/ARCHITECTURE-SOLUTION.md](docs/ARCHITECTURE-SOLUTION.md).
+
 ## Инженерные решения
 
-- **241 pytest-тест** в `tests/` и CI на GitHub Actions (Python 3.12): расчёты, планировщик, UI через `AppTest`, статическая проверка app.py, лимиты LLM.
+- **319 pytest-тестов** в `tests/` и CI на GitHub Actions (Python 3.12): расчёты, планировщик, UI через `AppTest`, статическая проверка app.py, лимиты LLM.
 - **Защита от галлюцинаций LLM:** жёсткий JSON-DSL, Pydantic-модели с `extra="forbid"`, `dispatch_intent`, никаких чисел или SQL от модели.
 - **Rate Limiting ([rate_limiter.py](rate_limiter.py)):** 15 успешных запросов к LLM на сессию и 100 в день глобально (SQLite); при исчерпании — предупреждение/баннер и офлайн-режим правил; ручной сброс сессии только при `RATE_LIMIT_ALLOW_RESET=1`.
 - **Graceful degradation ([ADR 0007](docs/adr/0007-graceful-degradation.md)):** неоднозначный вопрос уточняется максимум дважды, затем выполняется детерминированная ближайшая интерпретация с честной плашкой «Уточнения исчерпаны — показываю как понял…»; если разобрать нельзя — понятная ошибка вместо падения. Составной запрос «топ за 2023 и за 2024» поддерживается отдельным интентом сравнения топов (L4L, [ADR 0008](docs/adr/0008-compare-tops-intent.md)): одна таблица с местами, дельтой и статусами — без multi-intent.
