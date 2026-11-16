@@ -3,7 +3,7 @@ name: 1c-ai-analyst
 services:
   app:
     build: .
-    image: 1c-ai-analyst:0.6.0
+    image: 1c-ai-analyst:0.7.0
     container_name: 1c-ai-analyst
     ports:
       - "8501:8501"
