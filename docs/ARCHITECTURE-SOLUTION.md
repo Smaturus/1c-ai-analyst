@@ -135,7 +135,7 @@
 
 | Компонент | Модуль | Ответственность |
 |---|---|---|
-| Tool Registry | `mcp_server.py` | 12 прикладных + 4 служебных, схемы аргументов |
+| Tool Registry | `mcp_server.py` | 12 прикладных инструментов, схемы аргументов |
 | Contract Formatter | `answer_contract.py` | шапка ответа, период, дата данных, отказ, усечение |
 | Dataset Store | `mcp_server.py` | текущая витрина, загрузка, allowlist путей |
 | Slice Executor | `mcp_server.py` → `analytics.py` | валидация параметров, вызов движка, рендер таблицы |
@@ -152,14 +152,18 @@
 *Вектор: [architecture/04-mcp-components.svg](architecture/04-mcp-components.svg) · исходник: `architecture/src/04-mcp-components.dot`*
 
 
-### 5.5 Прикладные сервисы (MCP tools: 12 прикладных + 4 служебных SDK)
+### 5.5 Прикладные сервисы (MCP tools: 12 инструментов)
 
 | Группа | Инструменты | Назначение |
 |---|---|---|
 | Данные | `load_dataset`, `describe_dataset`, `describe_capabilities`, `list_dimensions` | состояние витрины, каталог, справка |
 | Срезы | `total`, `top_bottom_products`, `compare_top_products`, `negative_revenue`, `timeseries`, `counterparty_dynamics`, `group_dynamics` | аналитика продаж |
 | Оповещения | `returns_alert` | ежедневный алерт возвратов |
-| Служебные MCP | `list_resources`, `read_resource`, `list_prompts`, `get_prompt` | стандартные обёртки SDK |
+
+Итого **12 зарегистрированных инструментов**. Методы протокола MCP `list_resources`,
+`read_resource`, `list_prompts`, `get_prompt` реализует SDK, но инструментами они не
+являются: сервер не публикует ни ресурсов, ни промптов, поэтому `list_resources` и
+`list_prompts` возвращают пустой список.
 
 ### 5.6 Контракт ответа (Application Interface)
 
@@ -411,7 +415,7 @@
 |---|---|---|---|
 | Модульный (движок, DSL) | срезы, периоды, фильтры, планировщик, уточнения, лимиты | `test_analytics`, `test_planner`, `test_clarification`, `test_rate_limiter` | 188 |
 | Приложение/UI | отображение, вопросы, planner UI, статика | `test_app_display`, `test_app_question`, `test_app_planner`, `test_app_static` | 60 |
-| Контракт ответа/MCP | период, дата данных, отказы, 16 инструментов | `test_answer_contract`, `test_mcp_server` | 29 |
+| Контракт ответа/MCP | период, дата данных, отказы, 12 инструментов | `test_answer_contract`, `test_mcp_server` | 29 |
 | Аудит и stdio | записи журнала, handshake, `list_tools` | `test_mcp_audit`, `test_mcp_stdio` | 10 |
 | Алерты | окна, пороги, kill switch, калибровка | `test_alerts` | 15 |
 | Метаданные выгрузки | `exported_at`, fallback, Streamlit-safe | `test_export_meta` | 9 |
