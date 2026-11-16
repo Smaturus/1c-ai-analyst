@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import sys
 import threading
 from contextlib import asynccontextmanager
@@ -77,6 +78,12 @@ logger = logging.getLogger("onec_analyst.mcp")
 MAX_TABLE_ROWS: int = 50
 DEFAULT_DATASET: str = "sample_data.csv"
 DEFAULT_EXPORT: Path = Path("1c_export") / "sales_1c.csv"
+OUTSIDE_REPO_MESSAGE: str = (
+    "файл вне каталога проекта — разрешены только витрины внутри репозитория"
+)
+# Абсолютные пути чужой ОС (windows-диск, UNC): на POSIX `Path` считает их
+# относительными и склеил бы с корнем репозитория. Распознаём до склейки.
+_FOREIGN_ABSOLUTE = re.compile(r"^(?:[A-Za-z]:[\\/]|\\\\)")
 
 READ_ONLY = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
 STATEFUL = ToolAnnotations(
@@ -228,12 +235,12 @@ def _resolve_dataset_path(raw: str | None, kind: Literal["auto", "sample", "expo
     root = find_repo_root().resolve()
     candidate = Path(raw) if raw else _default_dataset_path(kind)
     if not candidate.is_absolute():
+        if _FOREIGN_ABSOLUTE.match(str(candidate)):
+            raise DatasetError(OUTSIDE_REPO_MESSAGE)
         candidate = root / candidate
     resolved = candidate.resolve()
     if not resolved.is_relative_to(root):
-        raise DatasetError(
-            "файл вне каталога проекта — разрешены только витрины внутри репозитория"
-        )
+        raise DatasetError(OUTSIDE_REPO_MESSAGE)
     if resolved.suffix.lower() != ".csv":
         raise DatasetError("поддерживаются только CSV-витрины")
     if not resolved.is_file():
