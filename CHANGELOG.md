@@ -4,21 +4,35 @@
 
 ## [Unreleased]
 
-### Fixed
-- **Корень репо для `rate_limit.db`:** вместо хрупкого `parents[2]` — `find_repo_root()` по `pyproject.toml` / `.git`. В тестах единая цель monkeypatch `PATCH_CHOOSE_CLARIFIED_TEXT` и `APP_FILE` через `tests/paths.py`.
+## [0.7.0] — 2026-11-16 — MCP-фасад: аналитика 1С для ИИ-агента
+
+### Added
+- **MCP-сервер `onec_analyst.mcp_server` (stdio):** 12 типизированных инструментов — 7 срезов (`total`, `top_bottom_products`, `compare_top_products`, `negative_revenue`, `timeseries`, `counterparty_dynamics`, `group_dynamics`), 4 инструмента данных (`load_dataset`, `describe_dataset`, `describe_capabilities`, `list_dimensions`) и `returns_alert`. Универсальный `execute_dsl` намеренно не публикуется: произвольный JSON от модели — второй неконтролируемый контракт и расширение поверхности атаки.
+- **Контракт ответа `answer_contract.py`:** обязательные «Период:» и «Данные:» (дата выгрузки, а не дата последней продажи), «Срез:», серверные итоги и отказ вместо подмены похожим срезом; параметры скрыты из чата (`ONEC_MCP_VERBOSE=1` — показать).
+- **JSONL-аудит `.mcp_state/audit.jsonl`:** события `slice`, `error`, `refusal`, `dataset_loaded`, `alert`; сводка и доля отказов — `summarize_audit(days=30)`.
+- **Алерты возвратов `alerts.py`:** ежедневный алерт с окном «пн = пт–вс», настраиваемым порогом, калибровкой по истории и kill switch (`ONEC_ALERTS_ENABLED`).
+- **Дата данных из метаданных выгрузки:** ETL пишет sidecar `*.csv.meta.json`; загрузчик добавляет `exported_at` / `exported_at_source` в `df.attrs` ISO-строками (Streamlit-совместимо), при отсутствии метаданных — fallback на mtime с явной пометкой. Решение — [ADR 0010](docs/adr/0010-export-timestamp.md).
+- **Демо-транскрипт `demo_transcript.py`:** 20 демо-вопросов с проверкой контракта (`--check` в CI).
+- **Архитектурная документация:** [docs/ARCHITECTURE-SOLUTION.md](docs/ARCHITECTURE-SOLUTION.md) (TOGAF/ArchiMate + C4), 13 схем в `docs/architecture/` (`.dot` + `.svg` + `.png`, сборка `build_diagrams.py`), [ADR 0009](docs/adr/0009-mcp-facade.md) о выборе MCP-фасада вместо `execute_dsl`, диаграммы LLM- и MCP-путей в [README](README.md) и [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ### Changed
+- **Счётчики в документации приведены к факту:** 12 зарегистрированных MCP-инструментов (методы протокола `list_resources` / `read_resource` / `list_prompts` / `get_prompt` реализует SDK, инструментами они не являются) и 319 тестов вместо 241 — в README, RUNBOOK, UI_ACCEPTANCE и архитектуре.
 - **Два режима выгрузки из 1С в документации:** RUNBOOK §3.3 разделён на «период» (2022–2024: 2568 записей, 19 313 936,63 ₽ без НДС — эталонные цифры) и «полная история» (3859 записей, 2021-09-01 … 2026-01-20, 27 465 893,44 ₽), добавлена пометка, что в рабочей копии лежит полная выгрузка; README и [ADR 0002](docs/adr/0002-onec-direct-source.md) согласованы с этим. `gen_py/` (кэш pywin32/win32com) добавлен в `.gitignore`.
 - **Дневник `docs/history/`** исключён из репозитория (`.gitignore`); ссылки на него убраны из README / INDEX / ARCHITECTURE / ADR 0001. Локальные файлы у разработчика сохраняются.
 - **Пакет `src/onec_analyst/`:** доменные модули (`analytics`, `llm_agent`, `clarification`, `data_loader`, `onec_source`, `rate_limiter`) перенесены из корня; `app.py` остаётся тонким UI-входом. `pip install -e .`, pytest `pythonpath=src`, CI/Docker ставят пакет; `rate_limit.db` по-прежнему в корне репозитория.
-
-### Fixed
-- **Счётчик LLM в сайдбаре отставал на 1** после успешного ответа: подпись рисовалась до `increment`. Теперь слот `st.empty` обновляется сразу после учёта вызова (`app.py` / `app_local.py`).
-- **Лимиты и UI уточнений:** классификатор Quick Replies уважает `limit_blocked` (не ходит в API при исчерпании); вызов классификатора учитывается в счётчике; плашка «лимит исчерпан» обновляется в том же прогоне; «Очистить историю» сбрасывает поле вопроса и `clarification_*` / `auto_submit`.
-
-### Changed
 - **Поставка и лимиты LLM:** CI запускает `pytest` + `smoke_test.py` + `smoke_llm.py`; multi-stage `Dockerfile` без `build-essential` в runtime; RUNBOOK §8.6 — схема volume Docker (`./` → `/app/data`, витрина в `/app`); ручной сброс лимита сессии только при `RATE_LIMIT_ALLOW_RESET=1` (по умолчанию кнопки нет). ARCHITECTURE: пакет `src/onec_analyst/`, `RuleBasedPlanner` = safety net.
 - **Документация под продукт 0.6.0 (не дневник разработки):** переписаны [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) и [docs/INDEX.md](docs/INDEX.md); README — блок «Что смотреть за 3 минуты», явно NL2DSL ≠ NL2SQL; `REPORT*` и `ITS_ACCESS_NOTES` вынесены из публичной навигации (позже — только локальный дневник); убраны ссылки на непубликуемый `app_local.py`/`progress.md`; docker-compose image `0.6.0`; keyword `nl2dsl`; docstring/smoke — 7 интентов. Методика ИТС свёрнута в [ADR 0001](docs/adr/0001-revenue-net.md).
+
+### Fixed
+- **Корень репо для `rate_limit.db`:** вместо хрупкого `parents[2]` — `find_repo_root()` по `pyproject.toml` / `.git`. В тестах единая цель monkeypatch `PATCH_CHOOSE_CLARIFIED_TEXT` и `APP_FILE` через `tests/paths.py`.
+- **Счётчик LLM в сайдбаре отставал на 1** после успешного ответа: подпись рисовалась до `increment`. Теперь слот `st.empty` обновляется сразу после учёта вызова (`app.py` / `app_local.py`).
+- **Лимиты и UI уточнений:** классификатор Quick Replies уважает `limit_blocked` (не ходит в API при исчерпании); вызов классификатора учитывается в счётчике; плашка «лимит исчерпан» обновляется в том же прогоне; «Очистить историю» сбрасывает поле вопроса и `clarification_*` / `auto_submit`.
+- **Возвраты и временные ряды в MCP:** понедельник покрывает пятницу–воскресенье, добавлены серверные итоги для `returns_alert` и `timeseries` (модель не складывает строки).
+
+### Verified
+- `python -m pytest` — **319 тестов**, включая MCP-инструменты, stdio-handshake, аудит, алерты и демо-транскрипт; CI ставит `.[dev,mcp]` и проверяет регистрацию инструментов.
+- `demo_transcript.py --check` — контракт соблюдён во всех демо-ответах.
+- Аудит подтверждает вызовы через MCP: события `slice` / `dataset_loaded` в `.mcp_state/audit.jsonl`.
 
 ## [0.6.0] — 2026-10-25 — Финальный релиз: умные фильтры, стресс-тестирование, полировка UX
 
