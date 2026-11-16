@@ -63,6 +63,14 @@ flowchart TB
         OUT["Таблица / Altair / сводка / JSON-DSL"]
     end
 
+    subgraph Remote["MCP-фасад (агент)"]
+        MCP["mcp_server.py<br/>12 инструментов"]
+        CONTRACT["answer_contract.py<br/>период и дата данных"]
+        AUDIT[".mcp_state/audit.jsonl"]
+        ALERT["alerts.py<br/>алерт возвратов"]
+        AGENT["Hermes Agent<br/>любой MCP-клиент"]
+    end
+
     OWN --> EXP --> CSV --> LOAD --> V
     OWN --> DL --> V
     SAMPLE --> LOAD
@@ -75,6 +83,12 @@ flowchart TB
     ASK --> RULES --> PYD
     PYD --> CLAR
     A --> OUT
+    MCP --> D
+    MCP --> CONTRACT
+    MCP --> ALERT
+    MCP -.-> AUDIT
+    AGENT -->|"вызов инструмента"| MCP
+    MCP -->|"контрактный ответ"| AGENT
 ```
 
 | Модуль | Ответственность | Точки входа |
@@ -85,6 +99,10 @@ flowchart TB
 | `onec_analyst.llm_agent` | Pydantic-модели, промпт, LLM-клиент, офлайн-правила, `guard_decision` | `make_planner`, `parse_plan_json` |
 | `onec_analyst.clarification` | Текст после уточнения; принудительная интерпретация | `choose_clarified_text`, `force_interpretation` |
 | `onec_analyst.rate_limiter` | Лимиты вызовов LLM для демо (SQLite) | `check_limit`, `increment` |
+| `onec_analyst.mcp_server` | MCP-фасад: 12 инструментов, состояние витрины, аудит вызовов | `mcp` (stdio) |
+| `onec_analyst.answer_contract` | Шапка ответа MCP: период, дата данных, отказ, усечение | `format_answer`, `format_refusal` |
+| `onec_analyst.audit` | JSONL-журнал вызовов и отказов, сводка за окно | `AuditLog`, `summarize_audit` |
+| `onec_analyst.alerts` | Алерт возвратов: окно «пн = пт–вс», порог, калибровка, kill switch | `returns_alert` |
 | `app.py` | Streamlit UI (корень репозитория) | `main` |
 | `smoke_test.py` / `smoke_llm.py` | Сквозные проверки данных и LLM-слоя | CLI |
 
@@ -128,6 +146,13 @@ flowchart TB
 
 Сравнение двух топов — отдельный интент L4L ([ADR 0008](adr/0008-compare-tops-intent.md)).
 
+### 3.6. MCP-путь (агент)
+
+1. MCP-клиент (Hermes Agent) вызывает типизированный инструмент — `total`, `top_bottom_products`, `timeseries` и т.д.
+2. `mcp_server` валидирует параметры теми же моделями, что движок, и вызывает `dispatch_intent`.
+3. Ответ собирает `answer_contract`: период, дата данных из `*.csv.meta.json`, серверные итоги; нет среза — отказ.
+4. Каждый вызов пишется в `.mcp_state/audit.jsonl` (`slice` / `error` / `refusal` / `dataset_loaded` / `alert`).
+
 ## 4. Хранение
 
 | Объект | Где | В git |
@@ -138,6 +163,8 @@ flowchart TB
 | Код и публичная документация | корень, `docs/` | да |
 | Внутренний журнал разработки | `progress.md` (локально) | нет |
 | Лимиты LLM | `rate_limit.db` | нет |
+| Аудит MCP-вызовов | `.mcp_state/audit.jsonl` | нет |
+| Состояние алертов | `.mcp_state/` | нет |
 
 ## 5. Окружение
 

@@ -72,6 +72,31 @@ flowchart LR
 
 Поэтому выбран паттерн **Data Snapshot** ([ADR 0005](docs/adr/0005-onec-export-split.md)): ETL и UI разделены, обновление снимка — отдельная операция. Кнопки live-обновления в UI нет; актуальность данных определяется запуском `onec_source.py` или планировщиком.
 
+### Путь одного вопроса: LLM планирует, pandas считает
+
+Схема выше — про данные. Вторая — про вычисление ответа: модель переводит вопрос
+в JSON-DSL, числа считает движок, а контракт ответа один для UI и для MCP-агента.
+
+```mermaid
+flowchart LR
+    Q["Вопрос пользователя"] --> PLAN{"Планировщик"}
+    PLAN -->|"есть ключ LLM"| LLM["LLM: DeepSeek / OpenAI / Ollama"]
+    PLAN -->|"офлайн"| RULES["RuleBasedPlanner"]
+    LLM --> DSL["JSON-DSL<br/>Pydantic extra=forbid"]
+    RULES --> DSL
+    DSL --> DISP["dispatch_intent"]
+    DISP --> CALC["pandas: 7 интентов"]
+    CALC --> CONTRACT["answer_contract<br/>период и дата данных"]
+    CONTRACT --> UI["Streamlit UI"]
+    CONTRACT --> MCP["MCP-сервер<br/>12 инструментов"]
+    MCP --> AGENT["Hermes Agent"]
+    AGENT --> CHAT["Мессенджер / расписание"]
+```
+
+LLM не получает строки витрины и не считает суммы: её выход — только JSON-DSL,
+который валидируется Pydantic с `extra="forbid"`. Поэтому ответ воспроизводим, а
+каждый вызов агента подтверждается записью в `.mcp_state/audit.jsonl`.
+
 ## Возможности
 
 Семь интентов:
@@ -173,7 +198,8 @@ volumes:
   `compare_top_products`, `negative_revenue`, `timeseries`,
   `counterparty_dynamics`, `group_dynamics`, `returns_alert`,
   `load_dataset`, `describe_dataset`, `describe_capabilities`,
-  `list_dimensions`) + 4 служебных метода MCP SDK;
+  `list_dimensions`) — итого 12 инструментов; методы протокола `resources`/`prompts`
+  реализует SDK, инструментами они не являются;
 - каждый ответ несёт **период и дату данных**, при отсутствии среза — отказ,
   а не похожий ответ; числа считает только движок;
 - JSONL-аудит вызовов, read-only доступ к витрине, kill switch алертов.
@@ -220,7 +246,7 @@ python -m onec_analyst.mcp_server
 ## Проверки
 
 ```powershell
-python -m pytest -q          # 241 passed
+python -m pytest -q          # 319 passed
 python smoke_test.py         # SMOKE TEST PASSED
 python smoke_llm.py          # SMOKE LLM PASSED: 92 проверок
 ```
