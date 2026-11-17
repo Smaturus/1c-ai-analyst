@@ -15,6 +15,8 @@ from typing import Any
 import pandas as pd
 import pytest
 
+from onec_analyst import llm_agent
+
 from onec_analyst.analytics import (
     COUNTERPARTY,
     DATE,
@@ -95,6 +97,23 @@ def _isolated_rate_limit_db(
 ) -> None:
     """Все тесты (включая AppTest) используют временную базу лимитов."""
     monkeypatch.setenv("RATE_LIMIT_DB", str(rate_limit_db_path))
+
+
+@pytest.fixture(autouse=True)
+def _isolated_env_file(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Тесты видят окружение процесса, но **не** реальный ``.env`` проекта.
+
+    ``.env`` — рабочий файл: в нём настоящий ключ GigaChat, scope и путь к
+    локальной базе 1С. Пока тест его читает, провайдер становится «настроенным»
+    по чужим настройкам: ``AppTest`` включает LLM и уходит в реальный API —
+    демо-вопросы улетают в облако, ответы тратят токены, а офлайн-сценарии
+    (правила, уточнения, pills) перестают проверяться.
+
+    Поэтому содержимое файла в тестах игнорируется. Сам :func:`with_dotenv`
+    продолжает работать: он берёт окружение процесса и явные переопределения,
+    то есть `monkeypatch.setenv` в тесте по-прежнему действует.
+    """
+    monkeypatch.setattr(llm_agent, "_environment_with_dotenv", lambda: dict(os.environ))
 
 
 @pytest.fixture(autouse=True, scope="session")

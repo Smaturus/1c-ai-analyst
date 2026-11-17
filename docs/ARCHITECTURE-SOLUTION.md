@@ -446,6 +446,7 @@ Hermes и фиксируются в локальном протоколе; в CI
 | [0009](adr/0009-mcp-facade.md) | MCP-фасад над JSON-DSL | принято |
 | [0010](adr/0010-export-timestamp.md) | `exported_at` из метаданных выгрузки | принято |
 | [0011](adr/0011-answer-contract-version.md) | Версия контракта ответа | предложено |
+| [0012](adr/0012-gigachat-provider.md) | GigaChat как провайдер (tool calling) | предложено |
 
 **Эволюция:** v1 — stdio, одна витрина, read-only; v2 — dataset-id/сессии,
 изоляция пользователей, HTTP-транспорт, мультиюзер; v3 — Skills/каналы,

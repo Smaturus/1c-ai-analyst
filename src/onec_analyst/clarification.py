@@ -25,7 +25,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from onec_analyst.llm_agent import LLMClient, LLMError, LLMSettings, RuleBasedPlanner
+from onec_analyst.llm_agent import LLMError, LLMSettings, RuleBasedPlanner, make_client
 
 #: Вторая часть самодостаточна — в запрос уходит только она.
 SOURCE_ANSWER = "answer"
@@ -166,7 +166,7 @@ def classify_with_llm(
     if client is None:
         if settings is None or not settings.is_configured:
             return None
-        client = LLMClient(settings)
+        client = make_client(settings)
     payload = json.dumps({"base": base, "answer": answer}, ensure_ascii=False)
     try:
         raw = client.chat(

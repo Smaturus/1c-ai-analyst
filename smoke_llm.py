@@ -263,6 +263,10 @@ def test_prompt_and_settings() -> None:
     check(settings.base_url.endswith("deepseek.com/v1"), "deepseek: базовый URL")
     settings = la.settings_from_env({"LLM_PROVIDER": "ollama"})
     check(settings.is_configured, "ollama настроена без ключа")
+    settings = la.settings_from_env({"LLM_PROVIDER": "gigachat", "LLM_API_KEY": "k"})
+    check(settings.model == "GigaChat-2-Pro", "gigachat: модель по умолчанию")
+    check(settings.auth_url.endswith("api/v2/oauth"), "gigachat: эндпоинт OAuth")
+    check(isinstance(la.make_client(settings), la.GigaChatClient), "gigachat: клиент с tool calling")
     try:
         la.settings_from_env({"LLM_PROVIDER": "unknown"})
     except ValueError:

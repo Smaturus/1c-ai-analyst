@@ -10,10 +10,14 @@
 
 Переменные окружения для LLM (опционально)::
 
-    LLM_PROVIDER=deepseek|openai|ollama|none
+    LLM_PROVIDER=deepseek|openai|ollama|gigachat|none
     LLM_API_KEY=...
     LLM_MODEL=deepseek-chat
     LLM_BASE_URL=https://api.deepseek.com/v1
+
+``LLM_MODEL``/``LLM_BASE_URL`` — сокращения для ``<...>_<LLM_PROVIDER>``: они
+принадлежат провайдеру по умолчанию и на другого провайдера не распространяются
+(см. ``onec_analyst.llm_agent._pick_setting``).
 
 Без ``LLM_PROVIDER`` приложение работает в офлайн-режиме на детерминированном
 разборе типовых вопросов — удобно для демо и приёмки без ключа API.
@@ -21,6 +25,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import math
 import os
@@ -69,11 +74,15 @@ from onec_analyst.llm_agent import (
     INTENT_NAMES,
     AgentDecision,
     ClarificationPlan,
+    GigaChatClient,
     LLMPlanner,
     LLMSettings,
+    ProviderOption,
     RuleBasedPlanner,
     check_schema_sync,
     guard_decision,
+    make_client,
+    provider_catalog,
     settings_from_env,
 )
 from onec_analyst.onec_source import load_sample_vitrina, load_vitrina
@@ -1122,6 +1131,157 @@ def select_planner(use_llm: bool, settings: LLMSettings) -> LLMPlanner | RuleBas
     return RuleBasedPlanner()
 
 
+def _provider_setup_hint(provider: str) -> str:
+    """Подсказка, какие переменные ``.env`` нужны конкретному провайдеру."""
+    if provider == "gigachat":
+        return (
+            "LLM_API_KEY_GIGACHAT, GIGACHAT_SCOPE и LLM_TLS_CA_BUNDLE "
+            "(сертификат НУЦ Минцифры)"
+        )
+    if provider == "ollama":
+        return "LLM_PROVIDER=ollama (локальной модели ключ не нужен)"
+    return f"LLM_API_KEY_{provider.upper()}"
+
+
+def _default_provider_index(
+    options: list[ProviderOption], default: LLMSettings | None
+) -> int:
+    """Индекс провайдера по умолчанию; если он не настроен — первый настроенный."""
+
+    def index_of(provider: str | None) -> int | None:
+        if not provider:
+            return None
+        for index, option in enumerate(options):
+            if option.settings.provider == provider:
+                return index
+        return None
+
+    if default is not None:
+        found = index_of(default.provider)
+        if found is not None and options[found].configured:
+            return found
+    for index, option in enumerate(options):
+        if option.configured:
+            return index
+    return 0
+
+
+#: Человекочитаемые имена провайдеров для подписи в сайдбаре.
+_PROVIDER_TITLES = {
+    "openai": "OpenAI",
+    "deepseek": "DeepSeek",
+    "ollama": "Ollama",
+    "gigachat": "GigaChat",
+}
+
+
+def _provider_title(provider: str) -> str:
+    """Имя провайдера для UI: ``gigachat`` → ``GigaChat`` (неизвестный — как есть)."""
+    return _PROVIDER_TITLES.get(provider, provider)
+
+
+def choose_llm_provider(
+    options: list[ProviderOption],
+    default: LLMSettings | None,
+    *,
+    disabled: bool = False,
+) -> ProviderOption:
+    """Виджет выбора провайдера LLM; вернуть выбранный вариант.
+
+    Показывает всех провайдеров, помечая ненастроенных «— не настроен».
+    По умолчанию выбирается настроенный провайдер из ``LLM_PROVIDER`` (или первый
+    настроенный). Позволяет держать, например, DeepSeek и GigaChat одновременно.
+
+    В подписи — **только провайдер**, без модели: модель показывается отдельно
+    (для GigaChat — селектором «Модель GigaChat», для остальных — подписью
+    ``LLM: …``). Иначе в переключателе застывала бы модель из ``.env`` и
+    противоречила бы фактически выбранной.
+    """
+    if not options:
+        return ProviderOption(settings=LLMSettings(), configured=False)
+    labels = [
+        _provider_title(option.settings.provider)
+        + ("" if option.configured else " — не настроен")
+        for option in options
+    ]
+    default_index = _default_provider_index(options, default)
+    selected = st.sidebar.selectbox(
+        "Провайдер LLM",
+        options=labels,
+        index=default_index,
+        disabled=disabled,
+        help=(
+            "Какой провайдер использовать для разбора вопроса. «Не настроен» — "
+            "нет ключа/сертификата в .env; пока работают офлайн-правила."
+        ),
+    )
+    return options[labels.index(selected)]
+
+
+def _gigachat_chat_models(settings: LLMSettings) -> tuple[str, ...]:
+    """Чат-модели GigaChat, реально доступные ключу (``GET /v1/models``).
+
+    Берутся только модели генерации (``type == "chat"``): GigaChat отдаёт в том
+    же списке эмбеддинги, но выбрать эмбеддинг моделью чата нельзя.
+
+    Кешируется в ``st.session_state`` на сессию: запрос не повторяется на каждом
+    rerun, но и не протекает между сессиями (и между тестами ``AppTest``).
+    Ошибку не маскируем исключением на весь UI: возвращаем пустой кортеж, и
+    селектор моделей просто не рисуется.
+    """
+    cache_key = f"_gigachat_models:{settings.base_url}"
+    if cache_key in st.session_state:
+        return tuple(st.session_state[cache_key])
+    try:
+        client = make_client(settings)
+        if not isinstance(client, GigaChatClient):
+            return ()
+        models = tuple(client.chat_models())
+    except Exception:  # сеть, TLS, HTTP, формат ответа — список необязателен
+        models = ()
+    st.session_state[cache_key] = models
+    return models
+
+
+def choose_gigachat_model(settings: LLMSettings) -> LLMSettings:
+    """Выбрать модель GigaChat в сайдбаре; вернуть настройки с выбором на сессию.
+
+    Список — факт из API, а не из документации: разным ключам доступны разные
+    модели. Выбор живёт в ``st.session_state`` и **не** пишется в ``.env``:
+    приложение не редактирует файл с секретами.
+
+    Если список получить не удалось (нет сети/ключа/сертификата), функция
+    возвращает настройки как есть — тогда действует ``LLM_MODEL_GIGACHAT`` из
+    ``.env``, а селектор не рисуется.
+
+    Parameters
+    ----------
+    settings:
+        Настройки выбранного провайдера.
+
+    Returns
+    -------
+    LLMSettings
+        Те же настройки, но с моделью, выбранной в списке (для GigaChat).
+    """
+    if settings.provider != "gigachat":
+        return settings
+    models = list(_gigachat_chat_models(settings))
+    if not models:
+        return settings
+    # Модель из ``.env`` может отсутствовать в списке API (уровень не тот, тариф
+    # другой). Тогда показываем её как выбранную: молча подменить модель на
+    # первую из списка — значит отправить запрос не тем именем, чем просили.
+    if settings.model not in models:
+        models.insert(0, settings.model)
+    selected = st.sidebar.selectbox(
+        "Модель GigaChat", options=models, index=models.index(settings.model)
+    )
+    if selected == settings.model:
+        return settings
+    return dataclasses.replace(settings, model=selected)
+
+
 # --------------------------------------------------------------------------- #
 # Боковая панель
 # --------------------------------------------------------------------------- #
@@ -1168,33 +1328,55 @@ def render_sidebar(
     st.sidebar.divider()
 
     try:
-        settings = settings_from_env()
+        default_settings = settings_from_env()
     except ValueError as exc:
         st.sidebar.error(str(exc))
-        settings = None
-    llm_configured = settings is not None and settings.is_configured
+        default_settings = None
+
+    try:
+        provider_options = provider_catalog()
+    except ValueError:
+        provider_options = []
+    configured_options = [option for option in provider_options if option.configured]
+    llm_configured = bool(configured_options)
 
     use_llm = st.sidebar.toggle(
-        "Использовать LLM (DeepSeek/OpenAI)",
-        value=True,
+        "Использовать LLM",
+        value=llm_configured,
         disabled=not llm_configured,
         help=(
             "Если выключено, вопросы разбираются офлайн-правилами без вызова API."
             if llm_configured
-            else "LLM не настроена: задайте LLM_PROVIDER и LLM_API_KEY (см. .env.example)."
+            else "LLM не настроена: задайте ключ провайдера (см. .env.example)."
         ),
+    )
+    # Список показываем всегда: ненастроенные провайдеры помечены «не настроен».
+    selected_option = choose_llm_provider(
+        provider_options, default_settings, disabled=not llm_configured
     )
     if not llm_configured:
         # Заблокированный переключатель не должен включать LLM: работают правила.
         use_llm = False
+        chosen_settings = LLMSettings()
         st.sidebar.info(
             "Офлайн-режим: вопрос разбирается детерминированными правилами (без LLM). "
-            "Для LLM задайте LLM_PROVIDER и LLM_API_KEY перед запуском."
+            "Для LLM задайте ключ провайдера (см. .env.example)."
         )
-    elif use_llm:
-        st.sidebar.caption(f"LLM: `{settings.provider}` / `{settings.model}`")
-    else:
+    elif not use_llm:
+        chosen_settings = LLMSettings()
         st.sidebar.caption("Включены офлайн-правила: API не вызывается.")
+    elif selected_option.configured:
+        chosen_settings = choose_gigachat_model(selected_option.settings)
+        st.sidebar.caption(f"LLM: `{chosen_settings.provider}` / `{chosen_settings.model}`")
+    else:
+        chosen_settings = LLMSettings()
+        provider_name = selected_option.settings.provider
+        st.sidebar.warning(
+            f"Провайдер «{provider_name}» не настроен: задайте "
+            f"{_provider_setup_hint(provider_name)} в .env. "
+            "Пока работают офлайн-правила."
+        )
+        st.sidebar.caption(f"LLM: `{provider_name}` — не настроен")
 
     usage_slot = st.sidebar.empty()
     warn_slot = st.sidebar.empty()
@@ -1223,7 +1405,7 @@ def render_sidebar(
         st.session_state.pop("clarification_answer", None)
         st.session_state.pop("auto_submit", None)
     st.sidebar.divider()
-    return source_kind, uploaded, use_llm, usage_slot, warn_slot
+    return source_kind, uploaded, use_llm, usage_slot, warn_slot, chosen_settings
 
 
 # --------------------------------------------------------------------------- #
@@ -1268,7 +1450,7 @@ def main() -> None:
             "Система работает в офлайн-режиме."
         )
 
-    source_kind, uploaded, use_llm, usage_slot, warn_slot = render_sidebar(
+    source_kind, uploaded, use_llm, usage_slot, warn_slot, settings = render_sidebar(
         limiter, llm_session_id, limit_status
     )
 
@@ -1284,12 +1466,6 @@ def main() -> None:
             "⚠️ Вы достигли лимита запросов к ИИ в этой сессии. "
             "Переключаюсь на офлайн-режим."
         )
-
-    try:
-        settings = settings_from_env()
-    except ValueError:
-        # Ошибка уже показана в сайдбаре; для расчётов остаёмся в офлайне.
-        settings = LLMSettings()
 
     try:
         dataset, source_label = load_dataframe(source_kind, uploaded)

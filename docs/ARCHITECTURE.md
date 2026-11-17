@@ -51,7 +51,7 @@ flowchart TB
     end
 
     subgraph LLMLayer["Планировщик"]
-        CLIENT["LLM: deepseek / openai / ollama"]
+        CLIENT["LLM: deepseek / openai / ollama / gigachat"]
         RULES["RuleBasedPlanner"]
         PYD["Pydantic DSL"]
         CLAR["clarification"]
@@ -188,6 +188,7 @@ flowchart TB
 | [0006](adr/0006-llm-providers.md) | OpenAI-совместимые провайдеры + офлайн-правила |
 | [0007](adr/0007-graceful-degradation.md) | Лимит уточнений и детерминированный fallback |
 | [0008](adr/0008-compare-tops-intent.md) | Сравнение топов (L4L) одним интентом |
+| [0012](adr/0012-gigachat-provider.md) | GigaChat как провайдер (tool calling) |
 
 ## 7. Ограничения MVP и точки роста
 

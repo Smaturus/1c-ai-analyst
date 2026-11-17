@@ -40,6 +40,7 @@
 | [0009](adr/0009-mcp-facade.md) | MCP-фасад над JSON-DSL |
 | [0010](adr/0010-export-timestamp.md) | Дата данных из метаданных выгрузки |
 | [0011](adr/0011-answer-contract-version.md) | Версия контракта ответа (предложено) |
+| [0012](adr/0012-gigachat-provider.md) | GigaChat как провайдер планировщика (tool calling, предложено) |
 
 ## 4. Быстрые факты (0.7.0)
 

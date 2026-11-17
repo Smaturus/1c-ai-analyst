@@ -181,7 +181,7 @@ python -m venv .venv
 .\.venv\Scripts\python -m streamlit run app.py
 
 # с LLM
-$env:LLM_PROVIDER = "deepseek"   # openai | deepseek | ollama | none
+$env:LLM_PROVIDER = "deepseek"   # openai | deepseek | ollama | gigachat | none
 $env:LLM_API_KEY  = "sk-..."
 $env:LLM_MODEL    = "deepseek-chat"
 $env:LLM_BASE_URL = "https://api.deepseek.com/v1"   # опционально
@@ -193,10 +193,55 @@ $env:LLM_BASE_URL = "https://api.deepseek.com/v1"   # опционально
 Проверка LLM-слоя без UI:
 
 ```powershell
-.\.venv\Scripts\python smoke_llm.py                 # SMOKE LLM PASSED: 92 проверок
-.\.venv\Scripts\python -m pytest -q                 # 319 passed (все unit-тесты tests/)
+.\.venv\Scripts\python smoke_llm.py                 # SMOKE LLM PASSED: 95 проверок
+.\.venv\Scripts\python -m pytest -q                 # 393 passed (все unit-тесты tests/)
 .\.venv\Scripts\python -m pytest tests/test_planner.py -q   # только правила → DSL
 ```
+
+Проверка **живого подключения** к провайдерам (ключ + сертификат + модель),
+без генерации токенов:
+
+```powershell
+$env:PYTHONPATH = "src"
+.\.venv\Scripts\python -m onec_analyst.llm_agent --check
+```
+
+```
+OK      deepseek: deepseek-chat — доступно: deepseek-flash, deepseek-v4-pro
+OK      gigachat: GigaChat-2-Pro — доступно: GigaChat-2, GigaChat-2-Max, GigaChat-2-Pro, ...
+```
+
+Ошибка вида `ОШИБКА gigachat: ... — GET /models HTTP 403` при уже прошедшем
+OAuth означает неверный базовый URL, а не ключ: адрес API — `https://api.giga.chat/v1`
+(префикс `/v1`, без `/api`), как в документации метода
+(`GET https://api.giga.chat/v1/models`).
+
+Для GigaChat проверка делает OAuth (ключ + `GIGACHAT_SCOPE` + сертификат НУЦ) и
+`GET /v1/models`, а затем сверяет `LLM_MODEL_...` со списком доступных моделей —
+именно так ловится «ключ рабочий, но модели нет в тарифе». Названия сравниваются
+**по уровню модели**, а не буквально: кабинет печатает `GigaChat Pro`, запрос
+принимает `GigaChat-2-Pro`, и это одна модель. Уровень не подменяется:
+`GigaChat-2-Max` ↔ `GigaChat-3-Ultra` — разные стоимость и скорость.
+Для OpenAI-совместимых провайдеров `GET /models` подтверждает ключ и `base_url`;
+состав моделей там не авторитетен (алиасы вроде `deepseek-chat` могут работать,
+не появляясь в списке), поэтому доступность модели не оценивается. Код возврата
+`1` — хотя бы один провайдер не прошёл. Ключи в вывод не попадают.
+
+### Доступ к моделям GigaChat зависит от аккаунта
+
+Список моделей Freemium в документации Сбера и в личном кабинете может
+расходиться: кабинет — истина для конкретного аккаунта. Практический порядок:
+
+1. вписать `LLM_API_KEY_GIGACHAT`, запустить `--check` — он напечатает
+   **фактически доступные ключу** модели;
+2. выбрать модель **своего уровня** и вписать в `LLM_MODEL_GIGACHAT`
+   (как в кабинете: `GigaChat Lite` / `GigaChat Pro` / `GigaChat Max` /
+   `GigaChat Ultra` — или официальные ID `GigaChat-2-Pro`, `GigaChat-3-Ultra`);
+3. если модель отличается от кода проекта — повторно проверить `--check`.
+
+Дефолт проекта — `GigaChat-2-Pro` (уровень Pro). Выбор уровня влияет на расход
+лимита: у Ultra отдельный лимит токенов и другая цена, лимиты уровней не
+складываются. Для разбора вопросов про витрину 1С Pro достаточно.
 
 Приёмка UI на 5 контрольных вопросах — [UI_ACCEPTANCE.md](UI_ACCEPTANCE.md).
 
@@ -204,13 +249,49 @@ $env:LLM_BASE_URL = "https://api.deepseek.com/v1"   # опционально
 
 | Переменная | Значение по умолчанию | Назначение |
 |---|---|---|
-| `LLM_PROVIDER` | `none` | `openai`, `deepseek`, `ollama`, `none` |
-| `LLM_MODEL` | по провайдеру | `gpt-4o-mini`, `deepseek-chat`, `llama3.1` |
-| `LLM_API_KEY` | — | ключ API (ollama не требует) |
-| `LLM_BASE_URL` | по провайдеру | OpenAI-совместимый API без `/chat/completions` |
-| `LLM_TIMEOUT` | `60` | таймаут, секунды |
-| `LLM_TEMPERATURE` | `0` | температура генерации |
-| `LLM_JSON_MODE` | `1` (кроме ollama) | запрашивать `response_format=json_object` |
+| `LLM_PROVIDER` | `none` | `openai`, `deepseek`, `ollama`, `gigachat`, `none` |
+| `LLM_MODEL` | по провайдеру | `gpt-4o-mini`, `deepseek-chat`, `llama3.1`, `GigaChat-2-Pro`; **только для провайдера из `LLM_PROVIDER`** |
+| `LLM_API_KEY` | — | ключ API (ollama не требует); для GigaChat — authorization key `base64(client_id:client_secret)` |
+| `LLM_BASE_URL` | по провайдеру | OpenAI-совместимый API без `/chat/completions`; **только для провайдера из `LLM_PROVIDER`** |
+| `LLM_API_KEY_<PROVIDER>` | — | ключ отдельного провайдера (напр. `LLM_API_KEY_GIGACHAT`) — для нескольких провайдеров одновременно |
+| `LLM_MODEL_<PROVIDER>` / `LLM_BASE_URL_<PROVIDER>` | по провайдеру | модель/URL отдельного провайдера |
+| `LLM_TIMEOUT` | `60` | таймаут, секунды (общая для всех провайдеров) |
+| `LLM_TEMPERATURE` | `0` | температура генерации (общая для всех провайдеров) |
+| `LLM_JSON_MODE` | `1` (кроме ollama) | запрашивать `response_format=json_object` (для GigaChat не применяется — tool calling) |
+| `GIGACHAT_SCOPE` | `GIGACHAT_API_PERS` | версия API: `PERS` / `CORP` / `B2B` |
+| `GIGACHAT_AUTH_URL` | `https://ngw.devices.sberbank.ru:9443/api/v2/oauth` | эндпоинт OAuth-токена |
+| `LLM_TLS_CA_BUNDLE` | — | путь к корневому сертификату НУЦ Минцифры (обязателен для облака Сбера); несуществующий путь делает провайдера «не настроенным» |
+| `LLM_TLS_VERIFY` | `1` | `0` — отключить проверку TLS (только dev) |
+
+> **Общие имена принадлежат одному провайдеру.** `LLM_MODEL` и `LLM_BASE_URL` —
+> сокращения для `<...>_<LLM_PROVIDER>`: провайдер по умолчанию берёт их, а на
+> другого выбранного в UI провайдера они **не распространяются** (он получает
+> свой дефолт — например, `GigaChat-2-Pro`). Поэтому `LLM_MODEL=deepseek-chat`
+> не уходит в GigaChat. Общие `LLM_TIMEOUT`/`LLM_TEMPERATURE` действуют на всех.
+> Пустое `LLM_MODEL_GIGACHAT=` — это явное «у GigaChat своя модель»: получит
+> дефолт GigaChat, а не модель DeepSeek.
+
+> В сайдбаре есть переключатель **«Провайдер LLM»**: он показывает всех
+> поддерживаемых провайдеров, а ненастроенные помечает «— не настроен» (выбрать
+> можно, но пока работают офлайн-правила с подсказкой, какого ключа не хватает).
+> Настроенные провайдеры держатся одновременно: общий `LLM_API_KEY` (провайдер
+> по умолчанию из `LLM_PROVIDER`) + собственный `LLM_API_KEY_<PROVIDER>`
+> (например, `LLM_API_KEY_GIGACHAT`). Так DeepSeek и GigaChat доступны в одном
+> запущенном приложении.
+
+> **Модель GigaChat выбирается в сайдбаре.** Когда активен этот провайдер, под
+> переключателем появляется список **«Модель GigaChat»**: он строится из
+> `GET /v1/models` этого ключа (эмбеддинги отфильтрованы по полю `type` — их в
+> списке чата нет) и кешируется на сессию. Выбор действует **только в текущей
+> сессии** и не записывается в `.env`: приложение не редактирует файл с
+> секретами, после перезапуска снова действует `LLM_MODEL_GIGACHAT`. Если список
+> получить нельзя (нет сети/ключа/сертификата), селектора нет и работает модель
+> из `.env`. Модель из `.env`, которой нет в списке API, показывается первой и
+> **не** подменяется автоматически — иначе запрос ушёл бы не тем именем.
+
+> Базовый URL GigaChat — `https://api.giga.chat/v1` (префикс `/v1`, без `/api`).
+> Ошибка `403` от nginx при успешном OAuth — признак неверного префикса, а не
+> ключа; подробности — в [ADR 0012](adr/0012-gigachat-provider.md).
 
 ### 8.4. Типовые ошибки UI
 
@@ -221,6 +302,7 @@ $env:LLM_BASE_URL = "https://api.deepseek.com/v1"   # опционально
 | «Не удалось разобрать вопрос» | модель вернула невалидный JSON дважды | переформулировать или задать другой `LLM_MODEL` |
 | «Нужно уточнение» | в вопросе нет периода/намерения | ответить одним из предложенных вариантов |
 | `HTTP 401` от провайдера | неверный ключ | проверить `LLM_API_KEY` |
+| `HTTP 403` от nginx при GigaChat, хотя OAuth прошёл | неверный базовый URL (лишний `/api`) | адрес API — `https://api.giga.chat/v1` |
 | `Сеть недоступна` | нет доступа к API | проверить сеть/`LLM_BASE_URL`; в песочнице DSH внешние API могут быть закрыты |
 
 ### 8.5. Лимиты LLM

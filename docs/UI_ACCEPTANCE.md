@@ -20,10 +20,12 @@ python -m venv .venv
 .\.venv\Scripts\python -m streamlit run app.py
 ```
 
-С LLM (DeepSeek / OpenAI / Ollama) — задать переменные и перезапустить:
+С LLM (DeepSeek / GigaChat / OpenAI / Ollama) — задать переменные и перезапустить.
+Если настроить несколько провайдеров одновременно (`LLM_API_KEY` + `LLM_API_KEY_GIGACHAT`),
+в сайдбаре появится переключатель **«Провайдер LLM»**:
 
 ```powershell
-$env:LLM_PROVIDER = "deepseek"        # openai | deepseek | ollama
+$env:LLM_PROVIDER = "deepseek"        # openai | deepseek | ollama | gigachat
 $env:LLM_API_KEY  = "sk-..."
 $env:LLM_MODEL    = "deepseek-chat"
 .\.venv\Scripts\python -m streamlit run app.py

@@ -4,6 +4,19 @@
 
 ## [Unreleased]
 
+### Added
+- **Выбор модели GigaChat в сайдбаре (сессия, без записи в `.env`):** под переключателем «Провайдер LLM» появляется список «Модель GigaChat» (`app.py` и `app_local.py`). Список строится из `GET /v1/models` конкретного ключа и кешируется в `st.session_state`; новый `GigaChatClient.chat_models()` отбрасывает не-чат модели по полю `type`, поэтому `Embeddings`, `Embeddings-2`, `GigaEmbeddings-…` в список не попадают (`models()` по-прежнему отдаёт всё — для `--check`). Выбор живёт только в сессии: файл `.env` с секретами приложение не редактирует. Если список недоступен — селектора нет и работает `LLM_MODEL_GIGACHAT`; модель из `.env`, отсутствующая в списке API, показывается первой и не подменяется автоматически.
+- **Кнопка «Обновить данные из 1С» заблокирована вне источника 1С** (`app_local.py`): выгрузка перезаписывает `1c_export`, поэтому запускать её из режима демо-данных опасно. Всплывающая подсказка у кнопки убрана по требованию владельца проекта.
+
+### Fixed
+- **Неверный базовый URL GigaChat:** `https://api.giga.chat/api/v1` → `https://api.giga.chat/v1`. С лишним `/api` запросы после успешного OAuth получали `403 Forbidden` от nginx, то есть GigaChat не работал бы ни в `--check`, ни в UI. Адрес взят из документации метода (`GET https://api.giga.chat/v1/models`); исправлены дефолт в `llm_agent.py`, ожидания тестов, [ADR 0012](docs/adr/0012-gigachat-provider.md) и [RUNBOOK](docs/RUNBOOK.md) §8.2/§8.3.
+- **Тесты читали рабочий `.env`:** после появления в файле настоящего ключа GigaChat провайдер считался «настроенным», `AppTest` включал LLM и уходил в реальный API — 9 тестов падали, а демо-вопросы могли уходить в облако. Добавлена autouse-фикстура `_isolated_env_file` в `tests/conftest.py`: содержимое `.env` в тестах игнорируется, действуют только переменные процесса и `monkeypatch.setenv`.
+
+### Verified
+- `python -m pytest` — **393 passed** (было 384 passed / 9 failed из-за `.env`).
+- `python -m onec_analyst.llm_agent --check` — `OK deepseek`, `OK gigachat: GigaChat-2-Pro`; фактически доступны `GigaChat-2`, `GigaChat-2-Max`, `GigaChat-2-Pro`, `GigaChat-3-Lightning`, `GigaChat-3-Pro`, `GigaChat-3-Ultra`, модели эмбеддингов.
+- Живой end-to-end прогон вопросов через GigaChat в этой итерации не выполнялся (тратит лимит 15/день) — отложен.
+
 ## [0.7.0] — 2026-11-16 — MCP-фасад: аналитика 1С для ИИ-агента
 
 ### Added

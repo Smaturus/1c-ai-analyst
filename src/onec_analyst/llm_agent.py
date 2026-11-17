@@ -41,12 +41,17 @@ import argparse
 import json
 import os
 import re
+import ssl
 import sys
+import time
 import urllib.error
+import urllib.parse
 import urllib.request
+import uuid
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
-from typing import Annotated, Any, Final, Literal, Sequence
+from pathlib import Path
+from typing import Annotated, Any, Final, Literal, Mapping, Sequence
 
 from pydantic import (
     AfterValidator,
@@ -73,17 +78,29 @@ __all__ = [
     "IntentDSL",
     "LLMSettings",
     "LLMClient",
+    "GigaChatClient",
     "LLMError",
     "LLMPlanner",
     "RuleBasedPlanner",
     "AgentDecision",
+    "CompletionResult",
+    "ToolCall",
+    "CHOOSABLE_PROVIDERS",
+    "ProviderOption",
+    "ProviderCheck",
     "settings_from_env",
+    "available_providers",
+    "provider_catalog",
+    "check_provider",
+    "check_providers",
     "build_system_prompt",
     "build_messages",
+    "build_tools",
     "parse_plan_json",
     "to_dispatch_params",
     "is_negative_revenue_question",
     "guard_decision",
+    "make_client",
     "make_planner",
     "check_schema_sync",
     "export_schema",
@@ -394,6 +411,45 @@ IntentDSL = Annotated[
 
 _DSL_ADAPTER: Final[TypeAdapter[Any]] = TypeAdapter(IntentDSL)
 
+#: Параметры-модели по интентам — источник JSON-схемы для tool calling GigaChat.
+_PARAMS_MODELS: Final[dict[str, type[_Params]]] = {
+    "top_bottom_products": TopBottomParams,
+    "compare_top_products": CompareTopsParams,
+    "negative_revenue": NegativeRevenueParams,
+    "timeseries": TimeseriesParams,
+    "counterparty_dynamics": CounterpartyDynamicsParams,
+    "group_dynamics": GroupDynamicsParams,
+    "total": TotalParams,
+}
+
+
+def build_tools() -> list[dict[str, Any]]:
+    """Собрать описание инструментов (функций) для tool calling.
+
+    Каждый интент — одна функция, имя которой равно имени интента, а
+    ``parameters`` — JSON-схема параметров из Pydantic-модели. Модель выбирает
+    ровно одну функцию (GigaChat поддерживает один вызов за запрос), а её
+    аргументы валидируются тем же :data:`_DSL_ADAPTER`, что и JSON-DSL — поэтому
+    tool calling не ослабляет контракт.
+
+    Clarification — не инструмент: модель, которой нужны данные, отвечает
+    свободным текстом (без вызова функции), и планировщик трактует его как
+    уточняющий вопрос.
+    """
+    tools: list[dict[str, Any]] = []
+    for name in INTENT_NAMES:
+        tools.append(
+            {
+                "type": "function",
+                "function": {
+                    "name": name,
+                    "description": INTENT_DESCRIPTIONS[name],
+                    "parameters": _PARAMS_MODELS[name].model_json_schema(),
+                },
+            }
+        )
+    return tools
+
 
 # --------------------------------------------------------------------------- #
 # Результат планирования
@@ -430,6 +486,27 @@ class AgentDecision:
     raw_response: str = ""
     dsl: dict[str, Any] = field(default_factory=dict)
     source: str = "rules"
+
+
+@dataclass(frozen=True)
+class ToolCall:
+    """Вызов инструмента, который вернула модель (tool calling GigaChat)."""
+
+    name: str
+    arguments: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class CompletionResult:
+    """Нормированный результат вызова LLM-клиента.
+
+    Либо свободный текст (``content`` — уточняющий вопрос или ответ
+    классификатора), либо вызовы инструментов (``tool_calls`` — структура
+    интент+параметры). Обе ветки валидируются одним Pydantic-контрактом.
+    """
+
+    content: str = ""
+    tool_calls: tuple[ToolCall, ...] = ()
 
 
 # --------------------------------------------------------------------------- #
@@ -740,6 +817,10 @@ class LLMSettings:
     timeout: float = 60.0
     temperature: float = 0.0
     json_mode: bool = True
+    scope: str = "GIGACHAT_API_PERS"
+    auth_url: str = ""
+    ca_bundle: str = ""
+    verify_tls: bool = True
 
     @property
     def is_configured(self) -> bool:
@@ -755,12 +836,66 @@ _DEFAULT_MODELS: Final[dict[str, str]] = {
     "openai": "gpt-4o-mini",
     "deepseek": "deepseek-chat",
     "ollama": "llama3.1",
+    "gigachat": "GigaChat-2-Pro",
 }
 _DEFAULT_BASE_URLS: Final[dict[str, str]] = {
     "openai": "https://api.openai.com/v1",
     "deepseek": "https://api.deepseek.com/v1",
     "ollama": "http://localhost:11434/v1",
+    "gigachat": "https://api.giga.chat/v1",
 }
+#: Эндпоинты OAuth-токена (для провайдеров с двухшаговой авторизацией).
+_DEFAULT_AUTH_URLS: Final[dict[str, str]] = {
+    "gigachat": "https://ngw.devices.sberbank.ru:9443/api/v2/oauth",
+}
+
+#: Настройки, которые принадлежат провайдеру из ``LLM_PROVIDER``: общее имя
+#: (``LLM_MODEL``/``LLM_BASE_URL``) для них — сокращение для ``<NAME>_<PROVIDER>``.
+#: Не-провайдерные (``LLM_TIMEOUT``/``LLM_TEMPERATURE``) применяются ко всем.
+_PROVIDER_SCOPED: Final[frozenset[str]] = frozenset({"LLM_MODEL", "LLM_BASE_URL"})
+
+
+def with_dotenv(overrides: Mapping[str, str] | None = None) -> dict[str, str]:
+    """Окружение процесса + ``.env`` + явные переопределения.
+
+    Явные ``overrides`` важнее и окружения, и файла: используется тестами и
+    вызовами, где настройку надо задать на один раз. Пустая строка в
+    ``overrides`` удаляет значение (переменная считается незаданной).
+    """
+    values = _environment_with_dotenv()
+    for key, value in (overrides or {}).items():
+        if value:
+            values[key] = value
+        else:
+            values.pop(key, None)
+    return values
+
+
+def _pick_setting(
+    values: Mapping[str, str], setting: str, provider: str, env_provider: str
+) -> str:
+    """Забрать настройку ``setting`` для провайдера ``provider`` из окружения.
+
+    1. ``<SETTING>_<PROVIDER>`` — если задано, используется всегда (пустая
+       строка — тоже заданное значение: «у провайдера своей настройки нет»).
+    2. Провайдерные настройки (``_PROVIDER_SCOPED``: модель и базовый URL) из
+       общего ``<SETTING>`` берутся только для провайдера по умолчанию
+       (``env_provider``). Чужому провайдеру они не достаются: его вызывающий
+       подставит собственный дефолт. Это и есть защита от того, что
+       ``LLM_MODEL=deepseek-chat`` уйдёт в GigaChat.
+    3. Остальные настройки (``LLM_TIMEOUT``/``LLM_TEMPERATURE``/``LLM_JSON_MODE``)
+       не привязаны к провайдеру и применяются всем одинаково.
+    """
+    specific_value = values.get(f"{setting}_{provider.upper()}")
+    if specific_value is not None:
+        return specific_value.strip()
+    generic_value = values.get(setting)
+    if setting in _PROVIDER_SCOPED and provider != env_provider:
+        return ""
+    if generic_value is None:
+        return ""
+    return generic_value.strip()
+
 
 _DOTENV_FILE: Final = find_repo_root() / ".env"
 
@@ -804,31 +939,147 @@ def _environment_with_dotenv() -> dict[str, str]:
     return values
 
 
-def settings_from_env(env: dict[str, str] | None = None) -> LLMSettings:
-    """Прочитать настройки LLM из окружения (с разумными значениями по умолчанию)."""
+def settings_from_env(
+    env: dict[str, str] | None = None,
+    *,
+    provider: str | None = None,
+) -> LLMSettings:
+    """Прочитать настройки LLM из окружения (с разумными значениями по умолчанию).
+
+    Parameters
+    ----------
+    env:
+        Словарь переменных; по умолчанию — окружение процесса + ``.env``.
+        Переданный словарь используется как есть (совместимо с тестами и
+        smoke-скриптами, которые передают ``{}`` для «пустого» окружения).
+    provider:
+        Явно запрошенный провайдер (выбор в UI). Если задан и отличается от
+        ``LLM_PROVIDER``, берутся только его собственные переменные
+        ``LLM_API_KEY_<PROVIDER>``/``LLM_MODEL_<PROVIDER>``/``LLM_BASE_URL_<PROVIDER>``:
+        общие ``LLM_API_KEY``/``LLM_MODEL``/``LLM_BASE_URL`` принадлежат провайдеру
+        по умолчанию и на чужого провайдера не распространяются.
+    """
     values = env if env is not None else _environment_with_dotenv()
-    provider = (values.get("LLM_PROVIDER") or "none").strip().lower()
-    if provider not in ("none", "openai", "deepseek", "ollama"):
+    env_provider = (values.get("LLM_PROVIDER") or "none").strip().lower()
+    provider = (provider or env_provider).strip().lower()
+    if provider not in ("none", "openai", "deepseek", "ollama", "gigachat"):
         raise ValueError(
-            f"Неизвестный LLM_PROVIDER={provider!r}; допустимо: none, openai, deepseek, ollama"
+            f"Неизвестный LLM_PROVIDER={provider!r}; допустимо: none, openai, deepseek, ollama, gigachat"
         )
-    model = (values.get("LLM_MODEL") or _DEFAULT_MODELS.get(provider, "")).strip()
-    base_url = (values.get("LLM_BASE_URL") or _DEFAULT_BASE_URLS.get(provider, "")).strip()
-    json_mode = (values.get("LLM_JSON_MODE") or ("0" if provider == "ollama" else "1")) != "0"
+
+    def pick(name: str) -> str:
+        """Настройка провайдера: ``<NAME>_<PROVIDER>``, а общий ``<NAME>`` — см. ниже."""
+        return _pick_setting(values, name, provider, env_provider)
+
+    model = pick("LLM_MODEL") or _DEFAULT_MODELS.get(provider, "")
+    base_url = pick("LLM_BASE_URL") or _DEFAULT_BASE_URLS.get(provider, "")
+    json_mode = (pick("LLM_JSON_MODE") or ("0" if provider == "ollama" else "1")) != "0"
+    scope = (values.get("GIGACHAT_SCOPE") or "GIGACHAT_API_PERS").strip()
+    auth_url = (
+        values.get("GIGACHAT_AUTH_URL") or _DEFAULT_AUTH_URLS.get(provider, "")
+    ).strip()
+    ca_bundle = (values.get("LLM_TLS_CA_BUNDLE") or "").strip()
+    verify_tls = (values.get("LLM_TLS_VERIFY") or "1") != "0"
     try:
-        timeout = float(values.get("LLM_TIMEOUT", "60"))
-        temperature = float(values.get("LLM_TEMPERATURE", "0"))
+        timeout = float(pick("LLM_TIMEOUT") or "60")
+        temperature = float(pick("LLM_TEMPERATURE") or "0")
     except ValueError as exc:  # pragma: no cover - защита от кривого env
         raise ValueError(f"LLM_TIMEOUT/LLM_TEMPERATURE должны быть числами: {exc}") from exc
     return LLMSettings(
         provider=provider,
         model=model,
-        api_key=(values.get("LLM_API_KEY") or "").strip(),
+        api_key=pick("LLM_API_KEY"),
         base_url=base_url.rstrip("/"),
         timeout=timeout,
         temperature=temperature,
         json_mode=json_mode,
+        scope=scope,
+        auth_url=auth_url.rstrip("/"),
+        ca_bundle=ca_bundle,
+        verify_tls=verify_tls,
     )
+
+
+#: Провайдеры, которые можно выбрать в UI (``none`` — офлайн-режим, не провайдер).
+CHOOSABLE_PROVIDERS: Final[tuple[str, ...]] = ("deepseek", "gigachat", "openai", "ollama")
+
+
+@dataclass(frozen=True)
+class ProviderOption:
+    """Провайдер в переключателе UI: настройки + признак «настроен».
+
+    ``configured=False`` — провайдер показан в списке, но не готов к вызову
+    (нет ключа/сертификата); UI помечает его «не настроен».
+    """
+
+    settings: LLMSettings
+    configured: bool
+
+
+def _ssl_trust_ready(settings: LLMSettings) -> bool:
+    """Сможет ли TLS-соединение провайдера установиться с текущими настройками.
+
+    Проверка TLS включена всегда, кроме явного dev-флага ``LLM_TLS_VERIFY=0``
+    (см. :meth:`GigaChatClient._ssl_context`). Если задан ``LLM_TLS_CA_BUNDLE``,
+    файл должен существовать — иначе соединение упадёт при первом же запросе,
+    а не при чтении настроек.
+    """
+    if not settings.verify_tls:
+        return True
+    if not settings.ca_bundle:
+        return True
+    return Path(settings.ca_bundle).is_file()
+
+
+def _is_provider_configured(
+    values: dict[str, str], name: str, settings: LLMSettings
+) -> bool:
+    """Готов ли провайдер к вызову по текущему окружению.
+
+    Обычные провайдеры — есть ключ (общий для ``LLM_PROVIDER`` или собственный
+    ``LLM_API_KEY_<PROVIDER>``). GigaChat дополнительно требует готовности TLS:
+    без корневого сертификата НУЦ Минцифры (или указания несуществующего пути
+    в ``LLM_TLS_CA_BUNDLE``) OAuth-запрос падает с ``CERTIFICATE_VERIFY_FAILED``.
+    Локальную Ollama нельзя проверить без сети, поэтому она считается
+    настроенной только при явном ``LLM_PROVIDER=ollama``.
+    """
+    default = (values.get("LLM_PROVIDER") or "none").strip().lower()
+    if name == "ollama":
+        return name == default
+    dedicated = (values.get(f"LLM_API_KEY_{name.upper()}") or "").strip()
+    if not (name == default or dedicated) or not settings.is_configured:
+        return False
+    return _ssl_trust_ready(settings)
+
+
+def provider_catalog(env: dict[str, str] | None = None) -> list[ProviderOption]:
+    """Все выбираемые провайдеры (включая ненастроенные) для переключателя UI.
+
+    Отличие от :func:`available_providers`: возвращает запись на каждого
+    провайдера из :data:`CHOOSABLE_PROVIDERS`, даже без ключа — чтобы UI показал
+    «не настроен». Провайдер по умолчанию идёт первым.
+    """
+    values = env if env is not None else _environment_with_dotenv()
+    default = (values.get("LLM_PROVIDER") or "none").strip().lower()
+    options: list[ProviderOption] = []
+    for name in CHOOSABLE_PROVIDERS:
+        try:
+            settings = settings_from_env(values, provider=name)
+        except ValueError:
+            continue
+        options.append(
+            ProviderOption(
+                settings=settings,
+                configured=_is_provider_configured(values, name, settings),
+            )
+        )
+    options.sort(key=lambda item: 0 if item.settings.provider == default else 1)
+    return options
+
+
+def available_providers(env: dict[str, str] | None = None) -> list[LLMSettings]:
+    """Настроенные провайдеры (только готовые к вызову), по умолчанию — первым."""
+    return [option.settings for option in provider_catalog(env) if option.configured]
 
 
 class LLMError(RuntimeError):
@@ -839,10 +1090,23 @@ class LLMClient:
     """Минимальный OpenAI-совместимый клиент на стандартной библиотеке.
 
     Работает с OpenAI, DeepSeek и Ollama (``/v1``) — без внешних зависимостей.
+    Tool calling не используется: эти провайдеры отвечают текстом (JSON-DSL),
+    который валидируется Pydantic-моделями.
     """
+
+    supports_tools: bool = False
 
     def __init__(self, settings: LLMSettings) -> None:
         self._settings = settings
+
+    def complete(
+        self,
+        messages: list[dict[str, str]],
+        tools: list[dict[str, Any]] | None = None,
+    ) -> CompletionResult:
+        """OpenAI-совместимый вызов: ``tools`` игнорируется, ответ — текст."""
+        del tools  # tool calling для этих провайдеров в проекте не используется
+        return CompletionResult(content=self.chat(messages))
 
     def chat(self, messages: list[dict[str, str]]) -> str:
         """Отправить сообщения и вернуть текст ответа модели.
@@ -905,16 +1169,359 @@ class LLMClient:
             raise LLMError("Провайдер вернул пустой ответ")
         return content
 
+    def list_models(self) -> list[str]:
+        """ID моделей по ``GET {base_url}/models`` (проверка ключа и ``base_url``).
+
+        Подходит DeepSeek/OpenAI/ollama: единственный дешёвый запрос, который
+        подтверждает, что ключ и адрес рабочие, не отправляя сообщений модели.
+        """
+        url = f"{self._settings.base_url}/models"
+        request = urllib.request.Request(
+            url,
+            headers={
+                "Accept": "application/json",
+                "Authorization": f"Bearer {self._settings.api_key}",
+            },
+            method="GET",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=self._settings.timeout) as response:
+                raw = response.read().decode("utf-8", errors="replace")
+        except urllib.error.HTTPError as exc:
+            details = exc.read().decode("utf-8", errors="replace")[:500]
+            raise LLMError(f"GET /models HTTP {exc.code}: {details}") from exc
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            raise LLMError(f"Сеть недоступна (GET /models): {exc}") from exc
+        try:
+            data = json.loads(raw)
+            items = data["data"]
+        except (json.JSONDecodeError, KeyError, TypeError) as exc:
+            raise LLMError(f"Неожиданный ответ /models: {raw[:200]!r}") from exc
+        models: list[str] = []
+        for item in items if isinstance(items, list) else []:
+            if isinstance(item, dict):
+                identifier = item.get("id")
+                if isinstance(identifier, str) and identifier:
+                    models.append(identifier)
+        return models
+
+
+class GigaChatClient:
+    """Клиент GigaChat: OAuth-авторизация + tool calling для строгого DSL.
+
+    Отличается от OpenAI-совместимых провайдеров:
+
+    * **двухшаговая авторизация** (``client_credentials``): обмен authorization
+      key (``Authorization: Basic base64(client_id:client_secret)`` + заголовок
+      ``RqUID`` + ``scope``) на access token (живёт ~30 минут), затем
+      ``Authorization: Bearer <token>`` к ``chat/completions``;
+    * **TLS** — сертификаты самоподписанные: доверие к корню НУЦ Минцифры через
+      ``ca_bundle`` либо явное ``verify_tls=False`` (только dev-флаг);
+    * **tool calling** вместо ``response_format=json_object``: модель выбирает
+      одну функцию-интент и возвращает её аргументы, которые затем валидируются
+      тем же Pydantic-контрактом, что и JSON-DSL.
+
+    Секреты сюда не попадают: authorization key читается из :class:`LLMSettings`,
+    в сообщения об ошибках значения заголовков не включаются.
+    """
+
+    supports_tools: bool = True
+
+    #: Запас до истечения токена (секунд), чтобы не использовать просроченный.
+    _TOKEN_SKEW_SECONDS: float = 60.0
+
+    def __init__(self, settings: LLMSettings) -> None:
+        if settings.provider != "gigachat":
+            raise ValueError(
+                f"GigaChatClient ожидает provider='gigachat', получено {settings.provider!r}"
+            )
+        self._settings = settings
+        self._token: str | None = None
+        self._token_expires_at: float = 0.0
+
+    def _ssl_context(self) -> ssl.SSLContext:
+        """TLS-контекст: корень НУЦ Минцифры или явное отключение проверки."""
+        if not self._settings.verify_tls:
+            return ssl._create_unverified_context()  # явный dev-флаг
+        context = ssl.create_default_context()
+        if self._settings.ca_bundle:
+            context.load_verify_locations(cafile=self._settings.ca_bundle)
+        return context
+
+    def _access_token(self) -> str:
+        """Вернуть access token (с кэшем) или запросить новый через OAuth."""
+        now = time.time()
+        if self._token and now < self._token_expires_at - self._TOKEN_SKEW_SECONDS:
+            return self._token
+        auth_url = self._settings.auth_url or _DEFAULT_AUTH_URLS.get("gigachat", "")
+        if not auth_url:
+            raise LLMError("GigaChat не настроена: задайте GIGACHAT_AUTH_URL")
+        body = urllib.parse.urlencode({"scope": self._settings.scope}).encode("utf-8")
+        headers = {
+            "Authorization": f"Basic {self._settings.api_key}",
+            "RqUID": str(uuid.uuid4()),
+            "Content-Type": "application/x-www-form-urlencoded",
+        }
+        request = urllib.request.Request(auth_url, data=body, headers=headers, method="POST")
+        try:
+            with urllib.request.urlopen(
+                request, timeout=self._settings.timeout, context=self._ssl_context()
+            ) as response:
+                raw = response.read().decode("utf-8", errors="replace")
+        except urllib.error.HTTPError as exc:
+            details = exc.read().decode("utf-8", errors="replace")[:500]
+            raise LLMError(f"OAuth HTTP {exc.code}: {details}") from exc
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            raise LLMError(f"Сеть недоступна (OAuth): {exc}") from exc
+        try:
+            data = json.loads(raw)
+            token = data["access_token"]
+        except (json.JSONDecodeError, KeyError, TypeError) as exc:
+            raise LLMError(f"Неожиданный ответ OAuth: {raw[:200]!r}") from exc
+        if "expires_at" in data:
+            self._token_expires_at = float(data["expires_at"])
+        else:
+            self._token_expires_at = now + int(data.get("expires_in", 1800))
+        self._token = token
+        return token
+
+    def _post(self, url: str, payload: dict[str, Any]) -> str:
+        """POST к chat/completions с Bearer-токеном; при 401 — повтор с новым токеном."""
+
+        def _send(token: str) -> str:
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {token}",
+            }
+            request = urllib.request.Request(
+                url,
+                data=json.dumps(payload).encode("utf-8"),
+                headers=headers,
+                method="POST",
+            )
+            try:
+                with urllib.request.urlopen(
+                    request, timeout=self._settings.timeout, context=self._ssl_context()
+                ) as response:
+                    return response.read().decode("utf-8", errors="replace")
+            except urllib.error.HTTPError as exc:
+                details = exc.read().decode("utf-8", errors="replace")[:500]
+                raise LLMError(f"HTTP {exc.code}: {details}") from exc
+            except (urllib.error.URLError, TimeoutError, OSError) as exc:
+                raise LLMError(f"Сеть недоступна: {exc}") from exc
+
+        try:
+            return _send(self._access_token())
+        except LLMError as exc:
+            had_token = self._token is not None
+            if had_token and ("401" in str(exc) or "403" in str(exc)):
+                self._token = None
+                self._token_expires_at = 0.0
+                return _send(self._access_token())
+            raise
+
+    def complete(
+        self,
+        messages: list[dict[str, str]],
+        tools: list[dict[str, Any]] | None = None,
+    ) -> CompletionResult:
+        """Вызвать chat/completions (при ``tools`` — в режиме tool calling)."""
+        settings = self._settings
+        payload: dict[str, Any] = {
+            "model": settings.model,
+            "messages": messages,
+            "temperature": settings.temperature,
+        }
+        if tools:
+            payload["tools"] = tools
+            payload["tool_choice"] = "auto"
+        url = f"{settings.base_url}/chat/completions"
+        raw = self._post(url, payload)
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise LLMError(f"Провайдер вернул не JSON: {raw[:200]!r}") from exc
+        try:
+            message = data["choices"][0]["message"]
+        except (KeyError, IndexError, TypeError) as exc:
+            raise LLMError(f"Неожиданный ответ провайдера: {raw[:300]!r}") from exc
+        content = message.get("content")
+        if not isinstance(content, str):
+            content = ""
+        tool_calls: list[ToolCall] = []
+        for item in message.get("tool_calls") or []:
+            function = item.get("function") or {}
+            name = str(function.get("name") or "")
+            arguments_raw = function.get("arguments") or "{}"
+            if isinstance(arguments_raw, str):
+                try:
+                    arguments = json.loads(arguments_raw)
+                except json.JSONDecodeError:
+                    arguments = {}
+            else:
+                arguments = arguments_raw
+            if not isinstance(arguments, dict):
+                arguments = {}
+            if name:
+                tool_calls.append(ToolCall(name=name, arguments=arguments))
+        return CompletionResult(content=content, tool_calls=tuple(tool_calls))
+
+    def chat(self, messages: list[dict[str, str]]) -> str:
+        """Обычный текстовый вызов без инструментов (для классификатора)."""
+        return self.complete(messages, tools=None).content
+
+    def _models_payload(self) -> list[dict[str, Any]]:
+        """Сырые записи ``GET /models``: ``[{"id": ..., "type": ...}, ...]``.
+
+        Отдельный шаг нужен, чтобы отличать чат-модели от эмбеддингов: GigaChat
+        отдаёт в одном списке и те, и другие, а поле ``type`` — единственный
+        признак, по которому их можно разделить надёжно.
+
+        Raises
+        ------
+        LLMError
+            Сеть, HTTP-статус или неожиданный формат ответа.
+        """
+        url = f"{self._settings.base_url}/models"
+        token = self._access_token()
+        request = urllib.request.Request(
+            url,
+            headers={"Accept": "application/json", "Authorization": f"Bearer {token}"},
+            method="GET",
+        )
+        try:
+            with urllib.request.urlopen(
+                request, timeout=self._settings.timeout, context=self._ssl_context()
+            ) as response:
+                raw = response.read().decode("utf-8", errors="replace")
+        except urllib.error.HTTPError as exc:
+            details = exc.read().decode("utf-8", errors="replace")[:500]
+            raise LLMError(f"GET /models HTTP {exc.code}: {details}") from exc
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            raise LLMError(f"Сеть недоступна (GET /models): {exc}") from exc
+        try:
+            data = json.loads(raw)
+            items = data["data"]
+        except (json.JSONDecodeError, KeyError, TypeError) as exc:
+            raise LLMError(f"Неожиданный ответ /models: {raw[:200]!r}") from exc
+        return [item for item in items if isinstance(item, dict)] if isinstance(items, list) else []
+
+    def models(self) -> list[str]:
+        """Список ID моделей, доступных текущему ключу (``GET /models``).
+
+        Лёгкая проверка связки «ключ + сертификат + scope» без генерации
+        токенов: OAuth-токен, затем ``GET {base_url}/models``. Ответ GigaChat —
+        ``{"object": "list", "data": [{"id": "GigaChat-2-Pro", ...}, ...]}``.
+
+        Возвращает всё, что отдал провайдер, включая эмбеддинги: для
+        диагностики (``--check``) нужен полный список. Для выбора модели чата
+        в UI есть :meth:`chat_models`.
+
+        Raises
+        ------
+        LLMError
+            Сеть, HTTP-статус или неожиданный формат ответа.
+        """
+        models: list[str] = []
+        for item in self._models_payload():
+            identifier = item.get("id")
+            if isinstance(identifier, str) and identifier:
+                models.append(identifier)
+        return models
+
+    def chat_models(self) -> list[str]:
+        """Только модели генерации из ``GET /models`` (``type == "chat"``).
+
+        Эмбеддинги и прочие типы (``type`` = ``embedder``/``aicheck``) в
+        выпадающий список моделей чата попадать не должны. Если провайдер не
+        указал ``type``, модель считается чат-моделью: отбрасывать её по
+        отсутствию поля было бы хуже, чем показать лишнюю.
+        """
+        models: list[str] = []
+        for item in self._models_payload():
+            kind = item.get("type")
+            if isinstance(kind, str) and kind and kind != "chat":
+                continue
+            identifier = item.get("id")
+            if isinstance(identifier, str) and identifier:
+                models.append(identifier)
+        return models
+
+
+def make_client(settings: LLMSettings) -> LLMClient | GigaChatClient:
+    """Создать HTTP-клиент под провайдера (GigaChat — OAuth + tool calling)."""
+    if settings.provider == "gigachat":
+        return GigaChatClient(settings)
+    return LLMClient(settings)
+
 
 # --------------------------------------------------------------------------- #
 # Планировщики: LLM и детерминированный fallback
 # --------------------------------------------------------------------------- #
 class LLMPlanner:
-    """Планировщик на LLM: вопрос → сообщения → JSON → Pydantic → решение."""
+    """Планировщик на LLM: вопрос → сообщения → JSON-DSL (или tool call) → Pydantic.
 
-    def __init__(self, settings: LLMSettings, client: LLMClient | None = None) -> None:
+    Для OpenAI-совместимых провайдеров модель отвечает текстом (JSON-DSL),
+    который разбирается :func:`parse_plan_json`. Для GigaChat используется tool
+    calling: модель выбирает функцию-интент, а её аргументы валидируются тем же
+    контрактом. Уточняющий вопрос — свободный текст без вызова функции.
+    """
+
+    def __init__(
+        self,
+        settings: LLMSettings,
+        client: LLMClient | GigaChatClient | None = None,
+    ) -> None:
         self._settings = settings
-        self._client = client or LLMClient(settings)
+        self._client = client or make_client(settings)
+
+    @property
+    def supports_tools(self) -> bool:
+        """Использует ли клиент tool calling (GigaChat)."""
+        return bool(getattr(self._client, "supports_tools", False))
+
+    def _complete(
+        self,
+        messages: list[dict[str, str]],
+        tools: list[dict[str, Any]] | None,
+    ) -> CompletionResult:
+        """Вызвать клиент; старые fake-клиенты с ``chat()`` тоже поддержаны."""
+        if hasattr(self._client, "complete"):
+            return self._client.complete(messages, tools=tools)
+        return CompletionResult(content=self._client.chat(messages))
+
+    @staticmethod
+    def _to_dsl(
+        result: CompletionResult,
+        *,
+        allow_text_clarification: bool = False,
+    ) -> tuple[str, str | None]:
+        """Нормализовать результат в ``(raw DSL-строка, уточняющий вопрос | None)``.
+
+        Вызов инструмента сворачивается в ``{"intent": ..., "params": ...}`` —
+        ровно ту форму, которую валидирует :func:`parse_plan_json`.
+
+        Свободный текст без JSON трактуется как уточняющий вопрос **только** при
+        ``allow_text_clarification`` (tool calling: модель осознанно не вызывает
+        функцию, а задаёт вопрос). Для OpenAI-совместимых провайдеров не-JSON —
+        это ошибка, которую ловит :func:`parse_plan_json` и чинит планировщик.
+        """
+        if result.tool_calls:
+            call = result.tool_calls[0]
+            raw = json.dumps(
+                {"intent": call.name, "params": call.arguments}, ensure_ascii=False
+            )
+            return raw, None
+        content = (result.content or "").strip()
+        if not content:
+            return "", None
+        try:
+            _extract_json_object(content)
+        except ValueError:
+            if allow_text_clarification:
+                return content, content
+            return content, None
+        return content, None
 
     def plan(
         self,
@@ -927,14 +1534,21 @@ class LLMPlanner:
         if not question:
             return AgentDecision(ok=False, error="Пустой вопрос", source="llm")
         messages = build_messages(question, history, data_profile)
+        tools = build_tools() if self.supports_tools else None
         try:
-            raw = self._client.chat(messages)
+            result = self._complete(messages, tools)
         except LLMError as exc:
             return AgentDecision(
                 ok=False,
                 error=f"LLM недоступна: {exc}",
                 source="llm",
             )
+        raw, clarification = self._to_dsl(
+            result, allow_text_clarification=self.supports_tools
+        )
+        if clarification is not None:
+            plan = ClarificationPlan(question=clarification, missing=[], suggestions=[])
+            return _decision_from_plan(plan, raw=clarification, source="llm")
         try:
             plan = parse_plan_json(raw)
         except (ValueError, ValidationError) as exc:
@@ -943,9 +1557,19 @@ class LLMPlanner:
                 "Верни ТОЛЬКО корректный JSON-объект по схеме, без пояснений."
             )
             try:
-                raw_fixed = self._client.chat(
-                    [*messages, {"role": "assistant", "content": raw}, {"role": "user", "content": repair}]
+                fixed = self._complete(
+                    [
+                        *messages,
+                        {"role": "assistant", "content": raw},
+                        {"role": "user", "content": repair},
+                    ],
+                    tools,
                 )
+                raw_fixed, clarification_fixed = self._to_dsl(
+                    fixed, allow_text_clarification=self.supports_tools
+                )
+                if clarification_fixed is not None:
+                    raise ValueError("Модель вернула уточнение вместо исправленного JSON")
                 plan = parse_plan_json(raw_fixed)
                 return _decision_from_plan(plan, raw=raw_fixed, source="llm")
             except (LLMError, ValueError, ValidationError) as second_exc:
@@ -1550,6 +2174,193 @@ def make_planner(settings: LLMSettings | None = None) -> LLMPlanner | RuleBasedP
 
 
 # --------------------------------------------------------------------------- #
+# Проверка связки «ключ + сертификат + модель» без генерации токенов
+# --------------------------------------------------------------------------- #
+#: Слово названия модели, по которому ищется «та же линейка» (GigaChat).
+_MODEL_FAMILY: Final = "gigachat"
+#: Уровни линейки GigaChat: по ним модели сопоставляются между версиями.
+_MODEL_LEVELS: Final[frozenset[str]] = frozenset({"lite", "pro", "max", "ultra"})
+
+
+@dataclass(frozen=True)
+class ProviderCheck:
+    """Результат :func:`check_provider` для одного провайдера.
+
+    Показывает, что именно проверено на живом API и что с этим не так —
+    чтобы не угадывать по сообщению об ошибке из UI.
+    """
+
+    provider: str
+    model: str
+    ok: bool
+    #: Модели, которые вернул провайдер; ``[]`` — провайдер их не сообщает.
+    models: tuple[str, ...] = ()
+    #: Модель из настроек найдена среди доступных (``None`` — проверить нечем).
+    model_available: bool | None = None
+    #: Ближайшая похожая доступная модель (для подсказки при опечатке/алиасе).
+    suggestion: str = ""
+    error: str = ""
+
+    def describe(self) -> str:
+        """Человекочитаемая строка результата (без секретов)."""
+        head = f"{self.provider}: {self.model}"
+        if not self.ok:
+            return f"ОШИБКА  {head} — {self.error}"
+        if self.model_available is False:
+            hint = f"; возможно, имелась в виду «{self.suggestion}»" if self.suggestion else ""
+            return f"ВНИМАНИЕ {head} — ключ рабочий, но этой модели в доступе нет{hint}"
+        if self.suggestion:
+            return f"OK      {head} — в списке провайдера это «{self.suggestion}»"
+        available = ", ".join(self.models) if self.models else "провайдер не сообщает список"
+        return f"OK      {head} — доступно: {available}"
+
+
+def _model_tokens(model: str) -> set[str]:
+    """Слова модели в нижнем регистре: ``GigaChat-2-Pro`` → ``{gigachat, 2, pro}``."""
+    normalized = re.sub(r"[^0-9a-z]+", " ", model.lower())
+    return {token for token in normalized.split() if token}
+
+
+def _resolve_model(wanted: str, available: Sequence[str]) -> str:
+    """Доступное название модели, равнозначное настроенному (``""`` — нет).
+
+    Порядок: точное совпадение → один уровень при любом написании
+    (``GigaChat-2-Pro`` ≡ ``GigaChat Pro`` ≡ ``GigaChat-Pro``). Номер версии не
+    учитывается: кабинет показывает «GigaChat Pro», запрос принимает
+    ``GigaChat-2-Pro``, и это одна и та же модель одного уровня.
+    """
+    lowered_wanted = wanted.strip().lower()
+    for candidate in available:
+        if candidate.strip().lower() == lowered_wanted:
+            return candidate
+    tokens = _model_tokens(wanted) - {_MODEL_FAMILY}
+    wanted_levels = tokens & _MODEL_LEVELS
+    if wanted_levels:
+        for candidate in available:
+            candidate_levels = (_model_tokens(candidate) - {_MODEL_FAMILY}) & _MODEL_LEVELS
+            if candidate_levels == wanted_levels:
+                return candidate
+    return ""
+
+
+def _closest_model(wanted: str, available: Sequence[str]) -> str:
+    """Ближайшая доступная модель по общим словам (``""`` — похожих нет).
+
+    Точного совпадения здесь ждать не приходится — функция вызывается, когда
+    его нет. Уровень модели (``pro``/``max``/``ultra``/``lite``) важнее номера
+    версии: ``GigaChat-Pro`` и ``GigaChat-2-Pro`` — один уровень, а
+    ``GigaChat-2-Max`` от ``GigaChat-3-Ultra`` отличается и уровнем, и ценой.
+    Поэтому общий уровень обязателен, иначе модели не сопоставляются.
+    """
+    wanted_tokens = _model_tokens(wanted) - {_MODEL_FAMILY}
+    wanted_levels = wanted_tokens & _MODEL_LEVELS
+    if not wanted_tokens:
+        return ""
+    best_model = ""
+    best_score = 0.0
+    for candidate in available:
+        candidate_tokens = _model_tokens(candidate) - {_MODEL_FAMILY}
+        if not candidate_tokens:
+            continue
+        if wanted_levels != (candidate_tokens & _MODEL_LEVELS):
+            continue
+        score = len(wanted_tokens & candidate_tokens) / len(wanted_tokens | candidate_tokens)
+        if score > best_score:
+            best_model, best_score = candidate, score
+    return best_model
+
+
+def _key_header_safe(api_key: str) -> bool:
+    """Годится ли ключ в HTTP-заголовок ``Authorization`` (только ASCII, latin-1).
+
+    Заголовки HTTP кодируются в latin-1, поэтому кириллица в ключе превращается
+    в ``UnicodeEncodeError`` ещё до сети. Ловим это заранее: типичная причина —
+    незаменённый текстовый плейсхолдер в ``.env``.
+    """
+    try:
+        api_key.encode("latin-1")
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
+def check_provider(settings: LLMSettings) -> ProviderCheck:
+    """Проверить настройки провайдера живым запросом, не тратя токены.
+
+    Для GigaChat: OAuth (проверяет ключ, ``GIGACHAT_SCOPE`` и сертификат НУЦ) и
+    ``GET /v1/models`` — сверяет настроенную модель со списком доступных этой
+    версии API. Для OpenAI-совместимых провайдеров (DeepSeek/OpenAI/ollama)
+    запрос ``/models`` проверяет ключ и ``base_url``.
+
+    Секреты в результат не попадают: только статус и текст ошибки провайдера.
+    """
+    if not settings.is_configured:
+        return ProviderCheck(
+            provider=settings.provider,
+            model=settings.model,
+            ok=False,
+            error="провайдер не настроен: нет ключа (см. .env)",
+        )
+    if not _key_header_safe(settings.api_key):
+        return ProviderCheck(
+            provider=settings.provider,
+            model=settings.model,
+            ok=False,
+            error=(
+                "ключ содержит символы вне ASCII — вероятно, в .env остался "
+                "текстовый плейсхолдер вместо authorization key"
+            ),
+        )
+    try:
+        client = make_client(settings)
+        if isinstance(client, GigaChatClient):
+            models = client.models()
+            model_checked = True
+        else:
+            models = client.list_models()
+            model_checked = False
+    except LLMError as exc:
+        return ProviderCheck(provider=settings.provider, model=settings.model, ok=False, error=str(exc))
+    except (UnicodeEncodeError, ValueError) as exc:
+        # Заголовки HTTP кодируются в latin-1: не-ASCII ключ падает здесь, а не
+        # в сети. Показываем причину, а не трейсбек.
+        return ProviderCheck(
+            provider=settings.provider,
+            model=settings.model,
+            ok=False,
+            error=f"ключ непригоден для HTTP-заголовка: {exc}",
+        )
+    available = tuple(models)
+    model_available: bool | None = None
+    suggestion = ""
+    if model_checked and available:
+        resolved = _resolve_model(settings.model, available)
+        model_available = resolved != ""
+        if not model_available:
+            suggestion = _closest_model(settings.model, available)
+        elif resolved != settings.model:
+            suggestion = resolved
+    return ProviderCheck(
+        provider=settings.provider,
+        model=settings.model,
+        ok=True,
+        models=available,
+        model_available=model_available,
+        suggestion=suggestion,
+    )
+
+
+def check_providers(env: dict[str, str] | None = None) -> list[ProviderCheck]:
+    """Проверить всех настроенных провайдеров (ненастроенные не вызываются)."""
+    results: list[ProviderCheck] = []
+    for option in provider_catalog(env):
+        if not option.configured:
+            continue
+        results.append(check_provider(option.settings))
+    return results
+
+
+# --------------------------------------------------------------------------- #
 # Схема и синхронизация с analytics
 # --------------------------------------------------------------------------- #
 def export_schema(path: str) -> dict[str, Any]:
@@ -1601,18 +2412,33 @@ def check_schema_sync() -> None:
 # CLI для самопроверки
 # --------------------------------------------------------------------------- #
 def _main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="LLM-слой: промпт, схема, самопроверка")
+    parser = argparse.ArgumentParser(description="LLM-слой: промпт, схема, проверка провайдеров")
     parser.add_argument("--show-prompt", action="store_true", help="напечатать системный промпт")
     parser.add_argument("--export-schema", metavar="PATH", help="сохранить JSON-схему интентов")
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="проверить настроенных провайдеров живыми запросами (OAuth + /models)",
+    )
     args = parser.parse_args(argv)
+    failed = False
     if args.show_prompt:
         print(build_system_prompt())
     if args.export_schema:
         schema = export_schema(args.export_schema)
         print(f"Схема сохранена: {args.export_schema} ({len(schema['intents'])} интентов)")
-    if not args.show_prompt and not args.export_schema:
+    if args.check:
+        results = check_providers()
+        if not results:
+            print("Нет настроенных провайдеров: задайте ключ в .env")
+            return 1
+        for result in results:
+            print(result.describe())
+            if not result.ok or result.model_available is False:
+                failed = True
+    if not args.show_prompt and not args.export_schema and not args.check:
         parser.print_help()
-    return 0
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":
