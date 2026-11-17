@@ -1,0 +1,30 @@
+sequenceDiagram
+    autonumber
+    actor U as Пользователь
+
+    box rgb(240,250,240) Чат-канал
+        participant AG as Hermes Agent<br/>MCP-клиент
+        participant MCP as MCP-сервер<br/>12 инструментов
+    end
+
+    box rgb(250,245,235) Ядро аналитики — общее
+        participant ENG as dispatch_intent → pandas<br/>7 интентов
+    end
+
+    Note over U,ENG: Легенда: сплошная стрелка — вызов, пунктир — ответ или запись в журнал
+
+    U->>AG: вопрос в чате (мессенджер, HTTPS)
+    AG->>MCP: вызов инструмента (MCP, JSON-RPC, stdio)
+    Note right of MCP: каждый вызов — событие в .mcp_state/audit.jsonl
+    MCP->>ENG: dispatch_intent (Python API)
+    Note over ENG: витрина CSV, read-only
+
+    alt срез поддержан
+        ENG-->>MCP: результат среза
+        MCP-->>AG: контракт: период, дата данных (MCP)
+        AG-->>U: ответ в чате (HTTPS)
+    else нет среза или ошибка
+        ENG-->>MCP: ошибка среза
+        MCP-->>AG: отказ с причиной и списком срезов
+        AG-->>U: честный отказ в чате
+    end

@@ -1,0 +1,7 @@
+flowchart LR
+    ONEC[("1С: УТ 11.5")] -->|"COM, V83.COMConnector"| ETL["onec_source.py<br/>ETL-слой"]
+    EXCEL["Excel или CSV пользователя"] -->|"файл, Python"| DL["data_loader.py<br/>загрузка"]
+    SAMPLE[("sample_data.csv")] -->|"CSV"| VIT
+    ETL -->|"CSV + *.meta.json"| VIT[("Витрина CSV<br/>1c_export/sales_1c.csv")]
+    DL -->|"DataFrame, Python"| VIT
+    VIT -->|"read-only, Python API"| CORE["Ядро аналитики:<br/>dispatch_intent → pandas"]
