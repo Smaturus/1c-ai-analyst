@@ -76,3 +76,7 @@ russian_trusted_root_ca_pem.crt
 # Временные файлы прогонов проверок
 .tmp_out*.txt
 .tmp_pytest_out*.txt
+
+# Локальные рабочие каталоги (не публикуются)
+.worktrees/
+Slides/

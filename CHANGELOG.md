@@ -15,7 +15,7 @@
 ### Verified
 - `python -m pytest` — **393 passed** (было 384 passed / 9 failed из-за `.env`).
 - `python -m onec_analyst.llm_agent --check` — `OK deepseek`, `OK gigachat: GigaChat-2-Pro`; фактически доступны `GigaChat-2`, `GigaChat-2-Max`, `GigaChat-2-Pro`, `GigaChat-3-Lightning`, `GigaChat-3-Pro`, `GigaChat-3-Ultra`, модели эмбеддингов.
-- Живой end-to-end прогон вопросов через GigaChat в этой итерации не выполнялся (тратит лимит 15/день) — отложен.
+- Живой end-to-end прогон подтверждён вручную: две разные модели GigaChat, выбранные в сайдбаре, отработали вопросы корректно. В CI такие прогоны не включаются — они тратят дневной лимит (15 вызовов на сессию) и требуют ключа.
 
 ## [0.7.0] — 2026-11-16 — MCP-фасад: аналитика 1С для ИИ-агента
 
