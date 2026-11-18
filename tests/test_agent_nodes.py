@@ -355,6 +355,44 @@ def test_agent_decision_normalizes_tool_call() -> None:
     assert update["llm_success"] is True
 
 
+def test_agent_decision_drops_empty_optional_filter() -> None:
+    """GigaChat иногда шлёт product_filter="" — это «фильтра нет», не ошибка."""
+    client = FakeLLMClient(
+        [
+            json_response(
+                "timeseries",
+                {
+                    "freq": "M",
+                    "start_date": "2024-01-01",
+                    "end_date": "2024-12-31",
+                    "product_filter": "",
+                },
+            )
+        ]
+    )
+    update = nodes.agent_decision(_state(client=client))  # type: ignore[arg-type]
+
+    assert update["decision"].status == "ok"
+    assert "product_filter" not in update["decision"].params
+    assert "product_filter" not in update["decision"].dsl["params"]
+
+
+def test_agent_decision_turns_generic_sales_clarify_into_total() -> None:
+    """«Покажи продажи 2025»: слабая модель переспрашивает — отвечаем total."""
+    client = FakeLLMClient(
+        [clarify_response(["intent"], "Что именно показать за 2025?")]
+    )
+    update = nodes.agent_decision(
+        _state(question="покажи продажи 2025", client=client)  # type: ignore[arg-type]
+    )
+
+    decision = update["decision"]
+    assert decision.status == "ok"
+    assert decision.intent == "total"
+    assert decision.params["start_date"] == date(2025, 1, 1)
+    assert decision.params["end_date"] == date(2025, 12, 31)
+
+
 def test_agent_decision_uses_native_tools_for_gigachat() -> None:
     """Нативный клиент получает tools, JSON-провайдер — нет."""
     native = FakeLLMClient([tool_response("total", {})], supports_tools=True)

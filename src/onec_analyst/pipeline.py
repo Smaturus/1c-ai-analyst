@@ -25,6 +25,8 @@ from onec_analyst.llm_agent import (
 from onec_analyst.summary import (
     SummaryPayload,
     build_summary_payload,
+)
+from onec_analyst.summary import (
     extract_entities as _extract_entities,
 )
 
@@ -54,11 +56,34 @@ def _json_default(value: Any) -> str:
     return str(value)
 
 
+#: Текстовые параметры, где пустая строка означает «фильтра нет».
+_EMPTY_TEXT_PARAMS = ("product_filter", "group_filter")
+
+
+def drop_empty_filters(params: dict[str, Any]) -> dict[str, Any]:
+    """Убрать пустые ``product_filter``/``group_filter`` из параметров.
+
+    GigaChat иногда присылает ``"product_filter": ""`` для запроса без фильтра.
+    Для аналитики пустая строка — не фильтр, а ``dispatch_intent`` отвергает
+    пустые значения. Нормализуем это до Pydantic/dispatch, не подставляя данные.
+    """
+    return {
+        key: value
+        for key, value in params.items()
+        if not (
+            key in _EMPTY_TEXT_PARAMS
+            and isinstance(value, str)
+            and not value.strip()
+        )
+    }
+
+
 def validate_decision(dsl: dict[str, Any]) -> AgentDecision:
     """Канонический JSON-DSL → :class:`AgentDecision` через Pydantic.
 
     Использует тот же ``parse_plan_json``/``to_dispatch_params``, что и
     планировщик: контракт валидации не дублируется и не ослабляется.
+    Пустые текстовые фильтры отбрасываются как «фильтра нет».
     """
     if not isinstance(dsl, dict):
         raise ValueError(f"DSL должен быть объектом JSON (dict), получено {type(dsl)!r}")
@@ -75,6 +100,8 @@ def validate_decision(dsl: dict[str, Any]) -> AgentDecision:
             status="clarify",
         )
     intent, params = to_dispatch_params(plan)
+    params = drop_empty_filters(params)
+    dsl_json["params"] = drop_empty_filters(dict(dsl_json.get("params") or {}))
     return AgentDecision(
         ok=True,
         intent=intent,

@@ -22,9 +22,9 @@ from onec_analyst.agent.prompts import (
     build_resolve_messages,
 )
 from onec_analyst.agent.state import (
+    MAX_CLARIFICATIONS,
     AgentState,
     DecisionStatus,
-    MAX_CLARIFICATIONS,
     mark_step,
     state_today,
     status_of,
@@ -45,7 +45,7 @@ from onec_analyst.llm_agent import (
     RuleBasedPlanner,
     _short_error,
 )
-from onec_analyst.pipeline import validate_decision
+from onec_analyst.pipeline import drop_empty_filters, validate_decision
 
 #: Интенты, которым нужны два периода (period2 обязателен, ADR 0013 D3).
 COMPARE_INTENTS = (
@@ -405,7 +405,7 @@ def _decision_from_call(call: ParsedCall, state: AgentState) -> AgentDecision:
         )
     if call.name == "refuse":
         return _refuse_decision(str(call.arguments.get("reason") or "Запрос не поддерживается."))
-    params = dict(call.arguments or {})
+    params = drop_empty_filters(dict(call.arguments or {}))
     return AgentDecision(
         ok=True,
         intent=call.name,
@@ -423,6 +423,23 @@ def _apply_guards(
     state: AgentState,
 ) -> AgentDecision:
     """Детерминированные ограничения поверх выбора модели: MVP и period2."""
+    if status_of(decision) is DecisionStatus.CLARIFY:
+        # «Покажи продажи 2025»: период есть, разрез не указан. Слабая модель
+        # иногда переспрашивает, хотя безопасный итог за период уже определён.
+        # Не подменяем даты/товары — берём только детерминированный total и
+        # только при явном числовом годе (иначе «сколько заработали?» остаётся
+        # уточнением, как требует ADR 0007).
+        if not re.search(r"\b20\d{2}\b", question):
+            return decision
+        planner = state.get("planner") or RuleBasedPlanner()
+        fallback = planner.plan(
+            question,
+            data_profile=state.get("profile"),
+            today=state_today(state),
+        )
+        if fallback.ok and fallback.intent == "total":
+            return replace(fallback, source="rules", status="ok")
+        return decision
     if status_of(decision) is not DecisionStatus.OK:
         return decision
     reason = _mvp_refusal(question, decision, state)

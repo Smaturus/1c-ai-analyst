@@ -120,6 +120,24 @@ def test_validate_decision_builds_agent_decision() -> None:
     assert decision.dsl["intent"] == "total"
 
 
+def test_validate_decision_drops_empty_filters() -> None:
+    """Пустой product_filter от модели — это «фильтра нет», а не ошибка dispatch."""
+    dsl = {
+        "intent": "timeseries",
+        "params": {
+            "freq": "M",
+            "start_date": "2024-01-01",
+            "end_date": "2024-12-31",
+            "product_filter": "",
+        },
+    }
+
+    decision = validate_decision(dsl)
+
+    assert "product_filter" not in decision.params
+    assert "product_filter" not in decision.dsl["params"]
+
+
 def test_normalize_dsl_is_alias_for_validate_decision() -> None:
     dsl = {"intent": "total", "params": {}}
 

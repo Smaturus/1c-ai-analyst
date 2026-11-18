@@ -48,10 +48,11 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Annotated, Any, Final, Literal, Mapping, Sequence
+from typing import Annotated, Any, Final, Literal
 
 from pydantic import (
     AfterValidator,
@@ -66,45 +67,45 @@ from pydantic import (
 from onec_analyst.paths import find_repo_root
 
 __all__ = [
-    "INTENT_NAMES",
-    "INTENT_PARAMETER_NAMES",
+    "CHOOSABLE_PROVIDERS",
     "INTENT_DESCRIPTIONS",
     "INTENT_EXAMPLES",
+    "INTENT_NAMES",
+    "INTENT_PARAMETER_NAMES",
+    "SYSTEM_PROMPT",
+    "AgentDecision",
     "ClarificationPlan",
     "CompareTopsParams",
     "CompareTopsPlan",
-    "NegativeRevenueParams",
-    "NegativeRevenuePlan",
-    "IntentDSL",
-    "LLMSettings",
-    "LLMClient",
+    "CompletionResult",
     "GigaChatClient",
+    "IntentDSL",
+    "LLMClient",
     "LLMError",
     "LLMPlanner",
-    "RuleBasedPlanner",
-    "AgentDecision",
-    "CompletionResult",
-    "ToolCall",
-    "CHOOSABLE_PROVIDERS",
-    "ProviderOption",
+    "LLMSettings",
+    "NegativeRevenueParams",
+    "NegativeRevenuePlan",
     "ProviderCheck",
-    "settings_from_env",
+    "ProviderOption",
+    "RuleBasedPlanner",
+    "ToolCall",
     "available_providers",
-    "provider_catalog",
+    "build_messages",
+    "build_system_prompt",
+    "build_tools",
     "check_provider",
     "check_providers",
-    "build_system_prompt",
-    "build_messages",
-    "build_tools",
-    "parse_plan_json",
-    "to_dispatch_params",
-    "is_negative_revenue_question",
-    "guard_decision",
-    "make_client",
-    "make_planner",
     "check_schema_sync",
     "export_schema",
-    "SYSTEM_PROMPT",
+    "guard_decision",
+    "is_negative_revenue_question",
+    "make_client",
+    "make_planner",
+    "parse_plan_json",
+    "provider_catalog",
+    "settings_from_env",
+    "to_dispatch_params",
 ]
 
 # --------------------------------------------------------------------------- #
@@ -1987,16 +1988,26 @@ class RuleBasedPlanner:
                 return self._make("negative_revenue", params, source="rules")
             # 1. Итог за период: «итог», «сколько», «общая сумма», «выручка за …».
             # Слова топ/динамики/сравнений исключаются — они уходят в свои интенты.
-            if re.search(
-                r"сколько|общ(ая|ую) (сумм|выручк)|итог|выручк\w* за|сумм\w* за",
-                lowered,
+            # «Покажи продажи 2025» — период есть, разрез не указан: это безопасный
+            # итог за период, а не повод переспрашивать (паритет с LLM-путём).
+            generic_sales = bool(
+                periods
+                and re.search(r"\b20\d{2}\b", text)
+                and re.search(r"продаж|выручк", lowered)
+            )
+            if (
+                re.search(
+                    r"сколько|общ(ая|ую) (сумм|выручк)|итог|выручк\w* за|сумм\w* за",
+                    lowered,
+                )
+                or generic_sales
             ) and not re.search(
                 r"топ|top|первые|лучш|худш|лидер|аутсайд|наименьш|наибольш|"
                 r"контрагент|клиент|групп|категор|динамик|просел|выросл|упал|"
                 r"по месяц|по квартал|по год|временн|тенденц|тренд|ряд",
                 lowered,
             ):
-                total_params = _dates_to_bounds(periods) or self._default_bounds(
+                total_params: dict[str, Any] = _dates_to_bounds(periods) or self._default_bounds(
                     data_profile
                 )
                 if quoted and not group_context:
@@ -2031,11 +2042,11 @@ class RuleBasedPlanner:
             # «тренд», «тенденция» в этом приложении и так про продажи.
             if re.search(r"по месяц|месяц|квартал|по год|годов|динамик|временн|тенденц|тренд|ряд", lowered):
                 freq = "Q" if "квартал" in lowered else "Y" if re.search(r"по год|годов", lowered) else "M"
-                params: dict[str, Any] = {"freq": freq, "metric": metric}
-                params.update(_dates_to_bounds(periods))
+                series_params: dict[str, Any] = {"freq": freq, "metric": metric}
+                series_params.update(_dates_to_bounds(periods))
                 if quoted and not group_context:
-                    params["product_filter"] = quoted
-                return self._make("timeseries", params, source="rules")
+                    series_params["product_filter"] = quoted
+                return self._make("timeseries", series_params, source="rules")
             # 5. Сравнение топов двух периодов (L4L): «сравни топ-5 за 2023 и 2024».
             # Запросы про топ всегда сначала проверяем на два периода: если их два,
             # пользователь почти наверняка просит сравнить рейтинги, а не один топ
@@ -2094,7 +2105,7 @@ class RuleBasedPlanner:
 
     def _make(self, intent: str, params: dict[str, Any], *, source: str) -> AgentDecision:
         """Собрать решение из имени интента и параметров (с валидацией моделью)."""
-        model_name = {
+        model_name: dict[str, type[BaseModel]] = {
             "top_bottom_products": TopBottomPlan,
             "compare_top_products": CompareTopsPlan,
             "negative_revenue": NegativeRevenuePlan,
@@ -2102,8 +2113,8 @@ class RuleBasedPlanner:
             "counterparty_dynamics": CounterpartyDynamicsPlan,
             "group_dynamics": GroupDynamicsPlan,
             "total": TotalPlan,
-        }[intent]
-        plan = model_name.model_validate({"intent": intent, "params": params})
+        }
+        plan = model_name[intent].model_validate({"intent": intent, "params": params})
         return _decision_from_plan(plan, raw="", source=source)
 
     def _dynamics(

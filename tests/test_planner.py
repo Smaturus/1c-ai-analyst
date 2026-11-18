@@ -40,6 +40,15 @@ def _plan(question: str, profile: dict[str, Any] | None = None):
     return PLANNER.plan(question, data_profile=profile)
 
 
+def test_generic_sales_with_period_is_total() -> None:
+    """«Покажи продажи 2025» — период есть, разрез не указан: итог, не clarify."""
+    decision = _plan("покажи продажи 2025")
+
+    assert decision.ok and decision.intent == "total", decision.error
+    assert decision.params["start_date"] == date(2025, 1, 1)
+    assert decision.params["end_date"] == date(2025, 12, 31)
+
+
 # --------------------------------------------------------------------------- #
 # Регрессия limit: годы и даты не должны попадать в количество строк
 # --------------------------------------------------------------------------- #
