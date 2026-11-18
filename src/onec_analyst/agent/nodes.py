@@ -293,9 +293,16 @@ def _iso_dates(value: Any) -> list[date]:
 
 
 def _has_future_period(params: dict[str, Any], today: date) -> bool:
-    """Есть ли в аргументах дата позже сегодняшней."""
-    for value in params.values():
-        if any(item > today for item in _iso_dates(value)):
+    """Период начинается позже сегодняшней даты (данных за будущее ещё нет).
+
+    Конец периода позже ``today`` допустим: «этот месяц» — с 1-го по последний
+    день календарного месяца, а за будущие дни данных просто нет (итог считается
+    по имеющимся). Отказ — только если **начало** периода уже в будущем
+    (например, «сколько заработаем в 2030»).
+    """
+    for key in ("start_date", "period1", "period2"):
+        dates = _iso_dates(params.get(key))
+        if dates and dates[0] > today:
             return True
     return False
 

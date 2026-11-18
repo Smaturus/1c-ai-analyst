@@ -64,6 +64,14 @@ def test_few_shot_examples_cover_counterparty_and_filter() -> None:
     assert "уточняющий вопрос" in prompt
 
 
+def test_injection_rule_treats_quoted_text_as_filter() -> None:
+    """Инъекция в кавычках — значение фильтра; отказ только для просьбы вне кавычек."""
+    prompt = _prompt()
+
+    assert "ЗНАЧЕНИЕ ФИЛЬТРА" in prompt
+    assert "сам по себе НЕ повод для отказа" in prompt
+
+
 def test_tool_catalog_is_generated_from_schemas() -> None:
     """Каталог инструментов собран из Pydantic-схем, а не списка-дубликата."""
     tools = build_agent_tools()

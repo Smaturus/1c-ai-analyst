@@ -453,6 +453,19 @@ def test_agent_decision_refuses_future_period() -> None:
     assert "будущ" in update["decision"].refusal_reason.lower()
 
 
+def test_total_with_future_end_but_past_start_is_allowed() -> None:
+    """«Этот месяц»: конец месяца позже today, но начало — нет => не отказ (017)."""
+    client = FakeLLMClient(
+        [json_response("total", {"start_date": "2024-05-01", "end_date": "2024-05-31"})]
+    )
+    state = initial_state("Сколько мы заработали в этом месяце?", today=date(2024, 5, 15))
+    state.update({"client": client, "guard": CallBudgetGuard(3)})
+    update = nodes.agent_decision(state)  # type: ignore[arg-type]
+
+    assert update["decision"].status == "ok"
+    assert update["decision"].intent == "total"
+
+
 def test_agent_decision_refuses_vat() -> None:
     """Выручка с НДС вне MVP: отказ с объяснением."""
     client = FakeLLMClient(
