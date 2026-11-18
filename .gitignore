@@ -80,3 +80,9 @@ russian_trusted_root_ca_pem.crt
 # Локальные рабочие каталоги (не публикуются)
 .worktrees/
 Slides/
+
+# Локальная диагностика eval/live (сырые ответы моделей, разовые скрипты)
+.eval_raw/
+_diag10.py
+_analyze.py
+_list_cases.py
