@@ -567,21 +567,41 @@ def _build_summary_text(decision: Any, result: pd.DataFrame) -> str:
         down = int((result[DIRECTION].astype(str) == "down").sum()) if DIRECTION in result.columns else int(result[DELTA].lt(0).sum())
         new = int((result[DIRECTION].astype(str) == "new").sum()) if DIRECTION in result.columns else 0
         lost = int((result[DIRECTION].astype(str) == "lost").sum()) if DIRECTION in result.columns else 0
-        best = result.sort_values(DELTA, ascending=False).iloc[0]
-        worst = result.sort_values(DELTA).iloc[0]
-        best_label = _direction_label(best.get(DIRECTION, ""))
         if bool(params.get("only_drops")):
+            least = result.sort_values(DELTA, ascending=False).iloc[0]
+            biggest = result.sort_values(DELTA).iloc[0]
             return (
                 f"Показаны только падения: {len(result)} значени(й), падение — {down}, "
                 f"выпало — {lost}. "
-                f"Наименьшее падение: «{best[dim]}» ({format_metric(best[DELTA], metric)} {unit}); "
-                f"наибольшее падение: «{worst[dim]}» ({format_metric(worst[DELTA], metric)} {unit}). "
+                f"Наименьшее падение: «{least[dim]}» ({format_metric(least[DELTA], metric)} {unit}); "
+                f"наибольшее падение: «{biggest[dim]}» ({format_metric(biggest[DELTA], metric)} {unit}). "
                 f"Показатель — {metric_noun}."
             )
+        # «Рост» — только строки с положительной дельтой; «падение» — с отрицательной.
+        # Иначе max(delta) при полном спаде выдавал бы «выпавшего» за «наибольший рост».
+        growth = result.loc[result[DELTA].gt(0)]
+        decline = result.loc[result[DELTA].lt(0)]
+        if not growth.empty:
+            best = growth.sort_values(DELTA, ascending=False).iloc[0]
+            growth_clause = (
+                f"Наибольший рост: «{best[dim]}» "
+                f"({format_metric(best[DELTA], metric)} {unit}, "
+                f"{_direction_label(best.get(DIRECTION, ''))}); "
+            )
+        else:
+            growth_clause = "Роста нет: все значения снизились или выпали; "
+        if not decline.empty:
+            worst = decline.sort_values(DELTA).iloc[0]
+            decline_clause = (
+                f"наибольшее падение: «{worst[dim]}» "
+                f"({format_metric(worst[DELTA], metric)} {unit}). "
+            )
+        else:
+            decline_clause = "падений нет. "
         return (
-            f"Сравнение по {len(result)} значени(ям): рост — {up}, падение — {down}, новых — {new}, выпало — {lost}. "
-            f"Наибольший рост: «{best[dim]}» ({format_metric(best[DELTA], metric)} {unit}, {best_label}); "
-            f"наибольшее падение: «{worst[dim]}» ({format_metric(worst[DELTA], metric)} {unit}). "
+            f"Сравнение по {len(result)} значени(ям): рост — {up}, падение — {down}, "
+            f"новых — {new}, выпало — {lost}. "
+            f"{growth_clause}{decline_clause}"
             f"Показатель — {metric_noun}."
         )
     if intent == "total":

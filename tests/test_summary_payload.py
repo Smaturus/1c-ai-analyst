@@ -180,6 +180,57 @@ def test_negative_revenue_summary_is_unchanged() -> None:
     )
 
 
+def test_dynamics_without_growth_does_not_claim_growth() -> None:
+    """Все дельты ≤ 0: сводка не называет падение «наибольшим ростом»."""
+    result = pd.DataFrame(
+        {
+            "counterparty": ["A", "B"],
+            "period1_value": [100.0, 50.0],
+            "period2_value": [0.0, 0.0],
+            "delta": [-100.0, -50.0],
+            "delta_pct": [-100.0, -100.0],
+            "direction": ["lost", "lost"],
+        }
+    )
+    decision = _decision(
+        "counterparty_dynamics",
+        period1=DATE_PAIR_2023_2024[0],
+        period2=DATE_PAIR_2023_2024[1],
+        metric="revenue",
+    )
+
+    summary = build_summary(decision, result)
+
+    assert "Наибольший рост" not in summary
+    assert "Роста нет" in summary
+    assert "наибольшее падение" in summary
+
+
+def test_dynamics_with_growth_names_best_growth() -> None:
+    """Есть положительная дельта: «Наибольший рост» — именно растущий контрагент."""
+    result = pd.DataFrame(
+        {
+            "counterparty": ["A", "B"],
+            "period1_value": [100.0, 200.0],
+            "period2_value": [120.0, 40.0],
+            "delta": [20.0, -160.0],
+            "delta_pct": [20.0, -80.0],
+            "direction": ["up", "down"],
+        }
+    )
+    decision = _decision(
+        "counterparty_dynamics",
+        period1=DATE_PAIR_2023_2024[0],
+        period2=DATE_PAIR_2023_2024[1],
+        metric="revenue",
+    )
+
+    summary = build_summary(decision, result)
+
+    assert "Наибольший рост: «A» (20,00 ₽, рост)" in summary
+    assert "наибольшее падение: «B» (-160,00 ₽)" in summary
+
+
 # --------------------------------------------------------------------------- #
 # SummaryPayload: текст — тот же, числа — из DataFrame
 # --------------------------------------------------------------------------- #
