@@ -22,9 +22,12 @@
 | [DATA_CONTRACT.md](DATA_CONTRACT.md) | Схема витрины, инварианты, нетто-выручка |
 | [RUNBOOK.md](RUNBOOK.md) | Запуск, выгрузка 1С, типовые ошибки |
 | [UI_ACCEPTANCE.md](UI_ACCEPTANCE.md) | Контрольные вопросы и ожидания UI |
+| [LLM_CALLS.md](LLM_CALLS.md) | Все LLM-вызовы: точки, лимиты §4.2, аудит, fallback |
+| [EVAL.md](EVAL.md) | Eval-слой: кассеты, replay, live, judge, метрики и пороги |
 | [REPORT_LANGGRAPH_STAGE2.md](REPORT_LANGGRAPH_STAGE2.md) | Отчёт этапа 2: LangGraph-агент, статусы, память, лимиты, тесты |
 | [REPORT_LANGGRAPH_STAGE25.md](REPORT_LANGGRAPH_STAGE25.md) | Отчёт этапов 2.5/2.5a: GigaChat через `langchain-gigachat`, версии, adapter, явный выбор модели, тесты |
 | [REPORT_LANGGRAPH_STAGE3.md](REPORT_LANGGRAPH_STAGE3.md) | Отчёт этапа 3: нативные tool calls и аудит шагов графа (исправления 3.1) |
+| [REPORT_LANGGRAPH_STAGE4.md](REPORT_LANGGRAPH_STAGE4.md) | Отчёт этапа 4: eval-слой — кассеты, replay, live, judge |
 | [intent_schema.json](intent_schema.json) | Схема 7 интентов для LLM/интеграций |
 | [../CHANGELOG.md](../CHANGELOG.md) | История версий (Keep a Changelog) |
 
@@ -52,7 +55,7 @@
 
 - Демо: `sample_data.csv` — 600 строк, 12 товаров, 6 контрагентов, 2 группы, 2023–2024, 10 % возвратов.
 - Контрольные суммы демо: выручка **99 708 100,00 ₽**, количество **5 315** шт.
-- Проверки: **754** pytest; `smoke_test.py` — PASSED; `smoke_llm.py` — 92 проверки.
+- Проверки: **854** pytest; `smoke_test.py` — PASSED; `smoke_llm.py` — 92 проверки.
 - 7 интентов; фильтры `product_filter` / `group_filter` / `min_base_revenue`; rate limiting демо; graceful degradation.
 - Реальные выгрузки 1С и секреты в репозиторий не входят.
 

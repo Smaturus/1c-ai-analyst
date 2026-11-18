@@ -1,0 +1,25 @@
+{
+  "case_id": "test_020_clarify_vague",
+  "source": "recorded",
+  "recorded_at": "2026-11-18",
+  "provider": "deepseek",
+  "model": "deepseek-chat",
+  "responses": [
+    {
+      "tool_call": {
+        "name": "clarify",
+        "arguments": {
+          "missing": [
+            "start_date",
+            "end_date"
+          ],
+          "question": "За какой период показать продажи? Укажите даты начала и окончания (например, «за октябрь 2026» или «с 01.01.2026 по 31.10.2026»)."
+        }
+      }
+    }
+  ],
+  "recorded_outcome": {
+    "status": "clarify",
+    "intent": "clarification"
+  }
+}

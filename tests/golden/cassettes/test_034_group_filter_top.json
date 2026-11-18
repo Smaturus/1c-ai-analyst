@@ -1,0 +1,25 @@
+{
+  "case_id": "test_034_group_filter_top",
+  "source": "recorded",
+  "recorded_at": "2026-11-18",
+  "provider": "deepseek",
+  "model": "deepseek-chat",
+  "responses": [
+    {
+      "tool_call": {
+        "name": "top_bottom_products",
+        "arguments": {
+          "metric": "revenue",
+          "limit": 5,
+          "start_date": "2023-01-01",
+          "end_date": "2023-12-31",
+          "group_filter": "Электроника"
+        }
+      }
+    }
+  ],
+  "recorded_outcome": {
+    "status": "ok",
+    "intent": "top_bottom_products"
+  }
+}

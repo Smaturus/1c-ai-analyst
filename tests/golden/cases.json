@@ -71,7 +71,8 @@
           "type": "value",
           "item": "все",
           "metric": "revenue",
-          "period": "2023-11"
+          "period": "2023-11",
+          "value": 36000
         }
       ],
       "history_dsl": null,
@@ -97,7 +98,8 @@
           "type": "value",
           "item": "все",
           "metric": "revenue",
-          "period": "2023"
+          "period": "2023",
+          "value": 1410000
         }
       ],
       "history_dsl": null,
@@ -121,7 +123,8 @@
           "type": "value",
           "item": "товар",
           "metric": "revenue",
-          "period": "2024-03"
+          "period": "2024-03",
+          "value": -9000
         }
       ],
       "history_dsl": null,
@@ -404,7 +407,8 @@
           "type": "value",
           "item": "все",
           "metric": "revenue",
-          "period": "2024-05"
+          "period": "2024-05",
+          "value": 400000
         }
       ],
       "history_dsl": null,
@@ -430,7 +434,8 @@
           "type": "value",
           "item": "контрагент",
           "metric": "revenue",
-          "period": "2023"
+          "period": "2023",
+          "value": -44000
         }
       ],
       "history_dsl": null,
@@ -595,7 +600,8 @@
           "type": "value",
           "item": "все",
           "metric": "revenue",
-          "period": "2022"
+          "period": "2022",
+          "value": 775000
         }
       ],
       "history_dsl": null,
@@ -634,7 +640,8 @@
           "type": "value",
           "item": "товар",
           "metric": "revenue",
-          "period": "2023-12"
+          "period": "2023-12",
+          "value": -22000
         }
       ],
       "history_dsl": null,
@@ -778,7 +785,8 @@
           "type": "value",
           "item": "все",
           "metric": "quantity",
-          "period": "2023-10"
+          "period": "2023-10",
+          "value": 200
         }
       ],
       "history_dsl": null,
@@ -852,7 +860,8 @@
           "type": "value",
           "item": "все",
           "metric": "revenue",
-          "period": "2024-01"
+          "period": "2024-01",
+          "value": 165000
         }
       ],
       "history_dsl": null,
@@ -901,7 +910,8 @@
           "type": "value",
           "item": "все",
           "metric": "revenue",
-          "period": "2023"
+          "period": "2023",
+          "value": 1410000
         }
       ],
       "history_dsl": {
@@ -973,7 +983,8 @@
           "type": "value",
           "item": "все",
           "metric": "revenue",
-          "period": "2024-11"
+          "period": "2024-11",
+          "value": 10800
         }
       ],
       "history_dsl": null,
@@ -1217,7 +1228,8 @@
           "type": "value",
           "item": "все",
           "metric": "revenue",
-          "period": "2024-Q4"
+          "period": "2024-Q4",
+          "value": 46800
         }
       ],
       "history_dsl": null,

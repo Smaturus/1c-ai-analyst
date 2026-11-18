@@ -1,0 +1,24 @@
+{
+  "case_id": "test_040_week_granularity",
+  "source": "recorded",
+  "recorded_at": "2026-11-18",
+  "provider": "deepseek",
+  "model": "deepseek-chat",
+  "responses": [
+    {
+      "tool_call": {
+        "name": "timeseries",
+        "arguments": {
+          "freq": "W",
+          "metric": "revenue",
+          "start_date": "2024-11-01",
+          "end_date": "2024-11-30"
+        }
+      }
+    }
+  ],
+  "recorded_outcome": {
+    "status": "ok",
+    "intent": "timeseries"
+  }
+}

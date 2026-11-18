@@ -1,0 +1,21 @@
+{
+  "case_id": "test_013_unknown_weather",
+  "source": "recorded",
+  "recorded_at": "2026-11-18",
+  "provider": "deepseek",
+  "model": "deepseek-chat",
+  "responses": [
+    {
+      "tool_call": {
+        "name": "refuse",
+        "arguments": {
+          "reason": "Вопрос не относится к аналитике продаж: запрашивается погода в Москве, а инструменты предназначены только для анализа продаж (выручка, товары, контрагенты, группы)."
+        }
+      }
+    }
+  ],
+  "recorded_outcome": {
+    "status": "refuse",
+    "intent": null
+  }
+}

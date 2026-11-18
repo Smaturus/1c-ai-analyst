@@ -1,0 +1,31 @@
+{
+  "case_id": "test_009_memory_ellipsis",
+  "source": "recorded",
+  "recorded_at": "2026-11-18",
+  "provider": "deepseek",
+  "model": "deepseek-chat",
+  "responses": [
+    {
+      "tool_call": {
+        "name": "group_dynamics",
+        "arguments": {
+          "period1": [
+            "2023-01-01",
+            "2023-12-31"
+          ],
+          "period2": [
+            "2023-01-01",
+            "2023-12-31"
+          ]
+        }
+      }
+    },
+    {
+      "content": "{\"period1\": [\"2023-01-01\", \"2023-12-31\"], \"period2\": [\"2023-01-01\", \"2023-12-31\"]}"
+    }
+  ],
+  "recorded_outcome": {
+    "status": "ok",
+    "intent": "group_dynamics"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "case_id": "test_008_memory_pronoun",
+  "source": "recorded",
+  "recorded_at": "2026-11-18",
+  "provider": "deepseek",
+  "model": "deepseek-chat",
+  "responses": [
+    {
+      "tool_call": {
+        "name": "compare_top_products",
+        "arguments": {
+          "period1": [
+            "2024-07-01",
+            "2024-09-30"
+          ],
+          "period2": [
+            "2024-10-01",
+            "2024-12-31"
+          ],
+          "top_n": 2
+        }
+      }
+    }
+  ],
+  "recorded_outcome": {
+    "status": "refuse",
+    "intent": null
+  }
+}

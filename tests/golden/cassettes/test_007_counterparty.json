@@ -1,0 +1,29 @@
+{
+  "case_id": "test_007_counterparty",
+  "source": "recorded",
+  "recorded_at": "2026-11-18",
+  "provider": "deepseek",
+  "model": "deepseek-chat",
+  "responses": [
+    {
+      "tool_call": {
+        "name": "counterparty_dynamics",
+        "arguments": {
+          "period1": [
+            "2024-01-01",
+            "2024-03-31"
+          ],
+          "period2": [
+            "2024-04-01",
+            "2024-06-30"
+          ],
+          "sort_by": "delta"
+        }
+      }
+    }
+  ],
+  "recorded_outcome": {
+    "status": "ok",
+    "intent": "counterparty_dynamics"
+  }
+}

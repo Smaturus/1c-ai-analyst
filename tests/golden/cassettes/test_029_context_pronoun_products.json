@@ -1,0 +1,21 @@
+{
+  "case_id": "test_029_context_pronoun_products",
+  "source": "recorded",
+  "recorded_at": "2026-11-18",
+  "provider": "deepseek",
+  "model": "deepseek-chat",
+  "responses": [
+    {
+      "tool_call": {
+        "name": "refuse",
+        "arguments": {
+          "reason": "Инструмент timeseries поддерживает только один product_filter (одна подстрока), а сравнение произвольного набора товаров не поддерживается. Уточните, по какому из двух товаров (Мышь Карра или Клавиатура Lambda) построить динамику."
+        }
+      }
+    }
+  ],
+  "recorded_outcome": {
+    "status": "refuse",
+    "intent": null
+  }
+}

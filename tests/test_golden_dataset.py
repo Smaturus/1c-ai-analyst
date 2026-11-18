@@ -135,12 +135,22 @@ def test_default_limit_is_contract_default_not_5() -> None:
     assert params["limit"] == 10
 
 
-def test_value_facts_have_no_numbers_until_payload_exists() -> None:
-    """Числовые факты допустимы, но требуют SummaryPayload; сейчас их нет."""
-    for case in CASES:
-        for fact in case["expected_facts"]:
-            if fact["type"] == "value":
-                assert "value" not in fact, case["id"]
+def test_value_facts_have_numbers_for_subset() -> None:
+    """10–12 ok-кейсов имеют числовые value-факты (константы на фикстуре).
+
+    Числа посчитаны независимым pandas-запросом по ``golden_sales.csv`` (не через
+    ``dispatch_intent``), чтобы факт-чек не сравнивал расчёт с самим собой.
+    Проверка самих чисел — в ``check_facts`` через ``SummaryPayload``.
+    """
+    value_facts = [
+        fact
+        for case in CASES
+        for fact in case["expected_facts"]
+        if fact["type"] == "value" and "value" in fact
+    ]
+    assert 10 <= len(value_facts) <= 12, len(value_facts)
+    for fact in value_facts:
+        assert isinstance(fact["value"], (int, float)), fact
 
 
 def test_fixture_covers_concrete_entities() -> None:

@@ -1,0 +1,21 @@
+{
+  "case_id": "test_012_unknown_greeting",
+  "source": "recorded",
+  "recorded_at": "2026-11-18",
+  "provider": "deepseek",
+  "model": "deepseek-chat",
+  "responses": [
+    {
+      "tool_call": {
+        "name": "refuse",
+        "arguments": {
+          "reason": "Вопрос не относится к аналитике продаж — это приветствие/светская беседа. Я отвечаю только на вопросы о продажах: топы товаров, динамика, возвраты, сравнение периодов."
+        }
+      }
+    }
+  ],
+  "recorded_outcome": {
+    "status": "refuse",
+    "intent": null
+  }
+}
