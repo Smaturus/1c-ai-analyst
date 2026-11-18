@@ -16,7 +16,7 @@ from typing import Any, Mapping, Sequence
 from tests.golden.schema import GENERIC_ITEMS, MISSING_ALIASES
 
 METRIC_KEYWORDS: dict[str, tuple[str, ...]] = {
-    "revenue": ("выручка", "продаж", "руб"),
+    "revenue": ("выручк", "продаж", "руб"),
     "quantity": ("шт",),
 }
 
@@ -102,13 +102,32 @@ def _check_value(summary: str, fact: Mapping[str, Any], payload: Mapping[str, An
 def _payload_value(
     payload: Mapping[str, Any], *, item: str, metric: str, period: str
 ) -> float:
-    for row in payload.get("values", []):
-        if (
-            str(row.get("item", "")) == item
-            and str(row.get("metric", "")) == metric
-            and str(row.get("period", "")) == period
-        ):
+    rows = [
+        row
+        for row in payload.get("values", [])
+        if str(row.get("metric", "")) == metric
+        and str(row.get("period", "")) == period
+    ]
+    for row in rows:
+        if str(row.get("item", "")) == item:
             return float(row["value"])
+
+    # Заглушки «товар»/«все» означают агрегат: ищем по метрике и периоду.
+    if item and item.lower() not in GENERIC_ITEMS:
+        raise AssertionError(
+            f"В payload нет значения для {item!r}/{metric}/{period}: {payload!r}"
+        )
+    if len(rows) == 1:
+        return float(rows[0]["value"])
+    for preferred in ("Итого", "Сумма", "Возвраты", "все"):
+        for row in rows:
+            if str(row.get("item", "")) == preferred:
+                return float(row["value"])
+    if rows:
+        raise AssertionError(
+            f"Неоднозначный payload для {item!r}/{metric}/{period}: "
+            f"{[row.get('item') for row in rows]!r}"
+        )
     raise AssertionError(
         f"В payload нет значения для {item!r}/{metric}/{period}: {payload!r}"
     )

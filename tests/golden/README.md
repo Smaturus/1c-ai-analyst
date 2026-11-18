@@ -59,15 +59,18 @@
 ## Проверки
 
 ```powershell
-python -m pytest -q tests/test_golden_dataset.py tests/test_golden_facts.py tests/test_golden_cassettes.py
+python -m pytest -q tests/test_golden_dataset.py tests/test_golden_facts.py tests/test_golden_cassettes.py tests/test_golden_expected_dsl.py
 ```
 
 - `test_golden_dataset.py` — 50 кейсов, канонический DSL, статусы, периоды,
   фильтры, покрытие фикстуры.
 - `test_golden_facts.py` — факт-чек проверяет **все** факты; числа — только по
-  `SummaryPayload`.
+  `SummaryPayload`; заглушка «все» находит агрегат по метрике и периоду.
 - `test_golden_cassettes.py` — формат кассет; синтетический пример не выдаётся
   за запись модели.
+- `test_golden_expected_dsl.py` — 31 ok-кейс на expected DSL: `validate_decision
+  → execute` на `golden_sales.csv` → факт-чек. Без LLM и без графа; проверяет
+  pipeline, фикстуру и формат сводки.
 
 ## Кассеты
 

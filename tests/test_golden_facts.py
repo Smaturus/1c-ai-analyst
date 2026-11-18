@@ -105,6 +105,26 @@ def test_numeric_fact_is_checked_against_payload() -> None:
         check_facts("Выручка за 2023 год — 123,45 руб.", facts, payload=payload)
 
 
+def test_generic_item_matches_aggregate_payload() -> None:
+    """Заглушка «все» находит агрегат «Итого» по метрике и периоду."""
+    facts = [
+        {
+            "type": "value",
+            "item": "все",
+            "metric": "revenue",
+            "period": "2023",
+            "value": 100.0,
+        }
+    ]
+    payload = {
+        "values": [
+            {"item": "Итого", "metric": "revenue", "period": "2023", "value": 100.0}
+        ]
+    }
+
+    check_facts("Выручка за 2023 год — 100,00 руб.", facts, payload=payload)
+
+
 def test_unknown_fact_type_is_rejected() -> None:
     with pytest.raises(AssertionError, match="неизвестный тип"):
         check_facts("что-то", [{"type": "forecast"}])

@@ -294,10 +294,51 @@ def _periods_from_params(params: dict[str, Any]) -> tuple[str, ...]:
                 periods.append(label)
     if periods:
         return tuple(periods)
-    label = _human_period(
-        _canonical_period(params.get("start_date"), params.get("end_date"))
-    )
+    start_date = params.get("start_date")
+    end_date = params.get("end_date")
+    if start_date is None or end_date is None:
+        return ()
+    label = _human_period(_canonical_period(start_date, end_date))
     return (label,) if label else ()
+
+
+#: Римские номера кварталов для человекочитаемого периода в сводке.
+_ROMAN_QUARTERS = ("I", "II", "III", "IV")
+
+
+def _period_phrase(label: str, *, short: bool = False) -> str:
+    """Подпись периода для текста: «2023 год», «I квартал 2024», «март 2024».
+
+    ``short`` — для пары периодов: «2023 → 2024» вместо «2023 год → 2024 год».
+    """
+    text = str(label or "").strip()
+    if not text:
+        return ""
+    if len(text) == 4 and text.isdigit():
+        return text if short else f"{text} год"
+    if len(text) == 7 and text[4] == "-" and text[5] == "Q" and text[6] in "1234":
+        if short:
+            return text
+        return f"{_ROMAN_QUARTERS[int(text[6]) - 1]} квартал {text[:4]}"
+    if "–" in text:
+        if short:
+            return text
+        start, end = text.split("–", 1)
+        return f"период с {_human_date(start)} по {_human_date(end)}"
+    return text
+
+
+def _summary_period_prefix(decision: Any) -> str:
+    """Префикс сводки с периодом: «За 2023 год» или «2023 → 2024»."""
+    periods = _periods_from_params(decision.params or {})
+    if not periods:
+        return ""
+    if len(periods) > 1:
+        return (
+            f"{_period_phrase(periods[0], short=True)} → "
+            f"{_period_phrase(periods[1], short=True)}"
+        )
+    return f"За {_period_phrase(periods[0])}"
 
 
 # --------------------------------------------------------------------------- #
@@ -431,9 +472,13 @@ def _summary_text(
     result: pd.DataFrame | None,
     data_profile: dict[str, Any] | None = None,
 ) -> str:
-    """Собрать текст сводки (перенесён из ``app.py`` без изменения строк)."""
+    """Собрать текст сводки с периодом (этап 1.5, требование факт-чека)."""
     params = decision.params or {}
     filter_text = params.get("product_filter") or params.get("group_filter")
+    metric = str(params.get("metric", REVENUE))
+    metric_label = "выручке" if metric == REVENUE else "количеству"
+    period_prefix = _summary_period_prefix(decision)
+    periods = _periods_from_params(params)
     total_zero = (
         decision.intent == "total"
         and result is not None
@@ -443,21 +488,41 @@ def _summary_text(
     )
     if result is None or result.empty or total_zero:
         if total_zero and filter_text:
+            if periods:
+                phrase = _period_phrase(periods[0])
+                return (
+                    f"По фильтру «{filter_text}» за {phrase} "
+                    f"данных по {metric_label} не найдено."
+                )
             return f"По фильтру «{filter_text}» данных не найдено за выбранный период."
         profile = data_profile or {}
         date_min = profile.get("date_min")
         date_max = profile.get("date_max")
         if date_min and date_max:
             base = (
-                "За выбранный период данных нет. "
+                f"данных по {metric_label} нет. "
                 f"В текущем источнике данные доступны с {_human_date(date_min)} "
                 f"по {_human_date(date_max)}."
             )
         else:
-            base = "За выбранный период данных нет — попробуйте другой период или источник."
+            base = (
+                f"данных по {metric_label} нет — "
+                "попробуйте другой период или источник."
+            )
+        if period_prefix:
+            return f"{period_prefix}: {base}"
+        fallback = (
+            "За выбранный период данных нет. "
+            f"В текущем источнике данные доступны с {_human_date(date_min)} "
+            f"по {_human_date(date_max)}."
+            if date_min and date_max
+            else "За выбранный период данных нет — попробуйте другой период или источник."
+        )
         note = "" if total_zero else _filter_note(decision, result)
-        return f"{note} {base}".strip() if note else base
+        return f"{note} {fallback}".strip() if note else fallback
     summary = _build_summary_text(decision, result)
+    if period_prefix:
+        summary = f"{period_prefix}: {summary}"
     note = _filter_note(decision, result)
     return f"{note} {summary}" if note else summary
 
@@ -468,6 +533,7 @@ def _build_summary_text(decision: Any, result: pd.DataFrame) -> str:
     params = decision.params or {}
     metric = str(params.get("metric", REVENUE))
     metric_label = "выручке" if metric == REVENUE else "количеству"
+    metric_noun = "выручка" if metric == REVENUE else "количество"
     unit = metric_unit(metric)
 
     if intent == "top_bottom_products":
@@ -489,7 +555,7 @@ def _build_summary_text(decision: Any, result: pd.DataFrame) -> str:
         first, last = result.iloc[0], result.iloc[-1]
         peak = result.loc[result[value_column].idxmax()]
         return (
-            f"За период {len(result)} интервал(ов), суммарно {format_metric(total, metric)} {unit}. "
+            f"{len(result)} интервал(ов) по {metric_label}, суммарно {format_metric(total, metric)} {unit}. "
             f"Первый интервал: {format_metric(first[value_column], metric)} {unit}, "
             f"последний: {format_metric(last[value_column], metric)} {unit}, "
             f"максимум: {format_metric(peak[value_column], metric)} {unit} "
@@ -509,12 +575,14 @@ def _build_summary_text(decision: Any, result: pd.DataFrame) -> str:
                 f"Показаны только падения: {len(result)} значени(й), падение — {down}, "
                 f"выпало — {lost}. "
                 f"Наименьшее падение: «{best[dim]}» ({format_metric(best[DELTA], metric)} {unit}); "
-                f"наибольшее падение: «{worst[dim]}» ({format_metric(worst[DELTA], metric)} {unit})."
+                f"наибольшее падение: «{worst[dim]}» ({format_metric(worst[DELTA], metric)} {unit}). "
+                f"Показатель — {metric_noun}."
             )
         return (
             f"Сравнение по {len(result)} значени(ям): рост — {up}, падение — {down}, новых — {new}, выпало — {lost}. "
             f"Наибольший рост: «{best[dim]}» ({format_metric(best[DELTA], metric)} {unit}, {best_label}); "
-            f"наибольшее падение: «{worst[dim]}» ({format_metric(worst[DELTA], metric)} {unit})."
+            f"наибольшее падение: «{worst[dim]}» ({format_metric(worst[DELTA], metric)} {unit}). "
+            f"Показатель — {metric_noun}."
         )
     if intent == "total":
         row = result.iloc[0]
@@ -576,6 +644,8 @@ def _compare_tops_summary(
         parts.append(
             f"Выпал из топа: «{outsider[PRODUCT]}» (было {format_metric(outsider[value_p1], metric)} {unit})."
         )
+    metric_noun = "выручка" if metric == REVENUE else "количество"
+    parts.append(f"Показатель — {metric_noun}.")
     return " ".join(parts)
 
 
