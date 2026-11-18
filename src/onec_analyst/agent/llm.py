@@ -88,6 +88,12 @@ def _normalize_node(node: Any) -> Any:
                 f"anyOf={variants!r}"
             )
         normalized = {**real[0], **normalized}
+        # ``default: null`` на не-nullable типе невалиден для JSON Schema:
+        # GigaChat «чинит» его, подставляя минимум (0) или своё значение, и
+        # досыпает опциональные параметры (min_abs_delta=0, top_n=1…).
+        # Опциональность выражается отсутствием в ``required``, а не null-дефолтом.
+        if normalized.get("default") is None:
+            normalized.pop("default", None)
     if "type" not in normalized and "properties" in normalized:
         normalized["type"] = "object"
     return normalized

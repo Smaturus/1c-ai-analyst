@@ -334,6 +334,29 @@ def test_normalize_tool_schemas_collapses_nullable_any_of() -> None:
     assert json.dumps(source, ensure_ascii=False, sort_keys=True) == original
 
 
+def test_normalize_tool_schemas_removes_null_default_on_non_nullable() -> None:
+    """``default: null`` на не-nullable типе не остаётся.
+
+    GigaChat трактует такой невалидный дефолт как повод подставить значение
+    (minimum 0, top_n=1…) и досыпает опциональные параметры. Поэтому после
+    нормализации у опциональных чисел не должно быть ни ``default: null``,
+    ни попадания в ``required``.
+    """
+    normalized = normalize_tool_schemas(build_agent_tools())
+
+    for tool in normalized:
+        for name, spec in tool["function"]["parameters"].get("properties", {}).items():
+            if spec.get("type") != "null":
+                assert "default" not in spec or spec["default"] is not None, name
+
+    params = next(
+        t for t in normalized if t["function"]["name"] == "counterparty_dynamics"
+    )["function"]["parameters"]
+    for key in ("top_n", "min_abs_delta", "min_base_revenue"):
+        assert "default" not in params["properties"][key]
+        assert key not in params["required"]
+
+
 def test_normalize_tool_schemas_rejects_real_union() -> None:
     """Union из двух содержательных типов GigaChat не поддерживает — LLMError."""
     tools = [
