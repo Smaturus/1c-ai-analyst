@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import dataclasses
 import json
-import math
 import os
 import sys
 import tempfile
@@ -60,7 +59,6 @@ from onec_analyst.analytics import (
     ROWS_COUNT,
     STATUS,
     VALUE,
-    dispatch_intent,
     get_data_quality,
 )
 from onec_analyst.clarification import (
@@ -69,6 +67,12 @@ from onec_analyst.clarification import (
     force_interpretation,
 )
 from onec_analyst.data_loader import load_and_clean_1c_report
+from onec_analyst.dispatcher import (
+    AssistantResult,
+    DispatchError,
+    process_request,
+    select_planner as _select_planner,
+)
 from onec_analyst.llm_agent import (
     INTENT_EXAMPLES,
     INTENT_NAMES,
@@ -80,18 +84,32 @@ from onec_analyst.llm_agent import (
     ProviderOption,
     RuleBasedPlanner,
     check_schema_sync,
-    guard_decision,
     make_client,
     provider_catalog,
     settings_from_env,
 )
 from onec_analyst.onec_source import load_sample_vitrina, load_vitrina
+from onec_analyst.pipeline import execute, extract_entities
 from onec_analyst.rate_limiter import (
     MAX_GLOBAL,
     MAX_PER_SESSION,
     LimitStatus,
     RateLimiter,
     RateLimiterError,
+)
+from onec_analyst.session import ConversationState
+from onec_analyst.summary import (
+    QUANTITY_UNIT,
+    REVENUE_UNIT,
+    _direction_label,
+    _money,
+    _period_value_label,
+    _status_label,
+    build_summary,
+    format_metric,
+    format_percent,
+    format_quantity,
+    metric_unit,
 )
 
 APP_TITLE = "ИИ-ассистент анализа данных 1С"
@@ -161,12 +179,11 @@ def record_llm_usage(
     fill_session_limit_warning(warn_slot, refreshed)
     return refreshed
 
+
 #: Сколько уточнений подряд показываем, прежде чем выполнить ближайшую
 #: детерминированную интерпретацию (защита от цикла уточнений).
 MAX_CLARIFICATIONS = 2
 
-REVENUE_UNIT = "₽"
-QUANTITY_UNIT = "шт."
 
 SOURCE_SAMPLE = "Демо-данные: sample_data.csv"
 SOURCE_1C = "1C: 1c_export/sales_1c.csv"
@@ -264,74 +281,8 @@ def data_profile(df: pd.DataFrame, source: str) -> dict[str, Any]:
 
 
 # --------------------------------------------------------------------------- #
-# Форматирование и текстовая сводка
+# Таблица: русские подписи и форматы
 # --------------------------------------------------------------------------- #
-def _money(value: Any) -> str:
-    """Отформатировать сумму в рублях: пробелы между разрядами, запятая в дробях."""
-    try:
-        return f"{float(value):,.2f}".replace(",", " ").replace(".", ",")
-    except (TypeError, ValueError):
-        return "—"
-
-
-def format_percent(value: Any, digits: int = 2) -> str:
-    """Отформатировать процент с запятой в качестве десятичного разделителя.
-
-    Безопасна к ``None`` и ``NaN``: возвращает прочерк, а не исключение.
-    """
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return "—"
-    if not math.isfinite(number):
-        return "—"
-    return f"{number:.{digits}f}".replace(".", ",")
-
-
-def format_quantity(value: Any) -> str:
-    """Отформатировать количество: целое без «.00», если дробной части нет.
-
-    Функция безопасна для «грязных» значений: ``None``, ``NaN``, ``inf`` и
-    строки не роняют отрисовку страницы, а превращаются в прочерк.
-
-    Examples
-    --------
-    >>> format_quantity(595)
-    '595'
-    >>> format_quantity(595.0)
-    '595'
-    >>> format_quantity(10_878)
-    '10 878'
-    >>> format_quantity(1.5)
-    '1.5'
-    >>> format_quantity(None)
-    '—'
-    """
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return "—"
-    if not math.isfinite(number):
-        return "—"
-    if number.is_integer():
-        return f"{int(number):,}".replace(",", " ")
-    return f"{number:.3f}".rstrip("0").rstrip(".").replace(".", ",")
-
-
-def format_metric(value: Any, metric: str) -> str:
-    """Отформатировать значение метрики с учётом её единиц измерения.
-
-    ``revenue`` печатается как деньги (два знака), ``quantity`` — как
-    количество (целое без хвостовых нулей).
-    """
-    return format_quantity(value) if metric == QUANTITY else _money(value)
-
-
-def metric_unit(metric: str) -> str:
-    """Вернуть единицу измерения для подписи метрики (``₽`` или ``шт.``)."""
-    return REVENUE_UNIT if metric == REVENUE else QUANTITY_UNIT
-
-
 COLUMN_LABELS: dict[str, str] = {
     "rank": "№",
     "product": "Товар",
@@ -363,17 +314,6 @@ def _period_column_format(freq: str) -> str:
     if freq in ("M", "ME", "MS"):
         return "MM.YYYY"
     return "DD.MM.YYYY"
-
-
-def _period_value_label(period: Any, unit: str, fallback: str) -> str:
-    """Заголовок колонки периода с датами: «01.01.2023–31.12.2023, ₽»."""
-    try:
-        start, end = period
-        start_label = pd.Timestamp(start).strftime("%d.%m.%Y")
-        end_label = pd.Timestamp(end).strftime("%d.%m.%Y")
-    except (TypeError, ValueError):
-        return fallback
-    return f"{start_label}–{end_label}, {unit}"
 
 
 def _number_column(label: str, *, step: float | None = None) -> Any:
@@ -454,17 +394,6 @@ def build_result_table(decision: AgentDecision, result: pd.DataFrame) -> pd.Data
     return display
 
 
-def _status_label(value: Any) -> str:
-    """Человекочитаемый статус L4L-сравнения с цветным маркером."""
-    return {
-        "new": "🔵 вошёл в топ",
-        "lost": "🔴 выпал из топа",
-        "up": "🟢 поднялся",
-        "down": "🟠 опустился",
-        "same": "⚪ на том же месте",
-    }.get(str(value), str(value))
-
-
 def build_column_config(decision: AgentDecision, result: pd.DataFrame) -> dict[str, Any]:
     """Настроить столбцы таблицы: русские заголовки и форматы без потери сортировки.
 
@@ -505,187 +434,6 @@ def build_column_config(decision: AgentDecision, result: pd.DataFrame) -> dict[s
         else:
             config[column] = st.column_config.TextColumn(label)
     return config
-
-
-def _direction_label(value: str) -> str:
-    """Человекочитаемая подпись направления изменения."""
-    return {
-        "up": "рост",
-        "down": "падение",
-        "flat": "без изменений",
-        "new": "новый",
-        "lost": "выпал",
-    }.get(str(value), str(value))
-
-
-def _human_date(value: Any) -> str:
-    """ISO-дата (``2023-01-01``) в человеческий вид ``01.01.2023``."""
-    try:
-        return pd.Timestamp(value).strftime("%d.%m.%Y")
-    except (TypeError, ValueError):
-        return str(value)
-
-
-def _filter_note(decision: AgentDecision, result: pd.DataFrame) -> str:
-    """Пояснение к сводке, если запрос был сужен фильтром товара/группы."""
-    params = decision.params or {}
-    filter_text = params.get("product_filter") or params.get("group_filter")
-    if not filter_text:
-        return ""
-    return f"По фильтру «{filter_text}» найдено {len(result)} записей."
-
-
-def build_summary(
-    decision: AgentDecision,
-    result: pd.DataFrame,
-    data_profile: dict[str, Any] | None = None,
-) -> str:
-    """Собрать текстовую сводку по результату (без участия LLM)."""
-    params = decision.params or {}
-    filter_text = params.get("product_filter") or params.get("group_filter")
-    total_zero = (
-        decision.intent == "total"
-        and result is not None
-        and not result.empty
-        and ROWS_COUNT in result.columns
-        and int(result.iloc[0][ROWS_COUNT]) == 0
-    )
-    if result is None or result.empty or total_zero:
-        if total_zero and filter_text:
-            return f"По фильтру «{filter_text}» данных не найдено за выбранный период."
-        profile = data_profile or {}
-        date_min = profile.get("date_min")
-        date_max = profile.get("date_max")
-        if date_min and date_max:
-            base = (
-                "За выбранный период данных нет. "
-                f"В текущем источнике данные доступны с {_human_date(date_min)} "
-                f"по {_human_date(date_max)}."
-            )
-        else:
-            base = "За выбранный период данных нет — попробуйте другой период или источник."
-        note = "" if total_zero else _filter_note(decision, result)
-        return f"{note} {base}".strip() if note else base
-    summary = _build_summary_text(decision, result)
-    note = _filter_note(decision, result)
-    return f"{note} {summary}" if note else summary
-
-
-def _build_summary_text(decision: AgentDecision, result: pd.DataFrame) -> str:
-    """Текст сводки для непустого результата."""
-    intent = decision.intent or ""
-    params = decision.params or {}
-    metric = str(params.get("metric", REVENUE))
-    metric_label = "выручке" if metric == REVENUE else "количеству"
-    unit = metric_unit(metric)
-
-    if intent == "top_bottom_products":
-        value_column = metric
-        top_row = result.iloc[0]
-        share = (
-            f" ({format_percent(top_row['share_pct'])} % от суммы)"
-            if "share_pct" in result.columns and pd.notna(top_row.get("share_pct"))
-            else ""
-        )
-        word = "Худший" if bool(params.get("ascending")) else "Лидер"
-        return (
-            f"{word}: «{top_row[PRODUCT]}» — {format_metric(top_row[value_column], metric)} {unit}{share}. "
-            f"В выборке {len(result)} товар(ов) по {metric_label}."
-        )
-    if intent == "timeseries":
-        value_column = metric
-        total = float(result[value_column].sum())
-        first, last = result.iloc[0], result.iloc[-1]
-        peak = result.loc[result[value_column].idxmax()]
-        return (
-            f"За период {len(result)} интервал(ов), суммарно {format_metric(total, metric)} {unit}. "
-            f"Первый интервал: {format_metric(first[value_column], metric)} {unit}, "
-            f"последний: {format_metric(last[value_column], metric)} {unit}, "
-            f"максимум: {format_metric(peak[value_column], metric)} {unit} "
-            f"({pd.Timestamp(peak[PERIOD]).strftime('%Y-%m')})."
-        )
-    if intent in ("counterparty_dynamics", "group_dynamics"):
-        dim = result.columns[0]
-        up = int((result[DIRECTION].astype(str) == "up").sum()) if DIRECTION in result.columns else int(result[DELTA].gt(0).sum())
-        down = int((result[DIRECTION].astype(str) == "down").sum()) if DIRECTION in result.columns else int(result[DELTA].lt(0).sum())
-        new = int((result[DIRECTION].astype(str) == "new").sum()) if DIRECTION in result.columns else 0
-        lost = int((result[DIRECTION].astype(str) == "lost").sum()) if DIRECTION in result.columns else 0
-        best = result.sort_values(DELTA, ascending=False).iloc[0]
-        worst = result.sort_values(DELTA).iloc[0]
-        best_label = _direction_label(best.get(DIRECTION, ""))
-        if bool(params.get("only_drops")):
-            return (
-                f"Показаны только падения: {len(result)} значени(й), падение — {down}, "
-                f"выпало — {lost}. "
-                f"Наименьшее падение: «{best[dim]}» ({format_metric(best[DELTA], metric)} {unit}); "
-                f"наибольшее падение: «{worst[dim]}» ({format_metric(worst[DELTA], metric)} {unit})."
-            )
-        return (
-            f"Сравнение по {len(result)} значени(ям): рост — {up}, падение — {down}, новых — {new}, выпало — {lost}. "
-            f"Наибольший рост: «{best[dim]}» ({format_metric(best[DELTA], metric)} {unit}, {best_label}); "
-            f"наибольшее падение: «{worst[dim]}» ({format_metric(worst[DELTA], metric)} {unit})."
-        )
-    if intent == "total":
-        row = result.iloc[0]
-        rows = int(row[ROWS_COUNT]) if ROWS_COUNT in result.columns else len(result)
-        return (
-            f"Выручка без НДС: {_money(row[REVENUE])} {REVENUE_UNIT}; "
-            f"количество: {format_quantity(row[QUANTITY])} {QUANTITY_UNIT}; "
-            f"строк в выборке: {rows}; строк без даты: {int(row.get('undated_rows', 0))}."
-        )
-    if intent == "compare_top_products":
-        return _compare_tops_summary(result, params, metric, unit)
-    if intent == "negative_revenue":
-        dim = str(params.get("group_by", PRODUCT))
-        noun = "контрагентов" if dim == COUNTERPARTY else "товаров"
-        total = float(result[REVENUE].sum())
-        rows = int(result[ROWS_COUNT].sum()) if ROWS_COUNT in result.columns else len(result)
-        return (
-            f"Найдено {len(result)} {noun} с отрицательной выручкой. "
-            f"Общая сумма возвратов: {format_metric(total, REVENUE)} {REVENUE_UNIT} "
-            f"({rows} строк)."
-        )
-    return f"Получено строк: {len(result)}."
-
-
-def _compare_tops_summary(
-    result: pd.DataFrame,
-    params: dict[str, Any],
-    metric: str,
-    unit: str,
-) -> str:
-    """Сводка L4L-сравнения: сколько удержали/вошли/выпали и самый заметный рост."""
-    top_n = int(params.get("top_n", 5))
-    statuses = result[STATUS].astype(str) if STATUS in result.columns else pd.Series(dtype=str)
-    counts = statuses.value_counts()
-    same = int(counts.get("same", 0))
-    up = int(counts.get("up", 0))
-    down = int(counts.get("down", 0))
-    new = int(counts.get("new", 0))
-    lost = int(counts.get("lost", 0))
-    parts = [
-        f"Сравнение топ-{top_n}: удержали место — {same}, поднялись — {up}, опустились — {down}, "
-        f"вошли в топ — {new}, выпали — {lost}."
-    ]
-    value_p1 = f"{metric}_p1"
-    value_p2 = f"{metric}_p2"
-    if DELTA in result.columns and result[DELTA].notna().any():
-        growth = result.loc[result[DELTA].idxmax()]
-        parts.append(
-            f"Наибольший рост: «{growth[PRODUCT]}» (+{format_metric(growth[DELTA], metric)} {unit}"
-            f" — {format_metric(growth[value_p1], metric)} → {format_metric(growth[value_p2], metric)} {unit})."
-        )
-    if new:
-        newcomer = result.loc[result[STATUS].astype(str) == "new"].iloc[0]
-        parts.append(
-            f"Новичок топа: «{newcomer[PRODUCT]}» — {format_metric(newcomer[value_p2], metric)} {unit}."
-        )
-    if lost:
-        outsider = result.loc[result[STATUS].astype(str) == "lost"].iloc[0]
-        parts.append(
-            f"Выпал из топа: «{outsider[PRODUCT]}» (было {format_metric(outsider[value_p1], metric)} {unit})."
-        )
-    return " ".join(parts)
 
 
 # --------------------------------------------------------------------------- #
@@ -1016,10 +764,12 @@ def render_result(
     decision: AgentDecision,
     result: pd.DataFrame,
     data_profile: dict[str, Any] | None = None,
+    *,
+    summary: str | None = None,
 ) -> None:
     """Показать заголовок, сводку, таблицу, график и технические детали."""
     st.subheader(INTENT_TITLES.get(decision.intent or "", decision.intent or "Результат"))
-    st.write(build_summary(decision, result, data_profile))
+    st.write(summary if summary is not None else build_summary(decision, result, data_profile))
     st.dataframe(
         build_result_table(decision, result),
         hide_index=True,
@@ -1045,6 +795,20 @@ def render_result(
         if decision.raw_response:
             st.markdown("**Сырой ответ модели:**")
             st.code(decision.raw_response[:4000])
+
+
+def render_dispatch_error(decision: AgentDecision, exc: BaseException) -> None:
+    """Показать ошибку расчёта и доступные вопросы (как раньше в ``main``)."""
+    st.error("Не удалось выполнить расчёт по этому запросу.")
+    st.caption(f"Детали: {exc}")
+    st.markdown("**Доступные вопросы:**")
+    for name in INTENT_NAMES:
+        st.markdown(f"- {INTENT_TITLES[name]}: «{INTENT_EXAMPLES[name]}»")
+    with st.expander("Технические детали"):
+        st.code(
+            json.dumps(decision.dsl, ensure_ascii=False, indent=2),
+            language="json",
+        )
 
 
 def render_history() -> None:
@@ -1106,29 +870,12 @@ def render_question_input() -> tuple[str, bool]:
 # Выбор планировщика
 # --------------------------------------------------------------------------- #
 def select_planner(use_llm: bool, settings: LLMSettings) -> LLMPlanner | RuleBasedPlanner:
-    """Выбрать планировщик: LLM при явном включении и настроенном провайдере.
+    """Выбрать планировщик (публичная обёртка :mod:`onec_analyst.dispatcher`).
 
-    Parameters
-    ----------
-    use_llm:
-        Флаг переключателя в сайдбаре: пользователь хочет использовать LLM.
-    settings:
-        Настройки LLM из окружения/``.env`` (провайдер, ключ, модель).
-
-    Returns
-    -------
-    LLMPlanner | RuleBasedPlanner
-        :class:`LLMPlanner`, если LLM включена и настроена (есть провайдер и
-        ключ), иначе детерминированные офлайн-правила :class:`RuleBasedPlanner`.
-
-    Notes
-    -----
-    Флаг не может включить LLM, если она не настроена: без ключа приложение
-    остаётся в офлайн-режиме и не делает сетевых вызовов.
+    Оставлена в ``app`` для совместимости: ``tests/test_app_planner.py``
+    импортирует её отсюда. Само правило выбора живёт в диспетчере.
     """
-    if use_llm and settings.is_configured:
-        return LLMPlanner(settings)
-    return RuleBasedPlanner()
+    return _select_planner(use_llm, settings)
 
 
 def _provider_setup_hint(provider: str) -> str:
@@ -1535,80 +1282,118 @@ def main() -> None:
         if not question.strip():
             st.warning("Введите вопрос.")
             st.stop()
-        planner = select_planner(llm_allowed, settings)
-        with st.spinner("Разбираю вопрос…"):
-            decision = planner.plan(question, st.session_state["history"], profile)
-        llm_success = decision.source == "llm" and decision.ok
-        # Защита от подмены: запрос про отрицательную выручку не должен стать антитопом.
-        decision = guard_decision(decision, question)
-        if llm_success:
-            # Лимит считается только по успешным вызовам LLM; офлайн-правила бесплатны.
-            # Сразу обновляем счётчик и плашку: иначе до следующего rerun UI отстаёт.
-            record_llm_usage(limiter, llm_session_id, usage_slot, warn_slot)
 
-        if decision.intent == "clarification":
-            rounds = int(st.session_state.get("clarification_rounds", 0))
-            if rounds >= MAX_CLARIFICATIONS:
-                # Лимит уточнений исчерпан: вместо нового круга — детерминированная
-                # ближайшая интерпретация, чтобы пользователь гарантированно получил
-                # ответ (составной запрос сводится к одному показателю/периоду).
-                forced = force_interpretation(question, data_profile=profile)
-                st.session_state["clarification_rounds"] = 0
-                st.session_state.pop("clarification_base", None)
-                if forced is not None:
-                    if forced.intent == "compare_top_products":
-                        st.info(
-                            "Сравниваю два периода: показываю, кто вошёл в топ, "
-                            "кто выпал и как изменились места."
-                        )
+        # Память диалога — отдельно от истории сообщений. Счётчик уточнений
+        # остаётся один: живёт в st.session_state и синхронизируется с ядром.
+        conversation = st.session_state.setdefault(
+            "conversation_state", ConversationState()
+        )
+        conversation.clarification_rounds = int(
+            st.session_state.get("clarification_rounds", 0)
+        )
+
+        outcome: AssistantResult | None = None
+        try:
+            with st.spinner("Разбираю вопрос…"):
+                outcome = process_request(
+                    question,
+                    llm_allowed,
+                    conversation,
+                    dataset,
+                    profile,
+                    settings=settings,
+                    history=st.session_state["history"],
+                )
+        except DispatchError as exc:
+            render_dispatch_error(exc.decision, exc.original)
+            outcome = None
+
+        if outcome is not None:
+            decision: AgentDecision | None = outcome.as_decision()
+            if outcome.llm_success:
+                # Лимит считается только по успешным вызовам LLM; офлайн-правила бесплатны.
+                # Сразу обновляем счётчик и плашку: иначе до следующего rerun UI отстаёт.
+                record_llm_usage(limiter, llm_session_id, usage_slot, warn_slot)
+
+            if decision.intent == "clarification":
+                rounds = int(st.session_state.get("clarification_rounds", 0))
+                if rounds >= MAX_CLARIFICATIONS:
+                    # Лимит уточнений исчерпан: вместо нового круга — детерминированная
+                    # ближайшая интерпретация, чтобы пользователь гарантированно получил
+                    # ответ (составной запрос сводится к одному показателю/периоду).
+                    forced = force_interpretation(question, data_profile=profile)
+                    st.session_state["clarification_rounds"] = 0
+                    conversation.clarification_rounds = 0
+                    st.session_state.pop("clarification_base", None)
+                    if forced is not None:
+                        if forced.intent == "compare_top_products":
+                            st.info(
+                                "Сравниваю два периода: показываю, кто вошёл в топ, "
+                                "кто выпал и как изменились места."
+                            )
+                        else:
+                            st.warning(
+                                "Два отдельных рейтинга в одном ответе я пока не строю. "
+                                "Показываю один рейтинг за запрошенный период. "
+                                "Чтобы сравнить годы, задайте вопрос отдельно."
+                            )
+                        decision = forced
+                        outcome = None
                     else:
                         st.warning(
-                            "Два отдельных рейтинга в одном ответе я пока не строю. "
-                            "Показываю один рейтинг за запрошенный период. "
-                            "Чтобы сравнить годы, задайте вопрос отдельно."
+                            "Не удалось однозначно разобрать вопрос даже после уточнений. "
+                            "Задайте, пожалуйста, один показатель и один период."
                         )
-                    decision = forced
+                        render_error(decision)
+                        decision = None
                 else:
-                    st.warning(
-                        "Не удалось однозначно разобрать вопрос даже после уточнений. "
-                        "Задайте, пожалуйста, один показатель и один период."
-                    )
-                    render_error(decision)
+                    st.session_state["clarification_rounds"] = rounds + 1
+                    conversation.clarification_rounds = rounds + 1
+                    # Запоминаем исходный вопрос: выбранный вариант уточнения будет
+                    # склеен с ним, чтобы в поле и в запросе не терялась первая часть.
+                    st.session_state["clarification_base"] = question
+                    render_clarification(decision)
                     decision = None
-            else:
-                st.session_state["clarification_rounds"] = rounds + 1
-                # Запоминаем исходный вопрос: выбранный вариант уточнения будет
-                # склеен с ним, чтобы в поле и в запросе не терялась первая часть.
-                st.session_state["clarification_base"] = question
-                render_clarification(decision)
-                decision = None
 
-        if decision is not None and not decision.ok:
-            render_error(decision)
-            st.session_state["clarification_rounds"] = 0
-        elif decision is not None:
-            try:
-                result = dispatch_intent(decision.intent or "", dataset, decision.params)
-            except (ValueError, TypeError, KeyError) as exc:
-                st.error("Не удалось выполнить расчёт по этому запросу.")
-                st.caption(f"Детали: {exc}")
-                st.markdown("**Доступные вопросы:**")
-                for name in INTENT_NAMES:
-                    st.markdown(f"- {INTENT_TITLES[name]}: «{INTENT_EXAMPLES[name]}»")
-                with st.expander("Технические детали"):
-                    st.code(
-                        json.dumps(decision.dsl, ensure_ascii=False, indent=2),
-                        language="json",
-                    )
-            else:
-                render_result(decision, result, profile)
-                summary = build_summary(decision, result, profile)
-                st.session_state["history"].append({"role": "user", "content": question})
-                st.session_state["history"].append(
-                    {"role": "assistant", "content": f"{INTENT_TITLES.get(decision.intent or '', '')}: {summary}"}
-                )
+            if decision is not None and not decision.ok:
+                render_error(decision)
                 st.session_state["clarification_rounds"] = 0
-                st.session_state.pop("clarification_base", None)
+                conversation.clarification_rounds = 0
+            elif decision is not None:
+                result: pd.DataFrame | None
+                summary = ""
+                if outcome is not None:
+                    result = outcome.result
+                    summary = outcome.summary
+                else:
+                    # Принудительная интерпретация после лимита уточнений:
+                    # считаем её тем же ядром, что и обычный запрос.
+                    try:
+                        execution = execute(decision, dataset, profile)
+                    except (ValueError, TypeError, KeyError) as exc:
+                        render_dispatch_error(decision, exc)
+                        result = None
+                    else:
+                        result = execution.result
+                        summary = execution.summary
+                        conversation.record_result(
+                            decision, extract_entities(decision, result)
+                        )
+
+                if result is not None:
+                    render_result(decision, result, profile, summary=summary)
+                    st.session_state["history"].append(
+                        {"role": "user", "content": question}
+                    )
+                    st.session_state["history"].append(
+                        {
+                            "role": "assistant",
+                            "content": f"{INTENT_TITLES.get(decision.intent or '', '')}: {summary}",
+                        }
+                    )
+                    st.session_state["clarification_rounds"] = 0
+                    conversation.clarification_rounds = 0
+                    st.session_state.pop("clarification_base", None)
 
     st.divider()
     st.caption(
