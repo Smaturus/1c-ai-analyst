@@ -295,7 +295,7 @@ def test_app_static() -> None:
     tree = ast.parse(app_path.read_text(encoding="utf-8"))
     names = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
     attributes = {node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)}
-    check("dispatch_intent" in names, "app.py вызывает dispatch_intent")
+    check("process_request" in names, "app.py вызывает process_request (диспетчер → dispatch_intent)")
     check("get_data_quality" in names, "app.py показывает качество данных")
     for attribute in ("altair_chart", "expander", "dataframe", "columns", "button", "metric"):
         check(attribute in attributes, f"app.py использует st.{attribute}")

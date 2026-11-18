@@ -23,10 +23,11 @@ import argparse
 import json
 import os
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass, replace
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import pandas as pd
 
@@ -35,11 +36,11 @@ from onec_analyst.paths import find_repo_root
 
 __all__ = [
     "ALERTS_ENABLED_ENV",
+    "STATE_DIR_ENV",
     "AlertPolicy",
     "CalibrationReport",
     "ReturnsStats",
     "ReturnsWindow",
-    "STATE_DIR_ENV",
     "alert_flag_path",
     "alert_reason",
     "alert_status",
@@ -80,7 +81,7 @@ class AlertPolicy:
         min_abs: float | None = None,
         min_rows: int | None = None,
         share_pct: float | None = None,
-    ) -> "AlertPolicy":
+    ) -> AlertPolicy:
         """Политика из окружения с явными переопределениями."""
         base = cls(
             min_abs=_env_float(MIN_ABS_ENV, DEFAULT_MIN_ABS),
@@ -260,7 +261,7 @@ def collect_returns(
     share = (negative_total / revenue * 100.0) if revenue else 0.0
     return ReturnsStats(
         window=window,
-        rows=int(len(negative)),
+        rows=len(negative),
         negative_total=negative_total,
         revenue=revenue,
         share_pct=share,

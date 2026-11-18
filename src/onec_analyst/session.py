@@ -47,7 +47,7 @@ class ConversationState:
 
     def record_result(
         self,
-        decision: "AgentDecision",
+        decision: AgentDecision,
         entities: list[str] | tuple[str, ...] | None = None,
     ) -> None:
         """Запомнить DSL и сущности успешного результата."""

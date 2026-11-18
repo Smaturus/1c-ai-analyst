@@ -4,18 +4,27 @@
 
 ## [Unreleased]
 
-### Added
-- **Выбор модели GigaChat в сайдбаре (сессия, без записи в `.env`):** под переключателем «Провайдер LLM» появляется список «Модель GigaChat» (`app.py` и `app_local.py`). Список строится из `GET /v1/models` конкретного ключа и кешируется в `st.session_state`; новый `GigaChatClient.chat_models()` отбрасывает не-чат модели по полю `type`, поэтому `Embeddings`, `Embeddings-2`, `GigaEmbeddings-…` в список не попадают (`models()` по-прежнему отдаёт всё — для `--check`). Выбор живёт только в сессии: файл `.env` с секретами приложение не редактирует. Если список недоступен — селектора нет и работает `LLM_MODEL_GIGACHAT`; модель из `.env`, отсутствующая в списке API, показывается первой и не подменяется автоматически.
-- **Кнопка «Обновить данные из 1С» заблокирована вне источника 1С** (`app_local.py`): выгрузка перезаписывает `1c_export`, поэтому запускать её из режима демо-данных опасно. Всплывающая подсказка у кнопки убрана по требованию владельца проекта.
+## [0.8.0] — 2026-11-18 — LangGraph-агент, native tools, аудит, eval и per-call лимиты
 
-### Fixed
-- **Неверный базовый URL GigaChat:** `https://api.giga.chat/api/v1` → `https://api.giga.chat/v1`. С лишним `/api` запросы после успешного OAuth получали `403 Forbidden` от nginx, то есть GigaChat не работал бы ни в `--check`, ни в UI. Адрес взят из документации метода (`GET https://api.giga.chat/v1/models`); исправлены дефолт в `llm_agent.py`, ожидания тестов, [ADR 0012](docs/adr/0012-gigachat-provider.md) и [RUNBOOK](docs/RUNBOOK.md) §8.2/§8.3.
-- **Тесты читали рабочий `.env`:** после появления в файле настоящего ключа GigaChat провайдер считался «настроенным», `AppTest` включал LLM и уходил в реальный API — 9 тестов падали, а демо-вопросы могли уходить в облако. Добавлена autouse-фикстура `_isolated_env_file` в `tests/conftest.py`: содержимое `.env` в тестах игнорируется, действуют только переменные процесса и `monkeypatch.setenv`.
+### Added
+- **Выбор модели GigaChat в сайдбаре (сессия, без записи в `.env`):** список «Модель GigaChat» строится из `GET /v1/models` конкретного ключа и кешируется в `st.session_state`; `GigaChatClient.chat_models()` отбрасывает не-чат модели по полю `type`. Выбор живёт только в сессии, `.env` с секретами приложение не редактирует; если список недоступен — работает `LLM_MODEL_GIGACHAT`.
+- **LangGraph-агент (этапы 2–4):** модули `agent/state.py` (состояние, статусы `ok`/`clarify`/`refuse`/`error`/`fallback`, guard-протокол), `agent/nodes.py` (resolve_context → agent_decision → validate_dsl → fix_dsl → clarify/refuse/handle_error), `agent/graph.py` (StateGraph + маршрутизация, аудит шагов), `agent/tools.py` (7 бизнес-инструментов из Pydantic-схем + `clarify`/`refuse`). Диспетчер при `use_llm=True` идёт через граф, офлайн-путь не меняется. ADR 0013.
+- **GigaChat через `langchain-gigachat`:** `agent/llm.py` (`LangChainGigaChatClient`) — официальная библиотека вместо самодельного OAuth; нормализация `anyOf`/`null` JSON-схем для провайдера; legacy `GigaChatClient` остаётся для health-check и списка моделей. ADR 0014.
+- **Native tool calling и аудит шагов:** `agent/tools.py` собирает схемы инструментов из Pydantic-моделей (без ручного дублирования), строгий разбор ответа (ровно один вызов, известное имя, аргументы-объект); `agent/audit.py` + `graph.py` пишут шаги графа в `audit.jsonl` (`graph_start` … `graph_end`). ADR 0015.
+- **Eval-стек (этап 4):** GoldSet `tests/golden/cases.json` (50 кейсов), `tools/eval_live.py` (live-прогон живой модели → `docs/EVAL_LIVE*.{md,json}`), `tools/eval_judge.py` (судья качества), кассеты и replay (`tests/test_golden_cassettes.py`, `test_golden_replay.py`) — регрессия пайплайна на старых raw-ответах, не переписываются под модель.
+- **Per-call лимиты LLM (этап 3.2, ТЗ §4.2):** `RateLimiter.try_consume` — атомарная проверка + резерв в одной транзакции `BEGIN IMMEDIATE`; `RateLimiterGuard` (`before_call`/`after_success`/`after_failure`) + `RateLimiter.release`; `CompositeGuard(CallBudgetGuard(3), RateLimiterGuard)` — потолок 3 вызова на запрос и лимит 15/100. Учёт на каждый вызов (`resolve_context`/`agent_decision`/`fix_dsl`), сетевой сбой лимит не съедает, при исчерпании — fallback без обращения к API. UI-счётчик «Использовано вызовов ИИ: N/15» считает вызовы, а не запросы. Тесты: `tests/test_rate_limiter_guard.py`.
+
+### Changed
+- **Промпт агента (`agent/prompts.py`):** явные правила слабых зон — ascending (антитоп/лидеры), clarify вместо угадывания интента/периода, хронология `period1`/`period2` («по сравнению с Y» → Y=period1), `product_filter` одной строкой, относительные даты от `today`, распознавание инъекций в кавычках/приписках; few-shot примеры генерируются от `today` (имена не пересекаются с GoldSet). Тесты: `tests/test_agent_prompts.py`.
 
 ### Verified
-- `python -m pytest` — **393 passed** (было 384 passed / 9 failed из-за `.env`).
-- `python -m onec_analyst.llm_agent --check` — `OK deepseek`, `OK gigachat: GigaChat-2-Pro`; фактически доступны `GigaChat-2`, `GigaChat-2-Max`, `GigaChat-2-Pro`, `GigaChat-3-Lightning`, `GigaChat-3-Pro`, `GigaChat-3-Ultra`, модели эмбеддингов.
-- Живой end-to-end прогон подтверждён вручную: две разные модели GigaChat, выбранные в сайдбаре, отработали вопросы корректно. В CI такие прогоны не включаются — они тратят дневной лимит (15 вызовов на сессию) и требуют ключа.
+- `python -m pytest` — **875 passed, 1 skipped** (skip — `test_033` revenue_vat, расширение контракта в бэклоге).
+- Live DeepSeek / GigaChat и judge — см. `docs/REPORT_LANGGRAPH_STAGE5.md`.
+- `ruff check src` — 0 ошибок; `mypy` — Success (11 файлов). Docker: **blocker** — демон Docker Desktop не запущен, `docker build`/`compose up`/smoke не выполнены.
+
+### Fixed
+- **GigaChat базовый URL:** `https://api.giga.chat/v1` (без лишнего `/api`), иначе `403` после OAuth.
+- **Тесты читали рабочий `.env`:** autouse-фикстура `_isolated_env_file` игнорирует `.env` в тестах.
 
 ## [0.7.0] — 2026-11-16 — MCP-фасад: аналитика 1С для ИИ-агента
 

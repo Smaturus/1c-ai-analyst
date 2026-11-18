@@ -10,9 +10,10 @@ Streamlit: UI получает :class:`AssistantResult` и сам решает, 
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from datetime import date
-from typing import Any, Sequence
+from typing import Any
 
 import pandas as pd
 

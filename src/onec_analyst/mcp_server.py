@@ -71,7 +71,7 @@ from onec_analyst.onec_source import (
 )
 from onec_analyst.paths import find_repo_root
 
-__all__ = ["mcp", "main"]
+__all__ = ["main", "mcp"]
 
 logger = logging.getLogger("onec_analyst.mcp")
 
@@ -273,7 +273,7 @@ def _ensure_default_dataset() -> None:
         try:
             _set_dataset(path, _load_frame(path, kind))
             return
-        except Exception:  # noqa: BLE001 — старт не должен падать из-за данных
+        except Exception:
             logger.exception("Не удалось загрузить витрину %s", path)
 
 
@@ -335,7 +335,7 @@ def _format_cell(value: Any, *, column: str = "") -> str:
 
 
 def _render_table(frame: pd.DataFrame) -> tuple[str, int, int]:
-    total_rows = int(len(frame))
+    total_rows = len(frame)
     if total_rows == 0:
         return "За выбранный период данных нет.", 0, 0
     view = frame.head(MAX_TABLE_ROWS)

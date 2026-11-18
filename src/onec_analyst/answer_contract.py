@@ -16,9 +16,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from typing import Any, Final, Mapping, Sequence
+from typing import Any, Final
 
 __all__ = [
     "AnswerMeta",

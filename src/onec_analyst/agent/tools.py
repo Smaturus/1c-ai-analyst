@@ -194,6 +194,7 @@ def parse_completion(result: CompletionResult) -> ParsedCall:
     content = (result.content or "").strip()
     if len(calls) > 1:
         raise ToolCallError(f"Модель вернула {len(calls)} инструментов вместо одного")
+    parsed: ParsedCall | None
     if calls:
         call = calls[0]
         parsed = ParsedCall(
@@ -208,6 +209,7 @@ def parse_completion(result: CompletionResult) -> ParsedCall:
                 "Модель не вызвала инструмент (свободный текст без JSON не считается "
                 "уточнением или отказом)"
             )
+    assert parsed is not None  # ветка else выше поднимает ToolCallError при None
     if parsed.name not in TOOL_NAMES:
         raise ToolCallError(f"Неизвестный инструмент: {parsed.name!r}")
     return parsed

@@ -48,31 +48,32 @@ import csv
 import datetime as dt
 import json
 import sys
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable, Literal
+from typing import Any, Literal
 
 __all__ = [
-    "DEFAULT_USR",
-    "REGISTER_NAME",
     "CONFIG_EXPECTED",
+    "DEFAULT_USR",
+    "EXPORT_META_SUFFIX",
+    "NOMENCLATURE_CSV",
+    "REGISTER_NAME",
+    "SALES_CSV",
+    "SAMPLE_COLUMNS",
+    "VITRINA_COLUMNS",
     "connect",
     "describe_base",
+    "export_from_1c",
     "fetch_nomenclature",
     "fetch_sales",
-    "resolve_product_groups",
-    "export_from_1c",
-    "load_vitrina",
-    "load_sample_vitrina",
     "load_nomenclature",
-    "SALES_CSV",
-    "NOMENCLATURE_CSV",
-    "EXPORT_META_SUFFIX",
-    "VITRINA_COLUMNS",
-    "SAMPLE_COLUMNS",
+    "load_sample_vitrina",
+    "load_vitrina",
     "meta_path_for",
-    "read_export_meta",
-    "write_export_meta",
     "parse_exported_at",
+    "read_export_meta",
+    "resolve_product_groups",
+    "write_export_meta",
 ]
 
 DEFAULT_USR: str = "Администратор"
@@ -170,7 +171,7 @@ def connect(base_path: str, *, usr: str = DEFAULT_USR, pwd: str = DEFAULT_PWD):
     try:
         connector = win32_client.Dispatch("V83.COMConnector")
         return connector.Connect(connection_string)
-    except Exception as exc:  # noqa: BLE001 - COM поднимает com_error
+    except Exception as exc:
         raise RuntimeError(
             "Не удалось подключиться к 1С. Проверьте, что: 1) база не занята "
             "эксклюзивно; 2) у процесса есть права на запись в каталог базы "
@@ -515,7 +516,7 @@ def load_vitrina(
     sales_csv: str,
     *,
     revenue_mode: RevenueMode = "net",
-) -> "Any":
+) -> Any:
     """Прочитать CSV выгрузки 1С и вернуть витрину для :mod:`analytics`.
 
     Parameters
@@ -584,7 +585,7 @@ def load_vitrina(
     return vitrina
 
 
-def load_sample_vitrina(sample_csv: str = "sample_data.csv") -> "Any":
+def load_sample_vitrina(sample_csv: str = "sample_data.csv") -> Any:
     """Прочитать синтетический ``sample_data.csv`` в витрину для аналитики.
 
     Файл генерируется :mod:`generate_synthetic_data` и содержит только
@@ -642,7 +643,7 @@ def load_sample_vitrina(sample_csv: str = "sample_data.csv") -> "Any":
     return vitrina
 
 
-def load_nomenclature(nomenclature_csv: str) -> "Any":
+def load_nomenclature(nomenclature_csv: str) -> Any:
     """Прочитать ``nomenclature_1c.csv`` (справочник с группами) в DataFrame."""
     import pandas as pd
 
@@ -705,8 +706,8 @@ def _ref_name(value: Any) -> str:
     if value is None:
         return ""
     try:
-        return str(getattr(value, "Наименование"))
-    except Exception:  # noqa: BLE001 - не у всех ссылок есть Наименование
+        return str(value.Наименование)
+    except Exception:
         try:
             return str(value)
         except Exception:  # pragma: no cover

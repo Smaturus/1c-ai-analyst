@@ -227,9 +227,11 @@ python -m onec_analyst.mcp_server
 
 ## Инженерные решения
 
-- **393 pytest-теста** в `tests/` и CI на GitHub Actions (Python 3.12): расчёты, планировщик, UI через `AppTest`, статическая проверка app.py, лимиты LLM.
+- **875 pytest-тестов** в `tests/` и CI на GitHub Actions (Python 3.12): расчёты, планировщик, LangGraph-агент, UI через `AppTest`, лимиты LLM, eval (GoldSet/кассеты/replay); плюс `ruff` и `mypy`.
 - **Защита от галлюцинаций LLM:** жёсткий JSON-DSL, Pydantic-модели с `extra="forbid"`, `dispatch_intent`, никаких чисел или SQL от модели.
-- **Rate Limiting ([rate_limiter.py](rate_limiter.py)):** 15 успешных запросов к LLM на сессию и 100 в день глобально (SQLite); при исчерпании — предупреждение/баннер и офлайн-режим правил; ручной сброс сессии только при `RATE_LIMIT_ALLOW_RESET=1`.
+- **LangGraph-агент ([ADR 0013](docs/adr/0013-langgraph-hybrid-contract.md)):** вопрос идёт через граф `resolve_context → agent_decision → validate_dsl → fix_dsl → clarify/refuse`; нативные tool calls из Pydantic-схем ([ADR 0015](docs/adr/0015-native-tools-audit.md)); GigaChat — через `langchain-gigachat` ([ADR 0014](docs/adr/0014-gigachat-langchain.md)); каждый шаг пишется в `.mcp_state/audit.jsonl`.
+- **Eval-слой ([docs/EVAL.md](docs/EVAL.md)):** GoldSet из 50 кейсов, кассеты + replay (регрессия пайплайна), live-прогон живой модели и LLM-as-judge — измерение качества DSL/статусов/факт-чека без правки GoldSet под модель.
+- **Rate Limiting ([rate_limiter.py](rate_limiter.py)):** 15 успешных **вызовов** LLM на сессию и 100 в день глобально (SQLite, атомарный резерв `try_consume`); счёт считается на каждый вызов графа, сетевой сбой лимит не съедает; при исчерпании — fallback в правила без обращения к API; ручной сброс сессии только при `RATE_LIMIT_ALLOW_RESET=1` ([LLM_CALLS.md](docs/LLM_CALLS.md)).
 - **Graceful degradation ([ADR 0007](docs/adr/0007-graceful-degradation.md)):** неоднозначный вопрос уточняется максимум дважды, затем выполняется детерминированная ближайшая интерпретация с честной плашкой «Уточнения исчерпаны — показываю как понял…»; если разобрать нельзя — понятная ошибка вместо падения. Составной запрос «топ за 2023 и за 2024» поддерживается отдельным интентом сравнения топов (L4L, [ADR 0008](docs/adr/0008-compare-tops-intent.md)): одна таблица с местами, дельтой и статусами — без multi-intent.
 - **Разделение ETL и UI (Data Snapshot):** аналитика и дашборд не зависят от доступности 1С; результаты воспроизводимы, тесты не требуют живой базы.
 - **Контейнеризация:** `Dockerfile`, `docker-compose.yml`, `.dockerignore`; образ запускается на Linux и Windows без 1С.
@@ -241,7 +243,7 @@ python -m onec_analyst.mcp_server
 - **Строгая валидация DSL:** Pydantic-модели с `extra="forbid"` и `dispatch_intent` — LLM не может передать неизвестный интент/параметр или «сырое» число вместо параметра.
 - **LLM не считает числа:** все суммы, ранги и дельты считает pandas; модель только заполняет JSON-DSL.
 - **Честные отказы вместо галлюцинаций:** на неподдерживаемые запросы («средний чек», «средняя выручка») возвращается `clarification` с объяснением, а не подмена топом; при отсутствии данных — сообщение с доступным диапазоном дат.
-- **Лимиты LLM:** 15 запросов на сессию и 100 в день глобально; при исчерпании — офлайн-режим и баннер; ручной сброс — только с `RATE_LIMIT_ALLOW_RESET=1`.
+- **Лимиты LLM:** 15 вызовов на сессию и 100 в день глобально (per-call, §4.2); при исчерпании — офлайн-режим и баннер; ручной сброс — только с `RATE_LIMIT_ALLOW_RESET=1`.
 - **Данные и секреты:** в репозитории только синтетика; `.env`, реальные выгрузки 1С, локальная база, сертификат НУЦ и файлы стресс-тестов исключены через `.gitignore`.
 - **Ключи не публикуются:** ключи LLM живут только в локальном `.env`; файл не отслеживается git, в истории репозитория ключей нет (проверяется по всем blob-объектам). Локальная версия UI `app_local.py` в GitHub не попадает никогда — публикуется только `app.py`.
 
@@ -259,9 +261,11 @@ python -m onec_analyst.mcp_server
 ## Проверки
 
 ```powershell
-python -m pytest -q          # 393 passed
+python -m pytest -q          # 875 passed, 1 skipped
 python smoke_test.py         # SMOKE TEST PASSED
 python smoke_llm.py          # SMOKE LLM PASSED: 95 проверок
+ruff check src               # линтер
+mypy                         # типы
 $env:PYTHONPATH = "src"
 python -m onec_analyst.llm_agent --check   # живая проверка провайдеров, без траты токенов
 ```
@@ -284,9 +288,11 @@ python -m onec_analyst.llm_agent --check   # живая проверка про�
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — компоненты и потоки данных (актуальная спецификация).
 - [docs/DATA_CONTRACT.md](docs/DATA_CONTRACT.md) — схема витрины и CSV.
+- [docs/LLM_CALLS.md](docs/LLM_CALLS.md) — все LLM-вызовы, per-call лимиты (§4.2), аудит, fallback.
+- [docs/EVAL.md](docs/EVAL.md) — eval-слой: кассеты, replay, live, judge, метрики и пороги.
 - [docs/RUNBOOK.md](docs/RUNBOOK.md) — запуск, выгрузка 1С, лицензии, типовые ошибки.
 - [docs/UI_ACCEPTANCE.md](docs/UI_ACCEPTANCE.md) — приёмка UI и контрольные вопросы.
-- [docs/adr/](docs/adr/) — архитектурные решения (в т.ч. Data Snapshot, graceful degradation, L4L).
+- [docs/adr/](docs/adr/) — архитектурные решения (в т.ч. Data Snapshot, graceful degradation, L4L, LangGraph).
 
 ## Лицензия и данные
 

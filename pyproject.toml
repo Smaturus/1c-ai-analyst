@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "1c-ai-analyst"
-version = "0.7.0"
+version = "0.8.0"
 description = "ИИ-ассистент для анализа данных из 1С: вопрос → JSON-DSL → pandas"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -32,7 +32,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0"]
+dev = ["pytest>=8.0", "ruff>=0.6", "mypy>=1.10"]
 mcp = ["mcp>=1.20,<2"]
 
 [project.urls]
@@ -47,3 +47,45 @@ where = ["src"]
 testpaths = ["tests"]
 pythonpath = [".", "src"]
 addopts = "-ra"
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "C4", "RUF"]
+ignore = [
+    # Классическая защита от циклов: явные noqa расставлены точечно, а не глобально.
+    "BLE001",
+    # Проект русскоязычный: кириллица «с/е/о/а» законно выглядит как латиница,
+    # правило ambiguous-unicode не применимо к тексту на русском.
+    "RUF001",
+    "RUF002",
+    "RUF003",
+    # Длинные строки — это русский текст промптов/сводок и JSON-примеры; перенос
+    # таких литералов ухудшает читаемость и рискует сломать формат.
+    "E501",
+    # PEP 695 (`type X = ...`) и StrEnum — допустимая, но не обязательная
+    # модернизация; str+Enum и TypeAlias читаются яснее в текущем коде.
+    "UP040",
+    "UP042",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Тесты и скрипты допускают assert и широкий except там, где это осмысленно.
+"tests/**" = ["S101", "B011", "BLE001"]
+
+[tool.mypy]
+python_version = "3.12"
+files = [
+    "src/onec_analyst/agent",
+    "src/onec_analyst/llm_agent.py",
+    "src/onec_analyst/dispatcher.py",
+    "src/onec_analyst/pipeline.py",
+]
+ignore_missing_imports = true
+check_untyped_defs = true
+warn_unused_ignores = true
+# Типизируем перечисленные модули; ошибки в импортированных доменных модулях
+# (analytics/summary, метрика Literal vs str) — вне скоупа этапа и не блокируют CI.
+follow_imports = "silent"

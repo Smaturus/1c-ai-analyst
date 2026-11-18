@@ -12,7 +12,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
 #: Поля, которые разрешено писать в аудит. Всё остальное отбрасывается:
 #: так ``question``/``resolved_question``/``raw_response`` не попадут в журнал
@@ -54,7 +55,7 @@ def audit_event(state: Mapping[str, Any], event: str, **fields: Any) -> None:
     }
     try:
         log.record(str(event), **safe)
-    except Exception:  # noqa: BLE001 - аудит не должен ронять запрос
+    except Exception:
         return
 
 

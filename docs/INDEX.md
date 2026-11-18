@@ -1,6 +1,6 @@
 # Навигация по документации
 
-Точка входа для читателя репозитория. Актуальная картина продукта — **версия 0.7.0**.
+Точка входа для читателя репозитория. Актуальная картина продукта — **версия 0.8.0**.
 
 ## 1. С чего начать
 
@@ -28,6 +28,7 @@
 | [REPORT_LANGGRAPH_STAGE25.md](REPORT_LANGGRAPH_STAGE25.md) | Отчёт этапов 2.5/2.5a: GigaChat через `langchain-gigachat`, версии, adapter, явный выбор модели, тесты |
 | [REPORT_LANGGRAPH_STAGE3.md](REPORT_LANGGRAPH_STAGE3.md) | Отчёт этапа 3: нативные tool calls и аудит шагов графа (исправления 3.1) |
 | [REPORT_LANGGRAPH_STAGE4.md](REPORT_LANGGRAPH_STAGE4.md) | Отчёт этапа 4: eval-слой — кассеты, replay, live, judge |
+| [REPORT_LANGGRAPH_STAGE5.md](REPORT_LANGGRAPH_STAGE5.md) | Отчёт этапа 5: качество DSL, per-call лимиты (§4.2), релиз 0.8.0 |
 | [intent_schema.json](intent_schema.json) | Схема 7 интентов для LLM/интеграций |
 | [../CHANGELOG.md](../CHANGELOG.md) | История версий (Keep a Changelog) |
 
@@ -51,12 +52,13 @@
 | [0014](adr/0014-gigachat-langchain.md) | GigaChat в LangGraph-агенте через `langchain-gigachat` (принято) |
 | [0015](adr/0015-native-tools-audit.md) | Нативные tool calls OpenAI-совместимых провайдеров и аудит шагов графа (принято) |
 
-## 4. Быстрые факты (0.7.0)
+## 4. Быстрые факты (0.8.0)
 
 - Демо: `sample_data.csv` — 600 строк, 12 товаров, 6 контрагентов, 2 группы, 2023–2024, 10 % возвратов.
 - Контрольные суммы демо: выручка **99 708 100,00 ₽**, количество **5 315** шт.
-- Проверки: **854** pytest; `smoke_test.py` — PASSED; `smoke_llm.py` — 92 проверки.
-- 7 интентов; фильтры `product_filter` / `group_filter` / `min_base_revenue`; rate limiting демо; graceful degradation.
+- Проверки: **875** pytest (1 skip); `smoke_test.py` — PASSED; `smoke_llm.py` — 95 проверок.
+- 7 интентов; LangGraph-агент + GigaChat через `langchain-gigachat`; native tools + аудит шагов.
+- Per-call лимиты LLM (15/сессию, 100/день, §4.2); eval-слой (GoldSet, кассеты, live, judge).
 - Реальные выгрузки 1С и секреты в репозиторий не входят.
 
 ## 5. История разработки
