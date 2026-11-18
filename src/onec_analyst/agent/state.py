@@ -9,7 +9,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date
 from enum import Enum
 from typing import Any, Protocol, TypedDict
@@ -69,7 +69,7 @@ class AgentState(TypedDict, total=False):
 
     client: Any
     planner: RuleBasedPlanner
-    guard: "LLMCallGuard"
+    guard: LLMCallGuard
     audit: Any
     profile: dict[str, Any] | None
     inherited: dict[str, Any]
@@ -81,14 +81,18 @@ class LLMCallGuard(Protocol):
     """Учёт лимита LLM на каждый вызов (ТЗ 6.4 §4.2).
 
     ``before_call`` возвращает ``False``, если вызов делать нельзя; ``after_success``
-    вызывается только после успешного ответа провайдера — неудачные сетевые
-    вызовы счётчик не съедают.
+    вызывается только после успешного ответа провайдера, ``after_failure`` — после
+    сетевого сбоя, чтобы вернуть зарезервированный слот. Неудачные вызовы счётчик
+    не съедают.
     """
 
     def before_call(self) -> bool:  # pragma: no cover - протокол
         ...
 
     def after_success(self) -> None:  # pragma: no cover - протокол
+        ...
+
+    def after_failure(self) -> None:  # pragma: no cover - протокол
         ...
 
 
@@ -101,6 +105,9 @@ class UnlimitedGuard:
 
     def after_success(self) -> None:
         """Ничего не считать."""
+
+    def after_failure(self) -> None:
+        """Ничего не откатывать."""
 
 
 @dataclass
@@ -122,6 +129,40 @@ class CallBudgetGuard:
     def after_success(self) -> None:
         """Учесть успешный вызов."""
         self.used += 1
+
+    def after_failure(self) -> None:
+        """Сбой не тратит бюджет (счётчик «used» не рос на ``before_call``)."""
+
+
+class CompositeGuard:
+    """Композитный guard: потолок на запрос + лимит сессии/дня.
+
+    Объединяет :class:`CallBudgetGuard` (жёсткий потолок вызовов на один запрос)
+    и лимитер (``RateLimiterGuard``). ``before_call`` проходит по всем внутренним
+    guard'ам; если один отказывает, уже сделанные резервы предыдущих откатываются
+    через ``after_failure``. ``after_success``/``after_failure`` делегируются всем.
+    """
+
+    def __init__(self, *guards: LLMCallGuard) -> None:
+        self._guards = list(guards)
+
+    def before_call(self) -> bool:
+        reserved: list[LLMCallGuard] = []
+        for guard in self._guards:
+            if not guard.before_call():
+                for item in reserved:
+                    item.after_failure()
+                return False
+            reserved.append(guard)
+        return True
+
+    def after_success(self) -> None:
+        for guard in self._guards:
+            guard.after_success()
+
+    def after_failure(self) -> None:
+        for guard in self._guards:
+            guard.after_failure()
 
 
 def initial_state(
@@ -176,12 +217,13 @@ def state_today(state: AgentState) -> date:
 
 
 __all__ = [
-    "AgentState",
-    "CallBudgetGuard",
-    "DecisionStatus",
-    "LLMCallGuard",
     "MAX_CLARIFICATIONS",
     "MAX_LLM_CALLS",
+    "AgentState",
+    "CallBudgetGuard",
+    "CompositeGuard",
+    "DecisionStatus",
+    "LLMCallGuard",
     "UnlimitedGuard",
     "initial_state",
     "mark_step",

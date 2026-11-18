@@ -90,12 +90,14 @@ from onec_analyst.llm_agent import (
 )
 from onec_analyst.onec_source import load_sample_vitrina, load_vitrina
 from onec_analyst.pipeline import execute, extract_entities
+from onec_analyst.agent.state import CallBudgetGuard, CompositeGuard
 from onec_analyst.rate_limiter import (
     MAX_GLOBAL,
     MAX_PER_SESSION,
     LimitStatus,
     RateLimiter,
     RateLimiterError,
+    RateLimiterGuard,
 )
 from onec_analyst.session import ConversationState
 from onec_analyst.summary import (
@@ -131,7 +133,7 @@ def _rate_limit_reset_allowed() -> bool:
 def format_usage_caption(limit_status: LimitStatus) -> str:
     """Текст счётчика LLM в сайдбаре."""
     return (
-        f"Использовано запросов к ИИ: "
+        f"Использовано вызовов ИИ: "
         f"{limit_status.used_session}/{limit_status.limit_session}"
     )
 
@@ -158,22 +160,49 @@ def record_llm_usage(
     usage_slot: Any,
     warn_slot: Any,
 ) -> LimitStatus | None:
-    """Учесть успешный вызов LLM и сразу обновить счётчик/плашку в сайдбаре.
+    """Атомарно зарезервировать один успешный вызов LLM и обновить счётчик/плашку.
+
+    Используется для отдельных вызовов вне графа (классификатор уточнений):
+    вызов уже завершился успешно, поэтому резерв ``try_consume`` сразу остаётся.
 
     Returns
     -------
     LimitStatus | None
-        Обновлённый статус после ``increment``, либо ``None`` при ошибке SQLite.
+        Обновлённый статус после резерва, либо ``None`` при ошибке SQLite.
     """
     try:
-        limiter.increment(session_id)
-        refreshed = limiter.check_limit(
+        _, status = limiter.try_consume(
             session_id,
             max_per_session=MAX_PER_SESSION,
             max_global=MAX_GLOBAL,
         )
     except RateLimiterError as exc:
         st.warning(f"⚠️ Не удалось учесть вызов ИИ: {exc}")
+        return None
+    fill_usage_caption(usage_slot, status)
+    fill_session_limit_warning(warn_slot, status)
+    return status
+
+
+def refresh_usage_caption(
+    limiter: RateLimiter,
+    session_id: str,
+    usage_slot: Any,
+    warn_slot: Any,
+) -> LimitStatus | None:
+    """Перечитать счётчик из базы и обновить подпись/плашку (без инкремента).
+
+    Используется после агентного запроса: guard уже учёл каждый вызов, здесь
+    только синхронизируем UI с фактическим счётчиком.
+    """
+    try:
+        refreshed = limiter.check_limit(
+            session_id,
+            max_per_session=MAX_PER_SESSION,
+            max_global=MAX_GLOBAL,
+        )
+    except RateLimiterError as exc:
+        st.warning(f"⚠️ Не удалось прочитать счётчик ИИ: {exc}")
         return None
     fill_usage_caption(usage_slot, refreshed)
     fill_session_limit_warning(warn_slot, refreshed)
@@ -1225,7 +1254,7 @@ def main() -> None:
         and use_llm
     ):
         st.warning(
-            "⚠️ Вы достигли лимита запросов к ИИ в этой сессии. "
+            "⚠️ Вы достигли лимита вызовов ИИ в этой сессии. "
             "Переключаюсь на офлайн-режим."
         )
 
@@ -1308,6 +1337,13 @@ def main() -> None:
         )
 
         outcome: AssistantResult | None = None
+        # Композитный guard: потолок 3 вызова на запрос + лимит сессии/дня (15/100).
+        # Каждый вызов графа (resolve_context/agent_decision/fix_dsl) резервирует
+        # слот атомарно; при сетевом сбое резерв возвращается.
+        llm_guard = CompositeGuard(
+            CallBudgetGuard(3),
+            RateLimiterGuard(limiter, llm_session_id),
+        )
         try:
             with st.spinner("Разбираю вопрос…"):
                 outcome = process_request(
@@ -1318,6 +1354,7 @@ def main() -> None:
                     profile,
                     settings=settings,
                     history=st.session_state["history"],
+                    llm_guard=llm_guard,
                 )
         except DispatchError as exc:
             render_dispatch_error(exc.decision, exc.original)
@@ -1325,10 +1362,12 @@ def main() -> None:
 
         if outcome is not None:
             decision: AgentDecision | None = outcome.as_decision()
-            if outcome.llm_success:
-                # Лимит считается только по успешным вызовам LLM; офлайн-правила бесплатны.
-                # Сразу обновляем счётчик и плашку: иначе до следующего rerun UI отстаёт.
-                record_llm_usage(limiter, llm_session_id, usage_slot, warn_slot)
+            # Лимит уже учтён guard'ом на каждый вызов; синхронизируем счётчик UI
+            # с фактическим значением в базе (без повторного инкремента).
+            refreshed = refresh_usage_caption(limiter, llm_session_id, usage_slot, warn_slot)
+            if refreshed is not None and not refreshed.allowed:
+                limit_blocked = True
+                llm_allowed = False
 
             if decision.intent == "clarification":
                 rounds = int(st.session_state.get("clarification_rounds", 0))

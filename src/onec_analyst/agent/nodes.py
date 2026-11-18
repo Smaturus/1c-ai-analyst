@@ -216,6 +216,7 @@ def resolve_context(state: AgentState) -> dict[str, Any]:
             try:
                 result = client.complete(messages, tools=None)
             except LLMError:
+                guard.after_failure()
                 result = None
             if result is not None:
                 guard.after_success()
@@ -461,6 +462,8 @@ def agent_decision(state: AgentState) -> dict[str, Any]:
     try:
         result = client.complete(messages, tools=tools)
     except LLMError as exc:
+        if guard is not None:
+            guard.after_failure()
         return {
             "decision": None,
             "error": f"LLM недоступна: {exc}",
@@ -557,6 +560,8 @@ def fix_dsl(state: AgentState) -> dict[str, Any]:
     try:
         result = client.complete(messages, tools=None) if client is not None else None
     except LLMError as exc:
+        if guard is not None:
+            guard.after_failure()
         return {
             "validation_error": f"LLM недоступна: {exc}",
             "error": f"LLM недоступна: {exc}",
@@ -564,6 +569,8 @@ def fix_dsl(state: AgentState) -> dict[str, Any]:
             "trace": trace,
         }
     if result is None:
+        if guard is not None:
+            guard.after_failure()
         return {
             "validation_error": "LLM-клиент не передан в граф",
             "retry_count": retry,
@@ -671,10 +678,11 @@ def refuse(state: AgentState) -> dict[str, Any]:
 def handle_error(state: AgentState) -> dict[str, Any]:
     """Техническая ошибка/лимит/сеть: fallback в правила или честная ошибка."""
     trace = mark_step(state, "handle_error")
+    decision = state.get("decision")
     error = (
         state.get("error")
         or state.get("validation_error")
-        or (state.get("decision").error if state.get("decision") is not None else None)
+        or (decision.error if decision is not None else None)
         or "Не удалось получить решение"
     )
     planner = state.get("planner") or RuleBasedPlanner()

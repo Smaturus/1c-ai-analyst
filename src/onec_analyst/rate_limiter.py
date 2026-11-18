@@ -214,14 +214,193 @@ class RateLimiter:
         finally:
             connection.close()
 
+    def try_consume(
+        self,
+        session_id: str,
+        max_per_session: int = MAX_PER_SESSION,
+        max_global: int = MAX_GLOBAL,
+    ) -> tuple[bool, LimitStatus]:
+        """Атомарно проверить лимиты и зарезервировать один вызов LLM.
+
+        Проверка счётчика сессии и глобального счётчика и инкремент выполняются в
+        **одной** транзакции ``BEGIN IMMEDIATE``, поэтому два параллельных вызова
+        не могут «проскочить» лимит (ТЗ 6.4 §4.2: проверка и инкремент атомарны).
+
+        Резерв — это уже учтённый вызов: при успешном ответе провайдера он
+        остаётся, при сетевом сбое снимается вызовом :meth:`release`.
+
+        Returns
+        -------
+        tuple[bool, LimitStatus]
+            ``(зарезервировано, статус)``. Если ``False`` — резерва нет, причина
+            отказа в ``status.reason`` (``"session"`` или ``"global"``).
+
+        Raises
+        ------
+        RateLimiterError
+            Если база недоступна/заблокирована.
+        """
+        today = self._current_date()
+        connection = self._connect()
+        reason: str | None = None
+        used_session = 0
+        used_global = 0
+        try:
+            # DDL-схему из _connect фиксируем, затем управляем транзакцией вручную.
+            connection.commit()
+            connection.isolation_level = None
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                session_row = connection.execute(
+                    "SELECT request_count FROM llm_calls WHERE date = ? AND session_id = ?",
+                    (today, session_id),
+                ).fetchone()
+                total_row = connection.execute(
+                    "SELECT COALESCE(SUM(request_count), 0) FROM llm_calls WHERE date = ?",
+                    (today,),
+                ).fetchone()
+                used_session = int(session_row[0]) if session_row else 0
+                used_global = int(total_row[0]) if total_row else 0
+                if used_session >= max_per_session:
+                    reason = "session"
+                elif used_global >= max_global:
+                    reason = "global"
+                if reason is None:
+                    connection.execute(
+                        """
+                        INSERT INTO llm_calls (date, session_id, request_count)
+                        VALUES (?, ?, 1)
+                        ON CONFLICT(date, session_id)
+                        DO UPDATE SET request_count = request_count + 1
+                        """,
+                        (today, session_id),
+                    )
+                    used_session += 1
+                    used_global += 1
+                connection.commit()
+            except BaseException:
+                connection.rollback()
+                raise
+        except sqlite3.Error as exc:
+            raise RateLimiterError(f"Ошибка резерва в базе лимитов: {exc}") from exc
+        finally:
+            connection.close()
+        return reason is None, LimitStatus(
+            allowed=reason is None,
+            used_session=used_session,
+            used_global=used_global,
+            limit_session=max_per_session,
+            limit_global=max_global,
+            reason=reason,
+        )
+
+    def release(self, session_id: str) -> None:
+        """Снять один резерв (откатить неудачный вызов), не опускаясь ниже нуля.
+
+        Вызывается guard'ом после сетевого сбоя: счётчик не съедается ошибкой.
+
+        Raises
+        ------
+        RateLimiterError
+            Если база недоступна/заблокирована.
+        """
+        today = self._current_date()
+        connection = self._connect()
+        try:
+            with connection:
+                connection.execute(
+                    """
+                    UPDATE llm_calls
+                    SET request_count = request_count - 1
+                    WHERE date = ? AND session_id = ? AND request_count > 0
+                    """,
+                    (today, session_id),
+                )
+        except sqlite3.Error as exc:
+            raise RateLimiterError(f"Ошибка снятия резерва: {exc}") from exc
+        finally:
+            connection.close()
+
+
+class RateLimiterGuard:
+    """Guard лимита на каждый вызов LLM (ТЗ 6.4 §4.2).
+
+    Реализует протокол ``LLMCallGuard`` поверх :class:`RateLimiter`:
+    ``before_call`` атомарно резервирует слот в SQLite, ``after_success``
+    подтверждает резерв, ``after_failure`` снимает его. Сетевые сбои лимит не
+    съедают; при недоступной базе ``before_call`` отказывает (офлайн-режим).
+
+    Parameters
+    ----------
+    limiter:
+        Учёт вызовов LLM (SQLite).
+    session_id:
+        Идентификатор сессии — ключ учёта.
+    max_per_session, max_global:
+        Действующие лимиты (по умолчанию — константы модуля).
+    """
+
+    def __init__(
+        self,
+        limiter: RateLimiter,
+        session_id: str,
+        *,
+        max_per_session: int = MAX_PER_SESSION,
+        max_global: int = MAX_GLOBAL,
+    ) -> None:
+        self._limiter = limiter
+        self._session_id = session_id
+        self._max_per_session = max_per_session
+        self._max_global = max_global
+        self._reserved = False
+        self._status: LimitStatus | None = None
+
+    @property
+    def status(self) -> LimitStatus | None:
+        """Последний статус лимита (для UI-счётчика); ``None`` до первого вызова."""
+        return self._status
+
+    def before_call(self) -> bool:
+        """Проверить лимит и зарезервировать слот; ``False`` — вызов делать нельзя."""
+        if self._reserved:
+            return True
+        try:
+            reserved, status = self._limiter.try_consume(
+                self._session_id,
+                max_per_session=self._max_per_session,
+                max_global=self._max_global,
+            )
+        except RateLimiterError:
+            self._status = None
+            return False
+        self._reserved = reserved
+        self._status = status
+        return reserved
+
+    def after_success(self) -> None:
+        """Подтвердить резерв: успешный вызов уже учтён, резерв снимается."""
+        self._reserved = False
+
+    def after_failure(self) -> None:
+        """Снять резерв при сбое: счётчик не меняется."""
+        if not self._reserved:
+            return
+        try:
+            self._limiter.release(self._session_id)
+        except RateLimiterError:
+            pass
+        self._reserved = False
+        self._status = None
+
 
 __all__ = [
+    "DB_ENV_VAR",
+    "DEFAULT_DB_PATH",
     "MAX_GLOBAL",
     "MAX_PER_SESSION",
-    "DEFAULT_DB_PATH",
-    "DB_ENV_VAR",
-    "find_repo_root",
     "LimitStatus",
     "RateLimiter",
     "RateLimiterError",
+    "RateLimiterGuard",
+    "find_repo_root",
 ]
