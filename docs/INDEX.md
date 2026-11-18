@@ -41,6 +41,7 @@
 | [0010](adr/0010-export-timestamp.md) | Дата данных из метаданных выгрузки |
 | [0011](adr/0011-answer-contract-version.md) | Версия контракта ответа (предложено) |
 | [0012](adr/0012-gigachat-provider.md) | GigaChat как провайдер планировщика (tool calling, предложено) |
+| [0013](adr/0013-langgraph-hybrid-contract.md) | Гибридный LangGraph-агент: канонический DSL, явный UNKNOWN, политика eval (принято) |
 
 ## 4. Быстрые факты (0.7.0)
 
