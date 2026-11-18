@@ -70,6 +70,7 @@ class AgentState(TypedDict, total=False):
     client: Any
     planner: RuleBasedPlanner
     guard: "LLMCallGuard"
+    audit: Any
     profile: dict[str, Any] | None
     inherited: dict[str, Any]
     llm_success: bool
@@ -134,6 +135,7 @@ def initial_state(
     client: Any = None,
     planner: RuleBasedPlanner | None = None,
     guard: LLMCallGuard | None = None,
+    audit: Any = None,
 ) -> AgentState:
     """Собрать начальное состояние графа из запроса и памяти диалога."""
     current = today or date.today()
@@ -152,6 +154,7 @@ def initial_state(
         client=client,
         planner=planner or RuleBasedPlanner(),
         guard=guard or CallBudgetGuard(),
+        audit=audit,
         profile=profile,
         inherited={},
         llm_success=False,

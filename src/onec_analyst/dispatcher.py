@@ -151,6 +151,7 @@ def process_request(
     today: date | None = None,
     history: Sequence[dict[str, str]] | None = None,
     llm_guard: Any = None,
+    audit: Any = None,
 ) -> AssistantResult:
     """Обработать вопрос: план, защита, расчёт и сводка.
 
@@ -176,6 +177,9 @@ def process_request(
         Объект с ``before_call``/``after_success`` (протокол
         :class:`onec_analyst.agent.state.LLMCallGuard`). Используется только
         агентным путём: при исчерпании лимита граф уходит в fallback.
+    audit:
+        ``AuditLog`` для шагов графа; ``None`` — журнал по умолчанию
+        (``.mcp_state/audit.jsonl`` / ``ONEC_MCP_AUDIT_FILE``).
 
     Returns
     -------
@@ -212,8 +216,9 @@ def process_request(
             profile=profile,
             planner=RuleBasedPlanner(),
             guard=llm_guard,
+            audit=audit,
         )
-        final_state = run_agent_graph(state, settings=settings, guard=llm_guard)
+        final_state = run_agent_graph(state, settings=settings, guard=llm_guard, audit=audit)
         decision: AgentDecision = final_state.get("decision") or AgentDecision(
             ok=False,
             status="error",

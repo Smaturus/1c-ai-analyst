@@ -31,6 +31,7 @@ from onec_analyst.llm_agent import (
     CompletionResult,
     GigaChatClient,
     LLMClient,
+    LLMError,
     LLMPlanner,
     LLMSettings,
     ProviderCheck,
@@ -259,14 +260,57 @@ def test_complete_parses_tool_calls_and_sends_tools(monkeypatch: pytest.MonkeyPa
     assert sent["tool_choice"] == "auto"
 
 
-def test_llm_client_complete_wraps_chat(monkeypatch: pytest.MonkeyPatch) -> None:
-    """OpenAI-совместимый клиент игнорирует tools и возвращает текст в content."""
+def test_llm_client_complete_parses_tool_calls_and_sends_tools(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """OpenAI-совместимый клиент отправляет tools и разбирает tool_calls."""
     client = LLMClient(LLMSettings(provider="deepseek", api_key="k", base_url="http://x/v1"))
-    monkeypatch.setattr(client, "chat", lambda messages: '{"intent":"total","params":{}}')
+    sent: list[dict[str, Any]] = []
+    body = {
+        "choices": [
+            {
+                "message": {
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "function": {
+                                "name": "total",
+                                "arguments": '{"start_date": "2024-01-01"}',
+                            }
+                        }
+                    ],
+                }
+            }
+        ]
+    }
 
+    def fake_post(payload: dict[str, Any]) -> dict[str, Any]:
+        sent.append(payload)
+        return body
+
+    monkeypatch.setattr(client, "_post_json", fake_post)
     result = client.complete([{"role": "user", "content": "?"}], tools=build_tools())
 
-    assert isinstance(result, CompletionResult)
+    assert sent[0]["tools"] == build_tools()
+    assert sent[0]["tool_choice"] == "auto"
+    assert "response_format" not in sent[0]
+    assert result.tool_calls == (ToolCall(name="total", arguments={"start_date": "2024-01-01"}),)
+
+
+def test_llm_client_falls_back_to_json_when_tools_unsupported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Провайдер без tools откатывается к текстовому JSON-адаптеру."""
+    client = LLMClient(LLMSettings(provider="deepseek", api_key="k", base_url="http://x/v1"))
+
+    def fake_post(payload: dict[str, Any]) -> dict[str, Any]:
+        if "tools" in payload:
+            raise LLMError("HTTP 400: tools are not supported")
+        return {"choices": [{"message": {"content": '{"intent":"total","params":{}}'}}]}
+
+    monkeypatch.setattr(client, "_post_json", fake_post)
+    result = client.complete([{"role": "user", "content": "?"}], tools=build_tools())
+
     assert result.content == '{"intent":"total","params":{}}'
     assert result.tool_calls == ()
 

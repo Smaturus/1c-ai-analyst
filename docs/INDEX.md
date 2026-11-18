@@ -24,6 +24,7 @@
 | [UI_ACCEPTANCE.md](UI_ACCEPTANCE.md) | Контрольные вопросы и ожидания UI |
 | [REPORT_LANGGRAPH_STAGE2.md](REPORT_LANGGRAPH_STAGE2.md) | Отчёт этапа 2: LangGraph-агент, статусы, память, лимиты, тесты |
 | [REPORT_LANGGRAPH_STAGE25.md](REPORT_LANGGRAPH_STAGE25.md) | Отчёт этапов 2.5/2.5a: GigaChat через `langchain-gigachat`, версии, adapter, явный выбор модели, тесты |
+| [REPORT_LANGGRAPH_STAGE3.md](REPORT_LANGGRAPH_STAGE3.md) | Отчёт этапа 3: нативные tool calls и аудит шагов графа (исправления 3.1) |
 | [intent_schema.json](intent_schema.json) | Схема 7 интентов для LLM/интеграций |
 | [../CHANGELOG.md](../CHANGELOG.md) | История версий (Keep a Changelog) |
 
@@ -45,12 +46,13 @@
 | [0012](adr/0012-gigachat-provider.md) | GigaChat как провайдер планировщика (tool calling, предложено) |
 | [0013](adr/0013-langgraph-hybrid-contract.md) | Гибридный LangGraph-агент: канонический DSL, явный UNKNOWN, политика eval (принято) |
 | [0014](adr/0014-gigachat-langchain.md) | GigaChat в LangGraph-агенте через `langchain-gigachat` (принято) |
+| [0015](adr/0015-native-tools-audit.md) | Нативные tool calls OpenAI-совместимых провайдеров и аудит шагов графа (принято) |
 
 ## 4. Быстрые факты (0.7.0)
 
 - Демо: `sample_data.csv` — 600 строк, 12 товаров, 6 контрагентов, 2 группы, 2023–2024, 10 % возвратов.
 - Контрольные суммы демо: выручка **99 708 100,00 ₽**, количество **5 315** шт.
-- Проверки: **722** pytest; `smoke_test.py` — PASSED; `smoke_llm.py` — 92 проверки.
+- Проверки: **754** pytest; `smoke_test.py` — PASSED; `smoke_llm.py` — 92 проверки.
 - 7 интентов; фильтры `product_filter` / `group_filter` / `min_base_revenue`; rate limiting демо; graceful degradation.
 - Реальные выгрузки 1С и секреты в репозиторий не входят.
 

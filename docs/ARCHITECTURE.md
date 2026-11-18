@@ -96,8 +96,9 @@ flowchart TB
 | `onec_analyst.data_loader` | ETL Excel «Универсального отчёта» | `load_and_clean_1c_report` |
 | `onec_analyst.onec_source` | COM-выгрузка 1С → CSV; загрузка витрины | `export_from_1c`, `load_vitrina`, `load_sample_vitrina` |
 | `onec_analyst.analytics` | 7 интентов, периоды, фильтры, DSL | `dispatch_intent`, `INTENT_REGISTRY` |
-| `onec_analyst.llm_agent` | Pydantic-модели, промпт, офлайн-правила, `guard_decision`; HTTP-клиент OpenAI-совместимых провайдеров и legacy-клиент GigaChat (health-check/список моделей) | `make_planner`, `parse_plan_json`, `make_client` |
+| `onec_analyst.llm_agent` | Pydantic-модели, промпт, офлайн-правила, `guard_decision`; HTTP-клиент OpenAI-совместимых провайдеров (нативные tools + JSON-fallback) и legacy-клиент GigaChat (health-check/список моделей) | `make_planner`, `parse_plan_json`, `make_client` |
 | `onec_analyst.agent.llm` | Провайдерный слой LangGraph-агента: GigaChat через официальную `langchain-gigachat`, адаптер к интерфейсу `complete`/`chat`; модель — только `model=settings.model`, без хардкода и автоподбора ([ADR 0014](adr/0014-gigachat-langchain.md)) | `make_agent_client`, `LangChainGigaChatClient` |
+| `onec_analyst.agent.audit` | Аудит шагов графа: `graph_start/end`, `agent_decision`, `validate_ok/fail`, `fix_dsl`, `clarify`, `refuse`, `handle_error`; без вопроса и секретов ([ADR 0015](adr/0015-native-tools-audit.md)) | `audit_event` |
 | `onec_analyst.clarification` | Текст после уточнения; принудительная интерпретация | `choose_clarified_text`, `force_interpretation` |
 | `onec_analyst.rate_limiter` | Лимиты вызовов LLM для демо (SQLite) | `check_limit`, `increment` |
 | `onec_analyst.mcp_server` | MCP-фасад: 12 инструментов, состояние витрины, аудит вызовов | `mcp` (stdio) |
@@ -132,10 +133,11 @@ flowchart TB
 
 1. UI собирает вопрос, историю и профиль данных.
 2. При включённой LLM — проверка `rate_limiter`; при исчерпании — офлайн-правила.
-3. Ответ модели → извлечение JSON → Pydantic → при ошибке одна «починка».
+3. Ответ модели → нативный tool call (OpenAI/DeepSeek/Ollama/GigaChat) или JSON-адаптер; при ошибке — одна «починка».
 4. `guard_decision` не даёт подменить запрос про возвраты антитопом.
 5. `to_dispatch_params` → `dispatch_intent` → DataFrame → таблица / Altair / сводка.
 6. `check_schema_sync()` сверяет Pydantic с `INTENT_PARAMETERS`; схема также в `docs/intent_schema.json`.
+7. Каждый шаг агентного графа пишется в `.mcp_state/audit.jsonl` (ADR 0015); сырой вопрос и секреты не логируются.
 
 Офлайн-правила (`RuleBasedPlanner`) — **safety net**, а не второй DSL-движок: эвристики и регулярки разбирают типовые формулировки без API; числа по-прежнему считает только `analytics.dispatch_intent` / pandas. Источник истины схемы интентов — `INTENT_REGISTRY` / Pydantic, не набор правил.
 
@@ -190,6 +192,9 @@ flowchart TB
 | [0007](adr/0007-graceful-degradation.md) | Лимит уточнений и детерминированный fallback |
 | [0008](adr/0008-compare-tops-intent.md) | Сравнение топов (L4L) одним интентом |
 | [0012](adr/0012-gigachat-provider.md) | GigaChat как провайдер (tool calling) |
+| [0013](adr/0013-langgraph-hybrid-contract.md) | Гибридный LangGraph-агент и канонический DSL |
+| [0014](adr/0014-gigachat-langchain.md) | GigaChat через `langchain-gigachat` |
+| [0015](adr/0015-native-tools-audit.md) | Нативные tools и аудит шагов графа |
 
 ## 7. Ограничения MVP и точки роста
 

@@ -1100,15 +1100,55 @@ class LLMError(RuntimeError):
     """Ошибка вызова LLM (сеть, HTTP-статус, пустой ответ)."""
 
 
+#: HTTP-статусы, при которых допустим JSON-fallback неподдержки tools.
+_TOOLS_UNSUPPORTED_STATUSES: Final[frozenset[str]] = frozenset({"400", "404", "422"})
+
+#: Явные маркеры неподдержки tools в тексте ошибки провайдера (ТЗ 6.4 §4.2).
+#: Совпадение регистронезависимое; маркеры полные, а не по одному слову, чтобы
+#: «unknown function»/«invalid model»/ошибка схемы не уводили в fallback.
+_TOOLS_UNSUPPORTED_MARKERS: Final[tuple[str, ...]] = (
+    "tools are not supported",
+    "tool calling is not supported",
+    "function calling is not supported",
+    "does not support tools",
+    "does not support function",
+    "unknown field 'tools'",
+    'unknown field "tools"',
+    "unrecognized request argument: tools",
+    "unrecognized request argument supplied: tools",
+)
+
+
+def _tools_unsupported(error: LLMError) -> bool:
+    """Похоже ли, что провайдер не поддерживает tools (а не сломан запрос).
+
+    Fallback на JSON разрешён только при одновременном выполнении двух условий
+    (ТЗ 6.4 §4.2):
+
+    1. HTTP-статус 400/404/422 — 500, сетевая ошибка и таймаут исключены;
+    2. текст ошибки содержит один из :data:`_TOOLS_UNSUPPORTED_MARKERS` — 400
+       «invalid model» и 422 про схему («Type properties…»), где слова
+       «tool»/«function» встречаются случайно, сюда не попадают.
+    """
+    text = str(error)
+    status_match = re.search(r"HTTP (\d{3})", text)
+    if status_match is None or status_match.group(1) not in _TOOLS_UNSUPPORTED_STATUSES:
+        return False
+    lowered = text.lower()
+    return any(marker in lowered for marker in _TOOLS_UNSUPPORTED_MARKERS)
+
+
 class LLMClient:
     """Минимальный OpenAI-совместимый клиент на стандартной библиотеке.
 
     Работает с OpenAI, DeepSeek и Ollama (``/v1``) — без внешних зависимостей.
-    Tool calling не используется: эти провайдеры отвечают текстом (JSON-DSL),
-    который валидируется Pydantic-моделями.
+    Если провайдер поддерживает tools, они передаются в запросе; ответ с
+    ``tool_calls`` нормализуется в :class:`CompletionResult`. Провайдеры без
+    tools (или модель без tool calling) автоматически откатываются к
+    текстовому JSON-режиму.
     """
 
-    supports_tools: bool = False
+    supports_tools: bool = True
 
     def __init__(self, settings: LLMSettings) -> None:
         self._settings = settings
@@ -1118,9 +1158,17 @@ class LLMClient:
         messages: list[dict[str, str]],
         tools: list[dict[str, Any]] | None = None,
     ) -> CompletionResult:
-        """OpenAI-совместимый вызов: ``tools`` игнорируется, ответ — текст."""
-        del tools  # tool calling для этих провайдеров в проекте не используется
-        return CompletionResult(content=self.chat(messages))
+        """Вызов модели: с tools — нативный tool calling, без tools — текст."""
+        if not tools:
+            return CompletionResult(content=self.chat(messages))
+        try:
+            data = self._post_json(self._payload(messages, tools=tools))
+        except LLMError as exc:
+            if _tools_unsupported(exc):
+                # Провайдер/модель не умеет tools: JSON-адаптер — равноправный путь.
+                return CompletionResult(content=self.chat(messages))
+            raise
+        return self._completion_from_response(data)
 
     def chat(self, messages: list[dict[str, str]]) -> str:
         """Отправить сообщения и вернуть текст ответа модели.
@@ -1131,40 +1179,57 @@ class LLMClient:
             Сеть недоступна, HTTP-ошибка, пустой ответ или провайдер не настроен.
         """
         settings = self._settings
-        if not settings.is_configured or not settings.base_url:
-            raise LLMError("LLM не настроена: задайте LLM_PROVIDER/LLM_API_KEY/LLM_BASE_URL")
-        payload: dict[str, Any] = {
-            "model": settings.model,
-            "messages": messages,
-            "temperature": settings.temperature,
-        }
+        payload = self._payload(messages)
         if settings.json_mode:
             payload["response_format"] = {"type": "json_object"}
-        headers = {"Content-Type": "application/json"}
-        if settings.api_key:
-            headers["Authorization"] = f"Bearer {settings.api_key}"
-        url = f"{settings.base_url}/chat/completions"
         try:
-            answer = self._post(url, payload, headers)
+            data = self._post_json(payload)
         except LLMError as exc:
             # Некоторые провайдеры не поддерживают response_format — повторяем без него.
             if settings.json_mode and "response_format" in str(exc):
                 payload.pop("response_format", None)
-                answer = self._post(url, payload, headers)
+                data = self._post_json(payload)
             else:
                 raise
-        return answer
+        return self._content_from_response(data)
 
-    def _post(self, url: str, payload: dict[str, Any], headers: dict[str, str]) -> str:
-        """POST-запрос к Chat Completions и извлечение текста ответа."""
+    def _payload(
+        self,
+        messages: list[dict[str, str]],
+        tools: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """Собрать тело Chat Completions; с tools — без response_format."""
+        payload: dict[str, Any] = {
+            "model": self._settings.model,
+            "messages": messages,
+            "temperature": self._settings.temperature,
+        }
+        if tools:
+            payload["tools"] = tools
+            payload["tool_choice"] = "auto"
+        return payload
+
+    def _headers(self) -> dict[str, str]:
+        """Заголовки запроса (ключ не попадает в сообщения об ошибках)."""
+        headers = {"Content-Type": "application/json"}
+        if self._settings.api_key:
+            headers["Authorization"] = f"Bearer {self._settings.api_key}"
+        return headers
+
+    def _post_json(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """POST к Chat Completions и разбор JSON-ответа провайдера."""
+        settings = self._settings
+        if not settings.is_configured or not settings.base_url:
+            raise LLMError("LLM не настроена: задайте LLM_PROVIDER/LLM_API_KEY/LLM_BASE_URL")
+        url = f"{settings.base_url}/chat/completions"
         request = urllib.request.Request(
             url,
             data=json.dumps(payload).encode("utf-8"),
-            headers=headers,
+            headers=self._headers(),
             method="POST",
         )
         try:
-            with urllib.request.urlopen(request, timeout=self._settings.timeout) as response:
+            with urllib.request.urlopen(request, timeout=settings.timeout) as response:
                 body = response.read().decode("utf-8", errors="replace")
         except urllib.error.HTTPError as exc:
             details = exc.read().decode("utf-8", errors="replace")[:500]
@@ -1175,13 +1240,53 @@ class LLMClient:
             data = json.loads(body)
         except json.JSONDecodeError as exc:
             raise LLMError(f"Провайдер вернул не JSON: {body[:200]!r}") from exc
+        if not isinstance(data, dict):
+            raise LLMError(f"Неожиданный ответ провайдера: {body[:300]!r}")
+        return data
+
+    def _content_from_response(self, data: dict[str, Any]) -> str:
+        """Достать текст ответа; пустой content — ошибка."""
         try:
             content = data["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as exc:
-            raise LLMError(f"Неожиданный ответ провайдера: {body[:300]!r}") from exc
+            raise LLMError(f"Неожиданный ответ провайдера: {data!r}"[:300]) from exc
         if not isinstance(content, str) or not content.strip():
             raise LLMError("Провайдер вернул пустой ответ")
         return content
+
+    def _completion_from_response(self, data: dict[str, Any]) -> CompletionResult:
+        """Разобрать ответ с tool_calls (или текст, если tools не вызваны)."""
+        try:
+            message = data["choices"][0]["message"]
+        except (KeyError, IndexError, TypeError) as exc:
+            raise LLMError(f"Неожиданный ответ провайдера: {data!r}"[:300]) from exc
+        content = message.get("content")
+        text = content if isinstance(content, str) else ""
+        calls: list[ToolCall] = []
+        for item in message.get("tool_calls") or []:
+            function = item.get("function") or {}
+            name = str(function.get("name") or "")
+            arguments_raw = function.get("arguments") or "{}"
+            if isinstance(arguments_raw, str):
+                try:
+                    arguments = json.loads(arguments_raw)
+                except json.JSONDecodeError as exc:
+                    raise LLMError(
+                        f"Аргументы инструмента {name!r} не JSON: {arguments_raw[:200]!r}"
+                    ) from exc
+            else:
+                arguments = arguments_raw
+            if not name:
+                raise LLMError("Провайдер вернул tool call без имени инструмента")
+            if not isinstance(arguments, dict):
+                raise LLMError(
+                    f"Аргументы инструмента {name!r} должны быть объектом, "
+                    f"получено {type(arguments)!r}"
+                )
+            calls.append(ToolCall(name=name, arguments=arguments))
+        if not text.strip() and not calls:
+            raise LLMError("Провайдер вернул пустой ответ")
+        return CompletionResult(content=text, tool_calls=tuple(calls))
 
     def list_models(self) -> list[str]:
         """ID моделей по ``GET {base_url}/models`` (проверка ключа и ``base_url``).
