@@ -96,7 +96,8 @@ flowchart TB
 | `onec_analyst.data_loader` | ETL Excel «Универсального отчёта» | `load_and_clean_1c_report` |
 | `onec_analyst.onec_source` | COM-выгрузка 1С → CSV; загрузка витрины | `export_from_1c`, `load_vitrina`, `load_sample_vitrina` |
 | `onec_analyst.analytics` | 7 интентов, периоды, фильтры, DSL | `dispatch_intent`, `INTENT_REGISTRY` |
-| `onec_analyst.llm_agent` | Pydantic-модели, промпт, LLM-клиент, офлайн-правила, `guard_decision` | `make_planner`, `parse_plan_json` |
+| `onec_analyst.llm_agent` | Pydantic-модели, промпт, офлайн-правила, `guard_decision`; HTTP-клиент OpenAI-совместимых провайдеров и legacy-клиент GigaChat (health-check/список моделей) | `make_planner`, `parse_plan_json`, `make_client` |
+| `onec_analyst.agent.llm` | Провайдерный слой LangGraph-агента: GigaChat через официальную `langchain-gigachat`, адаптер к интерфейсу `complete`/`chat`; модель — только `model=settings.model`, без хардкода и автоподбора ([ADR 0014](adr/0014-gigachat-langchain.md)) | `make_agent_client`, `LangChainGigaChatClient` |
 | `onec_analyst.clarification` | Текст после уточнения; принудительная интерпретация | `choose_clarified_text`, `force_interpretation` |
 | `onec_analyst.rate_limiter` | Лимиты вызовов LLM для демо (SQLite) | `check_limit`, `increment` |
 | `onec_analyst.mcp_server` | MCP-фасад: 12 инструментов, состояние витрины, аудит вызовов | `mcp` (stdio) |

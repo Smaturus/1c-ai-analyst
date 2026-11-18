@@ -745,6 +745,20 @@ def render_clarification(decision: AgentDecision) -> None:
         render_suggestion_pills(suggestions)
 
 
+def render_refusal(reason: str | None) -> None:
+    """Плашка отказа агента: причина обязательна, расчёт не выполняется.
+
+    Отказ — новое состояние этапа 2 (``status="refuse"``): честное объяснение
+    вместо «похожего» ответа. Плашка отличается от уточнения (``st.info``) и
+    ошибки (``st.error``): это не сбой, а осознанное ограничение.
+    """
+    text = (reason or "").strip() or (
+        "Запрос не относится к поддерживаемой аналитике продаж."
+    )
+    st.warning(f"Не могу выполнить этот запрос: {text}")
+    st.caption("Числа и таблица не строятся: честный отказ лучше «похожего» ответа.")
+
+
 def render_error(decision: AgentDecision) -> None:
     """Дружелюбная ошибка + список доступных интентов (fallback по ТЗ)."""
     st.error(
@@ -790,7 +804,8 @@ def render_result(
         st.caption("Кнопка копирования JSON — в правом верхнем углу блока.")
         st.markdown(
             f"**Интент:** `{decision.intent}` · **Режим:** "
-            f"{'LLM' if decision.source == 'llm' else 'офлайн-правила'}"
+            f"{'LLM' if decision.source == 'llm' else 'офлайн-правила'} · "
+            f"**Статус:** `{decision.status}`"
         )
         if decision.raw_response:
             st.markdown("**Сырой ответ модели:**")
@@ -1354,6 +1369,19 @@ def main() -> None:
                     st.session_state["clarification_base"] = question
                     render_clarification(decision)
                     decision = None
+
+            if (
+                decision is not None
+                and outcome is not None
+                and outcome.status == "refuse"
+            ):
+                # Отказ агента: причина есть, расчета нет, счётчик уточнений
+                # сбрасывается — это не незавершённый диалог.
+                render_refusal(outcome.refusal_reason)
+                st.session_state["clarification_rounds"] = 0
+                conversation.clarification_rounds = 0
+                st.session_state.pop("clarification_base", None)
+                decision = None
 
             if decision is not None and not decision.ok:
                 render_error(decision)

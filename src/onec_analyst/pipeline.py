@@ -72,6 +72,7 @@ def validate_decision(dsl: dict[str, Any]) -> AgentDecision:
             clarification=plan,
             dsl=dsl_json,
             source="rules",
+            status="clarify",
         )
     intent, params = to_dispatch_params(plan)
     return AgentDecision(

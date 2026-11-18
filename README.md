@@ -70,7 +70,7 @@
 Планировщик работает с любым из провайдеров, переключатель — в сайдбаре:
 
 - **DeepSeek / OpenAI / Ollama** — OpenAI-совместимый протокол, модель возвращает JSON-DSL;
-- **GigaChat (Сбер)** — двухшаговый OAuth (`authorization key` + `scope`), TLS с доверием к корню НУЦ Минцифры, вместо `response_format` — **tool calling**: модель выбирает функцию-интент, а её аргументы валидируются тем же Pydantic-контрактом ([ADR 0012](docs/adr/0012-gigachat-provider.md));
+- **GigaChat (Сбер)** — двухшаговый OAuth (`authorization key` + `scope`), TLS с доверием к корню НУЦ Минцифры, вместо `response_format` — **tool calling**: модель выбирает функцию-интент, а её аргументы валидируются тем же Pydantic-контрактом ([ADR 0012](docs/adr/0012-gigachat-provider.md)); в LangGraph-агенте GigaChat подключается через официальную `langchain-gigachat`, модель берётся только из настроек (`model=settings.model`) — без хардкода и автоподбора ([ADR 0014](docs/adr/0014-gigachat-langchain.md));
 - без ключа — офлайн-правила (`RuleBasedPlanner`): приложение остаётся полностью работоспособным.
 
 У GigaChat в сайдбаре есть список **«Модель GigaChat»**: он строится из фактического

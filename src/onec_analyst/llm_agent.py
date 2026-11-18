@@ -476,6 +476,16 @@ class AgentDecision:
         JSON-безопасное представление DSL (для показа пользователю).
     source:
         ``"llm"`` или ``"rules"`` — чем получен DSL.
+    status:
+        Явный статус агентного решения: ``ok`` | ``clarify`` | ``refuse`` |
+        ``error`` | ``fallback`` (см. ADR 0013, D2). Поле аддитивное: старые
+        конструкторы его не передают и получают ``"ok"``; офлайн-правила
+        выставляют ``clarify`` для уточняющего вопроса.
+    refusal_reason:
+        Причина отказа для ``status="refuse"``: объясняет, что именно не
+        поддерживается. Для остальных статусов — ``None``.
+    trace:
+        Шаги графа, выполненные при получении решения (только имена шагов).
     """
 
     ok: bool
@@ -486,6 +496,9 @@ class AgentDecision:
     raw_response: str = ""
     dsl: dict[str, Any] = field(default_factory=dict)
     source: str = "rules"
+    status: str = "ok"
+    refusal_reason: str | None = None
+    trace: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -570,6 +583,7 @@ def _decision_from_plan(plan: Any, *, raw: str, source: str) -> AgentDecision:
             raw_response=raw,
             dsl=dsl,
             source=source,
+            status="clarify",
         )
     intent, params = to_dispatch_params(plan)
     return AgentDecision(
@@ -1209,6 +1223,12 @@ class LLMClient:
 class GigaChatClient:
     """Клиент GigaChat: OAuth-авторизация + tool calling для строгого DSL.
 
+    **LEGACY для health-check/списка моделей.** Граф агента использует
+    :class:`onec_analyst.agent.llm.LangChainGigaChatClient` (официальная
+    ``langchain-gigachat``, ADR 0014). Этот самописный HTTP-клиент оставлен
+    без изменений ради ``check_provider``/``chat_models`` и UI: удалять его
+    в этапе 2.5 не требуется.
+
     Отличается от OpenAI-совместимых провайдеров:
 
     * **двухшаговая авторизация** (``client_credentials``): обмен authorization
@@ -1832,6 +1852,7 @@ class RuleBasedPlanner:
                 ),
                 dsl={"intent": "clarification", "question": message},
                 source="rules",
+                status="clarify",
             )
         metric: MetricName = "quantity" if re.search(r"штук|количеств|единиц", lowered) else "revenue"
         periods = self._extract_periods(lowered, data_profile, today=today)
@@ -1963,6 +1984,7 @@ class RuleBasedPlanner:
                 "suggestions": [INTENT_EXAMPLES[name] for name in INTENT_NAMES],
             },
             source="rules",
+            status="clarify",
         )
 
     def _make(self, intent: str, params: dict[str, Any], *, source: str) -> AgentDecision:
@@ -2001,6 +2023,7 @@ class RuleBasedPlanner:
                 ),
                 dsl={"intent": "clarification", "question": "За какие два периода сравнить?"},
                 source="rules",
+                status="clarify",
             )
         params: dict[str, Any] = {
             "period1": periods[0],
