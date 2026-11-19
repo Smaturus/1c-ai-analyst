@@ -442,6 +442,26 @@ def test_agent_decision_requires_period2_for_compare() -> None:
     assert decision.clarification.missing == ["period2"]
 
 
+def test_agent_decision_clarifies_when_periods_are_equal() -> None:
+    """period1 == period2 (скопирован) — сравнение периода с собой → clarify (009)."""
+    client = FakeLLMClient(
+        [
+            json_response(
+                "group_dynamics",
+                {
+                    "period1": ["2023-01-01", "2023-12-31"],
+                    "period2": ["2023-01-01", "2023-12-31"],
+                },
+            )
+        ]
+    )
+    update = nodes.agent_decision(_state(client=client))  # type: ignore[arg-type]
+
+    decision = update["decision"]
+    assert decision.status == "clarify"
+    assert decision.clarification.missing == ["period2"]
+
+
 def test_agent_decision_refuses_future_period() -> None:
     """Будущий период — отказ: данных ещё нет."""
     client = FakeLLMClient(

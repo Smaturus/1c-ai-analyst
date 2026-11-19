@@ -53,7 +53,7 @@ def test_all_cases_pass_schema_validation() -> None:
 
 def test_status_distribution_is_frozen() -> None:
     counts = Counter(case["expected_status"] for case in CASES)
-    assert counts == {"ok": 31, "clarify": 7, "refuse": 12}
+    assert counts == {"ok": 31, "clarify": 6, "refuse": 13}
 
 
 def test_all_seven_intents_are_covered_by_ok_cases() -> None:
@@ -110,10 +110,12 @@ def test_context_cases_have_history_or_entities() -> None:
         assert case.get("history_dsl") or case.get("result_entities"), case["id"]
 
 
-def test_only_vat_case_is_xfail() -> None:
+def test_xfail_cases_are_008_and_033() -> None:
+    """Xfail: 008 (products у compare) и 033 (revenue_vat) — DECISIONS.md#4."""
     xfail = {case["id"] for case in CASES if case.get("xfail")}
-    assert xfail == {"test_033_vat"}
+    assert xfail == {"test_008_memory_pronoun", "test_033_vat"}
     assert CASES_BY_ID["test_033_vat"]["xfail_reason"]
+    assert CASES_BY_ID["test_008_memory_pronoun"]["xfail_reason"]
 
 
 def test_reclassified_cases_match_adr() -> None:
@@ -121,18 +123,14 @@ def test_reclassified_cases_match_adr() -> None:
     assert CASES_BY_ID["test_023_l4l_specific"]["expected_status"] == "refuse"
     assert CASES_BY_ID["test_029_context_pronoun_products"]["expected_status"] == "refuse"
     assert CASES_BY_ID["test_009_memory_ellipsis"]["expected_status"] == "clarify"
-    assert CASES_BY_ID["test_016_context_change_intent"]["expected_status"] == "clarify"
-    assert CASES_BY_ID["test_016_context_change_intent"]["expected_facts"][0][
-        "missing"
-    ] == "period2"
+    assert CASES_BY_ID["test_016_context_change_intent"]["expected_status"] == "refuse"
 
 
-def test_default_limit_is_contract_default_not_5() -> None:
-    """Кейс 036 был написан под limit=5 из 6.3; канон — дефолт 10."""
+def test_default_limit_is_5() -> None:
+    """Канон S1: дефолт limit = 5 (DECISIONS.md#1); 036 — без числа."""
     case = CASES_BY_ID["test_036_default_limit"]
-    assert "limit" not in case["expected_dsl"]["params"]
     _, params = canonical_params(case["expected_dsl"])
-    assert params["limit"] == 10
+    assert params["limit"] == 5
 
 
 def test_value_facts_have_numbers_for_subset() -> None:

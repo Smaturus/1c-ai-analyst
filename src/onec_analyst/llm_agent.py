@@ -239,7 +239,7 @@ class TopBottomParams(_Params):
     """Параметры интента «топ/антитоп товаров»."""
 
     metric: MetricName = "revenue"
-    limit: int = Field(default=10, ge=1, le=1000)
+    limit: int = Field(default=5, ge=1, le=1000)
     ascending: bool = False
     start_date: DateValue | None = None
     end_date: DateValue | None = None

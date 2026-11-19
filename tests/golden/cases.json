@@ -182,7 +182,8 @@
           "period2": [
             "2024-04-01",
             "2024-06-30"
-          ]
+          ],
+          "sort_by": "delta"
         }
       },
       "expected_facts": [
@@ -208,6 +209,8 @@
       "question": "А как они соотносятся с прошлым кварталом?",
       "expected_status": "refuse",
       "expected_intent": "UNKNOWN",
+      "xfail": true,
+      "xfail_reason": "products у compare_top_products вне MVP (D4); ADR на расширение — в бэклоге (DECISIONS.md#4)",
       "expected_dsl": null,
       "expected_facts": [
         {
@@ -268,7 +271,7 @@
       "expected_facts": [
         {
           "type": "clarify",
-          "missing": "period"
+          "missing": "start_date"
         }
       ],
       "history_dsl": null,
@@ -284,7 +287,7 @@
       "expected_facts": [
         {
           "type": "clarify",
-          "missing": "products"
+          "missing": "product_filter"
         }
       ],
       "history_dsl": null,
@@ -365,13 +368,16 @@
       "id": "test_016_context_change_intent",
       "category": "context",
       "question": "А теперь покажи их по контрагентам",
-      "expected_status": "clarify",
+      "expected_status": "refuse",
       "expected_intent": "UNKNOWN",
       "expected_dsl": null,
       "expected_facts": [
         {
-          "type": "clarify",
-          "missing": "period2"
+          "type": "refusal",
+          "reason_contains": [
+            "не поддерживается",
+            "контрагент"
+          ]
         }
       ],
       "history_dsl": {
@@ -387,7 +393,7 @@
         "Колонка Му",
         "Клавиатура Lambda"
       ],
-      "notes": "period2 обязателен; после ответа запрос упрётся в product_filter у counterparty_dynamics (D4)"
+      "notes": "Refuse важнее clarify (DECISIONS.md): product_filter у counterparty_dynamics не поддерживается → refuse сразу, без уточнения периода."
     },
     {
       "id": "test_017_context_relative_dates",
@@ -482,7 +488,7 @@
       "expected_facts": [
         {
           "type": "clarify",
-          "missing": "period"
+          "missing": "start_date"
         }
       ],
       "history_dsl": null,
@@ -876,6 +882,7 @@
       "expected_dsl": {
         "intent": "top_bottom_products",
         "params": {
+          "limit": 5,
           "start_date": "2023-01-01",
           "end_date": "2023-12-31"
         }
@@ -890,7 +897,7 @@
       ],
       "history_dsl": null,
       "result_entities": null,
-      "notes": "limit не передан: действует дефолт контракта (10), а не 5 из 6.3"
+      "notes": "limit:5 — канон S1 (DECISIONS.md#1); эталон и производная согласованы"
     },
     {
       "id": "test_037_negative_context",
@@ -1031,7 +1038,7 @@
       "expected_facts": [
         {
           "type": "clarify",
-          "missing": "products"
+          "missing": "product_filter"
         }
       ],
       "history_dsl": null,
@@ -1048,7 +1055,7 @@
       "expected_facts": [
         {
           "type": "clarify",
-          "missing": "products"
+          "missing": "product_filter"
         }
       ],
       "history_dsl": {

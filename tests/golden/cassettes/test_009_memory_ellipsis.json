@@ -25,7 +25,7 @@
     }
   ],
   "recorded_outcome": {
-    "status": "ok",
-    "intent": "group_dynamics"
+    "status": "clarify",
+    "intent": "clarification"
   }
 }

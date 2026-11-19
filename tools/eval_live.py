@@ -42,6 +42,8 @@ from onec_analyst.agent.graph import run_agent_graph  # noqa: E402
 from onec_analyst.agent.llm import make_agent_client  # noqa: E402
 from onec_analyst.agent.state import CallBudgetGuard, initial_state, status_of  # noqa: E402
 from onec_analyst.audit import AuditLog  # noqa: E402
+from onec_analyst.data_loader import PRODUCT  # noqa: E402
+from onec_analyst.entities import resolve_entity  # noqa: E402
 from onec_analyst.pipeline import execute  # noqa: E402
 
 from tests.golden.checks import check_facts  # noqa: E402
@@ -57,6 +59,21 @@ CATEGORIES = ("simple", "context", "edge_case", "non_analytical")
 def _json_safe(value: Any) -> Any:
     """Сериализовать значения DSL (date/Timestamp → строка) для сравнения."""
     return json.loads(json.dumps(value, default=str))
+
+
+def _resolve_filters(params: dict[str, Any], frame: pd.DataFrame) -> dict[str, Any]:
+    """Привести ``product_filter``/``group_filter`` к каноническому виду каталога.
+
+    Резолвер — часть пайплайна, поэтому итоговые параметры системы каноничны;
+    сравнение сырого выхода LLM с эталоном сравнивало бы промежуточное состояние.
+    """
+    resolved = dict(params)
+    for key, column in (("product_filter", PRODUCT), ("group_filter", "product_group")):
+        value = resolved.get(key)
+        if isinstance(value, str) and value.strip() and column in frame.columns:
+            catalog = frame[column].dropna().astype("string").unique().tolist()
+            resolved[key] = resolve_entity(value.strip(), catalog).value
+    return resolved
 
 
 def build_state(case: dict[str, Any]) -> dict[str, Any]:
@@ -112,12 +129,16 @@ def evaluate_case(
             result["fact_match"] = False
             return result
         exp_intent, exp_params = canonical_params(case["expected_dsl"])
+        exp_params = _resolve_filters(exp_params, frame)
+        actual_params = _resolve_filters(dict(decision.params or {}), frame)
         intent_match = decision.intent == exp_intent
-        params_match = _json_safe(decision.params) == _json_safe(exp_params)
+        params_match = _json_safe(actual_params) == _json_safe(exp_params)
         result["status_match"] = True
         result["intent_match"] = intent_match
         result["params_match"] = params_match
         result["dsl_match"] = intent_match and params_match
+        result["expected_params"] = _json_safe(exp_params)
+        result["actual_params"] = _json_safe(actual_params)
 
         fact_match = False
         fact_error = None

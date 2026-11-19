@@ -388,19 +388,27 @@ def _apply_inheritance(decision: AgentDecision, inherited: dict[str, Any]) -> Ag
 
 
 def _check_compare_periods(decision: AgentDecision) -> AgentDecision:
-    """``period2`` обязателен: один период у интентов сравнения → clarify."""
+    """``period2`` обязателен и не равен ``period1`` (иначе сравнение периода с собой)."""
     if status_of(decision) is not DecisionStatus.OK or decision.intent not in COMPARE_INTENTS:
         return decision
     params = decision.params or {}
-    if params.get("period2") and params.get("period1"):
-        return decision
-    missing = ["period1"] if not params.get("period1") else []
-    missing.append("period2")
-    return _clarify_decision(
-        missing=missing,
-        question="За какой второй период сравнить? Например, 2023 и 2024.",
-        suggestions=["2023 и 2024"],
-    )
+    period1 = _period_pair(params.get("period1"))
+    period2 = _period_pair(params.get("period2"))
+    if not period1 or not period2:
+        missing = ["period1"] if not period1 else []
+        missing.append("period2")
+        return _clarify_decision(
+            missing=missing,
+            question="За какой второй период сравнить? Например, 2023 и 2024.",
+            suggestions=["2023 и 2024"],
+        )
+    if period1 == period2:
+        return _clarify_decision(
+            missing=["period2"],
+            question="За какой второй период сравнить? Первый и второй периоды совпадают.",
+            suggestions=["2023 и 2024"],
+        )
+    return decision
 
 
 def _decision_from_call(call: ParsedCall, state: AgentState) -> AgentDecision:
