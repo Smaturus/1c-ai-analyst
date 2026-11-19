@@ -24,6 +24,10 @@
 | [UI_ACCEPTANCE.md](UI_ACCEPTANCE.md) | Контрольные вопросы и ожидания UI |
 | [LLM_CALLS.md](LLM_CALLS.md) | Все LLM-вызовы: точки, лимиты §4.2, аудит, fallback |
 | [EVAL.md](EVAL.md) | Eval-слой: кассеты, replay, live, judge, метрики и пороги |
+| [DECISIONS.md](DECISIONS.md) | Журнал принятых решений (канон спринта S1) |
+| [SPRINT-S1.md](SPRINT-S1.md) | Спринт «Канонизация»: истории, AC, итоги |
+| [TZ_64_patched_instruction.md](TZ_64_patched_instruction.md) | Перечень правок ТЗ 6.4 «было → стало» |
+| [VIBECODING_EXPERIENCE.md](VIBECODING_EXPERIENCE.md) | Ретроспектива сессии: методика, код, процесс |
 | [REPORT_LANGGRAPH_STAGE2.md](REPORT_LANGGRAPH_STAGE2.md) | Отчёт этапа 2: LangGraph-агент, статусы, память, лимиты, тесты |
 | [REPORT_LANGGRAPH_STAGE25.md](REPORT_LANGGRAPH_STAGE25.md) | Отчёт этапов 2.5/2.5a: GigaChat через `langchain-gigachat`, версии, adapter, явный выбор модели, тесты |
 | [REPORT_LANGGRAPH_STAGE3.md](REPORT_LANGGRAPH_STAGE3.md) | Отчёт этапа 3: нативные tool calls и аудит шагов графа (исправления 3.1) |
@@ -56,7 +60,7 @@
 
 - Демо: `sample_data.csv` — 600 строк, 12 товаров, 6 контрагентов, 2 группы, 2023–2024, 10 % возвратов.
 - Контрольные суммы демо: выручка **99 708 100,00 ₽**, количество **5 315** шт.
-- Проверки: **875** pytest (1 skip); `smoke_test.py` — PASSED; `smoke_llm.py` — 95 проверок.
+- Проверки: **953** pytest (2 skip); `smoke_test.py` — PASSED; `smoke_llm.py` — 95 проверок.
 - 7 интентов; LangGraph-агент + GigaChat через `langchain-gigachat`; native tools + аудит шагов.
 - Per-call лимиты LLM (15/сессию, 100/день, §4.2); eval-слой (GoldSet, кассеты, live, judge).
 - Реальные выгрузки 1С и секреты в репозиторий не входят.

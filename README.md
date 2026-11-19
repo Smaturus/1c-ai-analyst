@@ -227,7 +227,7 @@ python -m onec_analyst.mcp_server
 
 ## Инженерные решения
 
-- **875 pytest-тестов** в `tests/` и CI на GitHub Actions (Python 3.12): расчёты, планировщик, LangGraph-агент, UI через `AppTest`, лимиты LLM, eval (GoldSet/кассеты/replay); плюс `ruff` и `mypy`.
+- **953 pytest-теста** в `tests/` и CI на GitHub Actions (Python 3.12): расчёты, планировщик, LangGraph-агент, UI через `AppTest`, лимиты LLM, eval (GoldSet/кассеты/replay); плюс `ruff` и `mypy`.
 - **Защита от галлюцинаций LLM:** жёсткий JSON-DSL, Pydantic-модели с `extra="forbid"`, `dispatch_intent`, никаких чисел или SQL от модели.
 - **LangGraph-агент ([ADR 0013](docs/adr/0013-langgraph-hybrid-contract.md)):** вопрос идёт через граф `resolve_context → agent_decision → validate_dsl → fix_dsl → clarify/refuse`; нативные tool calls из Pydantic-схем ([ADR 0015](docs/adr/0015-native-tools-audit.md)); GigaChat — через `langchain-gigachat` ([ADR 0014](docs/adr/0014-gigachat-langchain.md)); каждый шаг пишется в `.mcp_state/audit.jsonl`.
 - **Eval-слой ([docs/EVAL.md](docs/EVAL.md)):** GoldSet из 50 кейсов, кассеты + replay (регрессия пайплайна), live-прогон живой модели и LLM-as-judge — измерение качества DSL/статусов/факт-чека без правки GoldSet под модель.
@@ -261,7 +261,7 @@ python -m onec_analyst.mcp_server
 ## Проверки
 
 ```powershell
-python -m pytest -q          # 875 passed, 1 skipped
+python -m pytest -q          # 953 passed, 2 skipped
 python smoke_test.py         # SMOKE TEST PASSED
 python smoke_llm.py          # SMOKE LLM PASSED: 95 проверок
 ruff check src               # линтер
@@ -290,6 +290,8 @@ python -m onec_analyst.llm_agent --check   # живая проверка про�
 - [docs/DATA_CONTRACT.md](docs/DATA_CONTRACT.md) — схема витрины и CSV.
 - [docs/LLM_CALLS.md](docs/LLM_CALLS.md) — все LLM-вызовы, per-call лимиты (§4.2), аудит, fallback.
 - [docs/EVAL.md](docs/EVAL.md) — eval-слой: кассеты, replay, live, judge, метрики и пороги.
+- [docs/DECISIONS.md](docs/DECISIONS.md) — журнал принятых решений (канон спринта S1).
+- [docs/SPRINT-S1.md](docs/SPRINT-S1.md) — спринт «Канонизация»: истории, AC, итоги.
 - [docs/RUNBOOK.md](docs/RUNBOOK.md) — запуск, выгрузка 1С, лицензии, типовые ошибки.
 - [docs/UI_ACCEPTANCE.md](docs/UI_ACCEPTANCE.md) — приёмка UI и контрольные вопросы.
 - [docs/adr/](docs/adr/) — архитектурные решения (в т.ч. Data Snapshot, graceful degradation, L4L, LangGraph).
