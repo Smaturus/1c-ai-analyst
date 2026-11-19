@@ -256,6 +256,12 @@ JSON-DSL), а не «без размышлений». Для контракта 
 (574 символа), `content='4'`, `eval_count=212`. Латентность живого кейса определяется
 главным образом prompt-eval (~4 К токенов на CPU), а не генерацией.
 
+**Итог live (2026-11-19).** Прогон 1 (`think=true`): **3/3** — `003` → `ok/total` + FACT OK,
+`012` → `refuse`, `010` → `clarify`; ~11 мин/кейс на CPU. Роль дев-итераций подтверждена
+live, а не только smoke. Прогон 2 (`think=false`): `003` → reasoning в `content` → JSON не
+парсится → `status=fallback` (graceful, без краша); `012`/`010` → `refuse`/`clarify`
+**выжили**: текстовые ветки reasoning-префикс не ломает, ломается именно JSON-ветка.
+
 **Затронуто:** `llm_agent.py` (`LLMSettings`, `OllamaChatClient`), `tools/check_ollama.py`,
 `.env.example`.
 
