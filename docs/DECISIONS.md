@@ -253,7 +253,8 @@ JSON-DSL), а не «без размышлений». Для контракта 
 Различие `think:false`/`think:true` подтверждено raw-пробами; перед live конфигурация
 дефолта верифицирована логированием payload: клиент отправляет `think=true`,
 `options.num_ctx=8192`, `stream=false`; ответ — reasoning в `message.thinking`
-(574 символа), `content='4'`, `eval_count=212`.
+(574 символа), `content='4'`, `eval_count=212`. Латентность живого кейса определяется
+главным образом prompt-eval (~4 К токенов на CPU), а не генерацией.
 
 **Затронуто:** `llm_agent.py` (`LLMSettings`, `OllamaChatClient`), `tools/check_ollama.py`,
 `.env.example`.
