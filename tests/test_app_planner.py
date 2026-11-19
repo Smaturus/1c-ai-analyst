@@ -218,7 +218,11 @@ def test_sidebar_shows_unconfigured_gigachat(llm_env: None) -> None:
 
 
 def test_sidebar_selecting_unconfigured_provider_warns(llm_env: None) -> None:
-    """Выбор ненастроенного GigaChat → предупреждение и офлайн-правила."""
+    """Выбор недоступного GigaChat → предупреждение и блокировка «Спросить».
+
+    Галочка включена → офлайн-правила запрещены: недоступного провайдера нельзя
+    «переждать» правилами, кнопка блокируется (DECISIONS #18).
+    """
     at = AppTest.from_file(APP_FILE, default_timeout=TIMEOUT).run()
     label = next(
         option
@@ -229,6 +233,44 @@ def test_sidebar_selecting_unconfigured_provider_warns(llm_env: None) -> None:
 
     assert len(at.exception) == 0
     assert any("не настроен" in item.value for item in at.sidebar.warning)
+    ask = next(button for button in at.button if button.label == "Спросить")
+    assert ask.proto.disabled is True
+
+
+def test_unavailable_provider_blocks_answer_without_offline_rules(
+    monkeypatch: pytest.MonkeyPatch, llm_env: None
+) -> None:
+    """ON + недоступный провайдер: ответа нет, расчёт (правила) не запускается.
+
+    Инвариант «галочка ON → офлайн-правила запрещены»: путь исполнения не
+    доходит до планировщика. Если бы он дошёл, ``use_llm=False`` внутри
+    диспетчера выбрал бы ``RuleBasedPlanner`` — поэтому падаем на выборе
+    планировщика.
+    """
+    import onec_analyst.dispatcher as dispatcher
+
+    def no_planner(*args: object, **kwargs: object) -> object:
+        raise AssertionError("планировщик не должен вызываться: ответ запрещён")
+
+    monkeypatch.setattr(dispatcher, "select_planner", no_planner)
+
+    at = AppTest.from_file(APP_FILE, default_timeout=TIMEOUT).run()
+    label = next(
+        option
+        for option in at.sidebar.selectbox[0].options
+        if option.startswith("GigaChat")
+    )
+    at.sidebar.selectbox[0].select(label).run()
+
+    # Отправка в обход disabled-кнопки (Enter в поле / auto_submit) тоже
+    # не должна доходить до расчёта.
+    at.session_state["question_input"] = "Сколько мы продали за 2024 год?"
+    at.session_state["auto_submit"] = True
+    at.run()
+
+    assert len(at.exception) == 0, [str(e.value)[:300] for e in at.exception]
+    assert any("не настроен" in item.value for item in at.sidebar.warning)
+    assert not any("Технические детали" in md.value for md in at.markdown)
 
 
 def test_unconfigured_openai_hint_is_provider_specific(llm_env: None) -> None:

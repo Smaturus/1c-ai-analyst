@@ -1119,7 +1119,7 @@ def render_sidebar(
     limiter: RateLimiter,
     session_id: str,
     limit_status: LimitStatus | None,
-) -> tuple[str, Any, bool, Any, Any, LLMSettings, bool]:
+) -> tuple[str, Any, bool, Any, Any, LLMSettings, bool, str]:
     """Отрисовать боковую панель: источник витрины, режим LLM, сброс истории.
 
     Parameters
@@ -1133,11 +1133,11 @@ def render_sidebar(
 
     Returns
     -------
-    tuple[str, Any, bool, Any, Any, LLMSettings, bool]
+    tuple[str, Any, bool, Any, Any, LLMSettings, bool, str]
         Источник, файл, флаг LLM, слот счётчика и слот плашки лимита
         (``st.empty``), чтобы обновить UI после ``increment`` в том же прогоне,
-        настройки выбранного провайдера и признак «спросить нельзя»
-        (галочка включена, а провайдеров нет).
+        настройки выбранного провайдера, признак «спросить нельзя» (галочка
+        включена, а провайдер недоступен/их нет) и текст причины.
     """
     st.sidebar.title("Данные")
     source_kind = st.sidebar.radio(
@@ -1188,6 +1188,7 @@ def render_sidebar(
         provider_options, default_settings, disabled=not use_llm
     )
     ask_blocked = use_llm and not any_available
+    ask_blocked_reason = NO_PROVIDERS_MESSAGE if ask_blocked else ""
     if not use_llm:
         chosen_settings = LLMSettings()
         st.sidebar.caption("Включены офлайн-правила: API не вызывается.")
@@ -1198,16 +1199,17 @@ def render_sidebar(
         chosen_settings = choose_gigachat_model(selected_option.settings)
         st.sidebar.caption(f"LLM: `{chosen_settings.provider}` / `{chosen_settings.model}`")
     else:
-        # Пользователь явно выбрал недоступного провайдера: честно говорим
-        # причину и работаем правилами, а не молча подменяем провайдера.
+        # Выбран недоступный провайдер: при включённой галочке офлайн-правила
+        # запрещены. Не подменяем молча — просим выбрать доступного.
         chosen_settings = LLMSettings()
         provider_name = selected_option.settings.provider
         reason = "выключен в .env" if provider_name == "ollama" else "не настроен"
-        st.sidebar.warning(
-            f"Провайдер «{provider_name}» {reason}: задайте "
-            f"{_provider_setup_hint(provider_name)} в .env. "
-            "Пока работают офлайн-правила."
+        ask_blocked = True
+        ask_blocked_reason = (
+            f"Провайдер «{provider_name}» {reason}: выберите доступного провайдера "
+            f"в списке или задайте {_provider_setup_hint(provider_name)} в .env."
         )
+        st.sidebar.warning(ask_blocked_reason)
 
     usage_slot = st.sidebar.empty()
     warn_slot = st.sidebar.empty()
@@ -1244,6 +1246,7 @@ def render_sidebar(
         warn_slot,
         chosen_settings,
         ask_blocked,
+        ask_blocked_reason,
     )
 
 
@@ -1289,9 +1292,16 @@ def main() -> None:
             "Система работает в офлайн-режиме."
         )
 
-    source_kind, uploaded, use_llm, usage_slot, warn_slot, settings, ask_blocked = (
-        render_sidebar(limiter, llm_session_id, limit_status)
-    )
+    (
+        source_kind,
+        uploaded,
+        use_llm,
+        usage_slot,
+        warn_slot,
+        settings,
+        ask_blocked,
+        ask_blocked_reason,
+    ) = render_sidebar(limiter, llm_session_id, limit_status)
 
     limit_blocked = limiter_error is not None or (
         limit_status is not None and not limit_status.allowed
@@ -1361,7 +1371,7 @@ def main() -> None:
 
     question, submitted = render_question_input(
         disabled=ask_blocked,
-        reason=NO_PROVIDERS_MESSAGE if ask_blocked else "",
+        reason=ask_blocked_reason,
     )
 
     if st.session_state.get("auto_submit"):
@@ -1377,7 +1387,7 @@ def main() -> None:
         if ask_blocked:
             # Enter в поле отправляет форму даже при заблокированной кнопке —
             # не даём уйти в расчёт без провайдера.
-            st.warning(NO_PROVIDERS_MESSAGE)
+            st.warning(ask_blocked_reason)
             st.stop()
         if not question.strip():
             st.warning("Введите вопрос.")
