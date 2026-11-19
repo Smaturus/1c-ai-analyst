@@ -264,10 +264,11 @@ def _load_frame(path: Path, kind: Literal["auto", "sample", "export"]) -> pd.Dat
 def _ensure_default_dataset() -> None:
     if _get_dataset() is not None:
         return
-    for path, kind in (
+    candidates: tuple[tuple[Path, Literal["sample", "export"]], ...] = (
         (find_repo_root() / DEFAULT_DATASET, "sample"),
         (find_repo_root() / DEFAULT_EXPORT, "export"),
-    ):
+    )
+    for path, kind in candidates:
         if not path.is_file():
             continue
         try:

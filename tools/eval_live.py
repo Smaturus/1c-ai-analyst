@@ -40,12 +40,16 @@ import pandas as pd  # noqa: E402
 from onec_analyst import llm_agent  # noqa: E402
 from onec_analyst.agent.graph import run_agent_graph  # noqa: E402
 from onec_analyst.agent.llm import make_agent_client  # noqa: E402
-from onec_analyst.agent.state import CallBudgetGuard, initial_state, status_of  # noqa: E402
+from onec_analyst.agent.state import (  # noqa: E402
+    AgentState,
+    CallBudgetGuard,
+    initial_state,
+    status_of,
+)
 from onec_analyst.audit import AuditLog  # noqa: E402
 from onec_analyst.data_loader import PRODUCT  # noqa: E402
 from onec_analyst.entities import resolve_entity  # noqa: E402
 from onec_analyst.pipeline import execute  # noqa: E402
-
 from tests.golden.checks import check_facts  # noqa: E402
 from tests.golden.schema import FIXTURE_PATH, canonical_params, load_cases  # noqa: E402
 
@@ -76,7 +80,7 @@ def _resolve_filters(params: dict[str, Any], frame: pd.DataFrame) -> dict[str, A
     return resolved
 
 
-def build_state(case: dict[str, Any]) -> dict[str, Any]:
+def build_state(case: dict[str, Any]) -> AgentState:
     today = None
     if case.get("mock_today"):
         today = date.fromisoformat(str(case["mock_today"]))
@@ -128,6 +132,7 @@ def evaluate_case(
             result["dsl_match"] = False
             result["fact_match"] = False
             return result
+        assert decision is not None  # status=ok ⇒ решение есть
         exp_intent, exp_params = canonical_params(case["expected_dsl"])
         exp_params = _resolve_filters(exp_params, frame)
         actual_params = _resolve_filters(dict(decision.params or {}), frame)
@@ -148,7 +153,7 @@ def evaluate_case(
                 payload = {"values": list(execution.summary_payload.values)}
                 check_facts(execution.summary, case["expected_facts"], payload=payload)
                 fact_match = True
-            except Exception as exc:  # noqa: BLE001 — один кейс не роняет прогон
+            except Exception as exc:
                 fact_error = f"{type(exc).__name__}: {exc}"
         result["fact_match"] = fact_match
         result["fact_error"] = fact_error

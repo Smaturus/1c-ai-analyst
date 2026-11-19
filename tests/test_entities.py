@@ -45,6 +45,19 @@ def test_short_tokens_are_not_fuzzy_matched() -> None:
     assert not resolution.resolved
 
 
+def test_resolution_is_logged(caplog) -> None:
+    """Резолюция пишется в лог (trace/audit): «resolved ... -> ... (fuzzy ...)»."""
+    import logging
+
+    with caplog.at_level(logging.INFO, logger="onec_analyst.entities"):
+        resolve_entity("Колонки Му", _CATALOG)
+
+    assert any(
+        "resolved" in record.getMessage() and "Колонка Му" in record.getMessage()
+        for record in caplog.records
+    )
+
+
 def test_empty_raw_returns_raw() -> None:
     resolution = resolve_entity("  ", _CATALOG)
     assert not resolution.resolved

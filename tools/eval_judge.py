@@ -127,6 +127,7 @@ def build_answer(case: dict[str, Any], frame: pd.DataFrame, profile: dict[str, s
         "dsl": decision.dsl if decision is not None else None,
     }
     if status == "ok":
+        assert decision is not None  # status=ok ⇒ решение есть
         execution = execute(decision, frame, profile)
         answer["summary"] = execution.summary
         answer["payload"] = [dict(value) for value in execution.summary_payload.values]

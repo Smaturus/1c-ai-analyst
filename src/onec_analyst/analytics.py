@@ -50,7 +50,7 @@ import re
 import warnings
 from collections.abc import Callable, Sequence
 from datetime import date, datetime
-from typing import Any, Final, Literal, TypeAlias
+from typing import Any, Final, Literal, TypeAlias, cast
 
 import numpy as np
 import pandas as pd
@@ -112,6 +112,9 @@ Period: TypeAlias = Sequence[DateLike]
 """Пара (начало, конец) включительно: кортеж, список, массив или Series длины 2."""
 
 MetricName: TypeAlias = Literal["revenue", "quantity"]
+
+#: Дефолтная метрика как `MetricName` (для сигнатур без `cast` в аргументах).
+_DEFAULT_METRIC: MetricName = "revenue"
 AggMode: TypeAlias = Literal["sum", "mean", "count"]
 SortBy: TypeAlias = Literal["delta", "delta_abs", "period1_value", "period2_value", "name"]
 
@@ -191,7 +194,7 @@ _FALSE_STRINGS: Final[frozenset[str]] = frozenset({"false", "0", "no", "n", "н�
 # --------------------------------------------------------------------------- #
 def get_top_bottom_products(
     df: pd.DataFrame,
-    metric: MetricName = REVENUE,
+    metric: MetricName = _DEFAULT_METRIC,
     limit: int = 5,
     ascending: bool = False,
     *,
@@ -258,7 +261,7 @@ def compare_top_products(
     period1: Period,
     period2: Period,
     top_n: int = 5,
-    metric: MetricName = REVENUE,
+    metric: MetricName = _DEFAULT_METRIC,
 ) -> pd.DataFrame:
     """Интент 6 (L4L): сравнить топ-товары двух периодов.
 
@@ -446,7 +449,7 @@ def get_timeseries(
     df: pd.DataFrame,
     freq: str = "M",
     *,
-    metric: MetricName = REVENUE,
+    metric: MetricName = _DEFAULT_METRIC,
     agg: AggMode = "sum",
     start_date: DateLike | None = None,
     end_date: DateLike | None = None,
@@ -526,7 +529,7 @@ def compare_periods(
     period1: Period,
     period2: Period,
     *,
-    metric: MetricName = REVENUE,
+    metric: MetricName = _DEFAULT_METRIC,
     top_n: int | None = None,
     min_abs_delta: float | None = None,
     sort_by: SortBy = "delta_abs",
@@ -636,7 +639,7 @@ def get_counterparty_dynamics(
     period1: Period,
     period2: Period,
     *,
-    metric: MetricName = REVENUE,
+    metric: MetricName = _DEFAULT_METRIC,
     top_n: int | None = None,
     min_abs_delta: float | None = None,
     sort_by: SortBy = "delta_abs",
@@ -703,7 +706,7 @@ def get_group_dynamics(
     period2: Period,
     *,
     group_by: str | pd.Series | Callable[[pd.Series], pd.Series] | None = None,
-    metric: MetricName = REVENUE,
+    metric: MetricName = _DEFAULT_METRIC,
     top_n: int | None = None,
     min_abs_delta: float | None = None,
     sort_by: SortBy = "delta_abs",
@@ -1148,11 +1151,11 @@ def _ensure_columns(df: pd.DataFrame, required: Sequence[str]) -> None:
         )
 
 
-def _check_metric(metric: str) -> str:
+def _check_metric(metric: str) -> MetricName:
     """Проверить, что метрика поддерживается."""
     if metric not in METRICS:
         raise ValueError(f"metric должен быть одним из {list(METRICS)}, получено {metric!r}")
-    return metric
+    return cast(MetricName, metric)
 
 
 def _filter_text(
@@ -1472,7 +1475,7 @@ def _as_period(period: Period, name: str) -> tuple[pd.Timestamp, pd.Timestamp]:
             f"{name} должен быть парой дат (начало, конец), получено {period!r}"
         )
     try:
-        start_value, end_value = period  # type: ignore[misc]
+        start_value, end_value = period
     except (TypeError, ValueError):
         raise TypeError(
             f"{name} должен быть парой дат (начало, конец), получено {period!r}"

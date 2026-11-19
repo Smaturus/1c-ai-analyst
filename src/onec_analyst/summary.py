@@ -711,7 +711,7 @@ def build_summary_payload(
     intent = decision.intent or ""
     text = _summary_text(decision, result, data_profile)
     empty = result is None or result.empty
-    if not empty:
+    if result is not None and not empty:
         total_zero = (
             intent == "total"
             and ROWS_COUNT in result.columns

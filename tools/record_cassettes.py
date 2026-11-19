@@ -39,13 +39,13 @@ from onec_analyst import llm_agent  # noqa: E402
 from onec_analyst.agent.graph import run_agent_graph  # noqa: E402
 from onec_analyst.agent.llm import make_agent_client  # noqa: E402
 from onec_analyst.agent.state import (  # noqa: E402
+    AgentState,
     CallBudgetGuard,
     initial_state,
     status_of,
 )
 from onec_analyst.audit import AuditLog  # noqa: E402
 from onec_analyst.llm_agent import CompletionResult, LLMError  # noqa: E402
-
 from tests.golden.cassette_client import completion_to_entry  # noqa: E402
 from tests.golden.schema import load_cases  # noqa: E402
 
@@ -82,7 +82,7 @@ class RecordingClient:
         return result
 
 
-def build_state(case: dict[str, Any]) -> dict[str, Any]:
+def build_state(case: dict[str, Any]) -> AgentState:
     """``initial_state`` кейса: question, history_dsl, result_entities, mock_today."""
     today = None
     if case.get("mock_today"):

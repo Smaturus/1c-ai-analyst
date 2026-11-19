@@ -27,7 +27,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 
@@ -84,7 +84,7 @@ class AlertPolicy:
     ) -> AlertPolicy:
         """Политика из окружения с явными переопределениями."""
         base = cls(
-            min_abs=_env_float(MIN_ABS_ENV, DEFAULT_MIN_ABS),
+            min_abs=cast(float, _env_float(MIN_ABS_ENV, DEFAULT_MIN_ABS)),
             min_rows=_env_int(MIN_ROWS_ENV, DEFAULT_MIN_ROWS),
             share_pct=_env_float(SHARE_ENV, None),
         )
