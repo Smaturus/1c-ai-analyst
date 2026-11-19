@@ -66,8 +66,15 @@ def test_sidebar_toggle_is_available_when_llm_configured(llm_env: None) -> None:
     assert toggle.disabled is False
 
 
-def test_sidebar_toggle_is_disabled_without_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Без ключа переключатель заблокирован, в сайдбаре — пояснение про офлайн."""
+def test_sidebar_toggle_is_manageable_without_providers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Без провайдеров галочка не блокируется, но стартует выключенной.
+
+    Прежняя посылка («галочка заблокирована, если нет ключа») устарела: галочка
+    управляется пользователем, а не блокируется. Начальное состояние по-прежнему
+    OFF — доступных провайдеров нет, — и работают офлайн-правила.
+    """
     monkeypatch.setenv("LLM_PROVIDER", "none")
     monkeypatch.delenv("LLM_API_KEY", raising=False)
 
@@ -75,8 +82,45 @@ def test_sidebar_toggle_is_disabled_without_key(monkeypatch: pytest.MonkeyPatch)
 
     assert len(at.exception) == 0
     toggle = at.sidebar.toggle[0]
-    assert toggle.disabled is True
-    assert any("Офлайн-режим" in info.value for info in at.sidebar.info)
+    assert toggle.label == "Использовать LLM"
+    assert toggle.disabled is False
+    assert toggle.value is False
+    captions = [caption.value for caption in at.sidebar.caption]
+    assert any("офлайн-правила" in text for text in captions), captions
+
+
+def test_ask_button_blocked_when_llm_on_without_providers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Галочка ON без единого доступного провайдера → «Спросить» заблокирована."""
+    monkeypatch.setenv("LLM_PROVIDER", "none")
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+
+    at = AppTest.from_file(APP_FILE, default_timeout=TIMEOUT).run()
+    at.sidebar.toggle[0].set_value(True).run()
+
+    assert len(at.exception) == 0
+    ask = next(button for button in at.button if button.label == "Спросить")
+    assert ask.proto.disabled is True
+    warnings = " ".join(item.value for item in at.sidebar.warning)
+    assert "Нет доступных провайдеров" in warnings, warnings
+    assert "OLLAMA_ENABLED=true" in warnings, "подсказка должна называть флаг Ollama"
+
+
+def test_sidebar_ollama_label_and_preselect_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """LLM_PROVIDER=ollama без флага: «Ollama — выключена в .env», преселект — DeepSeek."""
+    monkeypatch.setenv("LLM_PROVIDER", "ollama")
+    monkeypatch.setenv("LLM_API_KEY_DEEPSEEK", "ds-key")
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+
+    at = AppTest.from_file(APP_FILE, default_timeout=TIMEOUT).run()
+
+    assert len(at.exception) == 0
+    box = at.sidebar.selectbox[0]
+    assert "Ollama — выключена в .env" in list(box.options), list(box.options)
+    assert box.value == "DeepSeek", "недоступный преселект падает на первого доступного"
 
 
 def test_toggle_off_switches_question_to_offline_rules(llm_env: None) -> None:

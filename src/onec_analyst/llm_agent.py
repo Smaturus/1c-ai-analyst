@@ -1096,21 +1096,32 @@ def _ssl_trust_ready(settings: LLMSettings) -> bool:
     return Path(settings.ca_bundle).is_file()
 
 
+#: Значения ``OLLAMA_ENABLED``, которыми владелец включает локальную модель.
+#: Флаг живёт только в проверке доступности: это не клиентская настройка,
+#: поэтому в :class:`LLMSettings` его нет.
+_OLLAMA_ENABLED_VALUES: Final[frozenset[str]] = frozenset({"1", "true", "yes", "on"})
+
+
 def _is_provider_configured(
     values: dict[str, str], name: str, settings: LLMSettings
 ) -> bool:
-    """Готов ли провайдер к вызову по текущему окружению.
+    """Доступен ли провайдер по конфигурации (без сетевых проверок).
 
-    Обычные провайдеры — есть ключ (общий для ``LLM_PROVIDER`` или собственный
+    Облачные провайдеры — есть ключ (общий для ``LLM_PROVIDER`` или собственный
     ``LLM_API_KEY_<PROVIDER>``). GigaChat дополнительно требует готовности TLS:
     без корневого сертификата НУЦ Минцифры (или указания несуществующего пути
     в ``LLM_TLS_CA_BUNDLE``) OAuth-запрос падает с ``CERTIFICATE_VERIFY_FAILED``.
-    Локальную Ollama нельзя проверить без сети, поэтому она считается
-    настроенной только при явном ``LLM_PROVIDER=ollama``.
+
+    Ollama — локальная, ключ ей не нужен, но и доступной по умолчанию она не
+    считается: сервер может быть не запущен, а модель не скачана. Поэтому она
+    включается **только** явным флагом ``OLLAMA_ENABLED`` (``1``/``true``/
+    ``yes``/``on``, регистр не важен) — opt-in, default ``false``. Проверки связи
+    здесь нет: недоступный сервер даст понятную ошибку при реальном вызове.
     """
     default = (values.get("LLM_PROVIDER") or "none").strip().lower()
     if name == "ollama":
-        return name == default
+        enabled = (values.get("OLLAMA_ENABLED") or "").strip().lower()
+        return enabled in _OLLAMA_ENABLED_VALUES and settings.is_configured
     dedicated = (values.get(f"LLM_API_KEY_{name.upper()}") or "").strip()
     if not (name == default or dedicated) or not settings.is_configured:
         return False

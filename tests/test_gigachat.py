@@ -463,6 +463,68 @@ def test_provider_catalog_marks_configured_gigachat() -> None:
 
 
 # --------------------------------------------------------------------------- #
+# Ollama — opt-in: доступность только по OLLAMA_ENABLED (без сети)
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize("flag", [None, "", "0", "false", "no", "off"])
+def test_ollama_unavailable_without_enable_flag(flag: str | None) -> None:
+    """Без OLLAMA_ENABLED (или с ложным значением) Ollama недоступна."""
+    env = {"LLM_PROVIDER": "deepseek", "LLM_API_KEY": "ds-key"}
+    if flag is not None:
+        env["OLLAMA_ENABLED"] = flag
+
+    by_provider = {option.settings.provider: option for option in provider_catalog(env)}
+
+    assert by_provider["ollama"].configured is False
+    assert [settings.provider for settings in available_providers(env)] == ["deepseek"]
+
+
+@pytest.mark.parametrize("flag", ["1", "true", "TRUE", "yes", "on"])
+def test_ollama_available_with_enable_flag(flag: str) -> None:
+    """OLLAMA_ENABLED=1/true/yes/on (регистр не важен) включает Ollama."""
+    env = {"LLM_PROVIDER": "deepseek", "LLM_API_KEY": "ds-key", "OLLAMA_ENABLED": flag}
+
+    by_provider = {option.settings.provider: option for option in provider_catalog(env)}
+
+    assert by_provider["ollama"].configured is True
+    assert [settings.provider for settings in available_providers(env)] == [
+        "deepseek",
+        "ollama",
+    ]
+
+
+def test_ollama_flag_is_enough_for_model_and_url() -> None:
+    """Флага достаточно: модель и адрес — из OLLAMA_MODEL/OLLAMA_BASE_URL."""
+    env = {
+        "LLM_PROVIDER": "none",
+        "OLLAMA_ENABLED": "true",
+        "OLLAMA_MODEL": "qwen3:8b",
+        "OLLAMA_BASE_URL": "http://localhost:11434/v1",
+    }
+
+    by_provider = {option.settings.provider: option for option in provider_catalog(env)}
+
+    assert by_provider["ollama"].configured is True
+    assert by_provider["ollama"].settings.model == "qwen3:8b"
+    assert by_provider["ollama"].settings.base_url == "http://localhost:11434/v1"
+
+
+def test_default_ollama_without_flag_is_unavailable() -> None:
+    """``LLM_PROVIDER=ollama`` без флага не делает Ollama доступной.
+
+    Миграционная оговорка DECISIONS #18: преселект сохраняет ollama первым
+    в каталоге (это «хотелка» из ``LLM_PROVIDER``), но доступным остаётся
+    первый другой провайдер.
+    """
+    env = {"LLM_PROVIDER": "ollama", "LLM_API_KEY_DEEPSEEK": "ds-key"}
+
+    options = provider_catalog(env)
+
+    assert options[0].settings.provider == "ollama"
+    assert options[0].configured is False
+    assert [settings.provider for settings in available_providers(env)] == ["deepseek"]
+
+
+# --------------------------------------------------------------------------- #
 # Изоляция настроек по провайдеру: общие имена не перетекают на чужих
 # --------------------------------------------------------------------------- #
 def test_generic_model_does_not_leak_to_other_provider() -> None:
@@ -795,7 +857,7 @@ def test_check_provider_rejects_non_ascii_key(monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_check_providers_skips_unconfigured(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Проверяются только настроенные провайдеры: openai/ollama без ключа пропущены."""
+    """Проверяются только доступные: openai без ключа и ollama без флага пропущены."""
     _patch_models(monkeypatch, json.dumps({"data": [{"id": "GigaChat-2-Pro"}]}))
     env = {"LLM_PROVIDER": "deepseek", "LLM_API_KEY": "ds-key", "LLM_API_KEY_GIGACHAT": "gc-key"}
 

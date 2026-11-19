@@ -881,13 +881,20 @@ def clear_question() -> None:
     st.session_state["clarification_rounds"] = 0
 
 
-def render_question_input() -> tuple[str, bool]:
+def render_question_input(*, disabled: bool = False, reason: str = "") -> tuple[str, bool]:
     """Отрисовать поле вопроса: очистка «✖️» и отправка кнопкой или Enter.
 
     Поле и кнопка «Спросить» находятся внутри ``st.form``: **Enter в поле
     отправляет форму**, то есть работает как обычная отправка вопроса. Кнопка
     «✖️» вынесена за пределы формы, поэтому очистка поля не отправляет запрос
     (это было причиной отказа от формы на шаге 3 — теперь ограничение снято).
+
+    Parameters
+    ----------
+    disabled:
+        Заблокировать «Спросить» (LLM включена, но провайдеров нет).
+    reason:
+        Почему кнопка заблокирована — подсказка под кнопкой.
 
     Returns
     -------
@@ -903,7 +910,14 @@ def render_question_input() -> tuple[str, bool]:
                 placeholder="Например: какие 5 товаров продаются хуже остальных за 2024 год?",
                 label_visibility="collapsed",
             )
-            submitted = st.form_submit_button("Спросить", type="primary")
+            submitted = st.form_submit_button(
+                "Спросить",
+                type="primary",
+                disabled=disabled,
+                help=reason or None,
+            )
+        if disabled and reason:
+            st.caption(reason)
     with clear_col:
         st.button("✖️", help="Очистить поле", on_click=clear_question)
 
@@ -930,14 +944,17 @@ def _provider_setup_hint(provider: str) -> str:
             "(сертификат НУЦ Минцифры)"
         )
     if provider == "ollama":
-        return "LLM_PROVIDER=ollama (локальной модели ключ не нужен)"
+        return (
+            "OLLAMA_ENABLED=true (ключ локальной модели не нужен; "
+            "модель — OLLAMA_MODEL, адрес — OLLAMA_BASE_URL)"
+        )
     return f"LLM_API_KEY_{provider.upper()}"
 
 
 def _default_provider_index(
     options: list[ProviderOption], default: LLMSettings | None
 ) -> int:
-    """Индекс провайдера по умолчанию; если он не настроен — первый настроенный."""
+    """Индекс провайдера по умолчанию; если он недоступен — первый доступный."""
 
     def index_of(provider: str | None) -> int | None:
         if not provider:
@@ -971,6 +988,21 @@ def _provider_title(provider: str) -> str:
     return _PROVIDER_TITLES.get(provider, provider)
 
 
+def _provider_label(option: ProviderOption) -> str:
+    """Подпись провайдера в списке: доступный — именем, недоступный — с причиной.
+
+    Причина у всех своя: облачным не хватает ключа/сертификата, а Ollama
+    выключается флагом, а не ключом, — «не настроен» про неё вводило бы в
+    заблуждение.
+    """
+    title = _provider_title(option.settings.provider)
+    if option.configured:
+        return title
+    if option.settings.provider == "ollama":
+        return f"{title} — выключена в .env"
+    return f"{title} — не настроен"
+
+
 def choose_llm_provider(
     options: list[ProviderOption],
     default: LLMSettings | None,
@@ -979,9 +1011,13 @@ def choose_llm_provider(
 ) -> ProviderOption:
     """Виджет выбора провайдера LLM; вернуть выбранный вариант.
 
-    Показывает всех провайдеров, помечая ненастроенных «— не настроен».
-    По умолчанию выбирается настроенный провайдер из ``LLM_PROVIDER`` (или первый
-    настроенный). Позволяет держать, например, DeepSeek и GigaChat одновременно.
+    Показывает всех провайдеров: доступные — обычным именем, недоступные — с
+    причиной («— не настроен» / «— выключена в .env»). По умолчанию выбирается
+    доступный провайдер из ``LLM_PROVIDER`` (или первый доступный). Позволяет
+    держать, например, DeepSeek и GigaChat одновременно.
+
+    ``disabled=True`` — «LLM выключена галочкой»: список виден, но выбрать
+    провайдера нельзя.
 
     В подписи — **только провайдер**, без модели: модель показывается отдельно
     (для GigaChat — селектором «Модель GigaChat», для остальных — подписью
@@ -990,11 +1026,7 @@ def choose_llm_provider(
     """
     if not options:
         return ProviderOption(settings=LLMSettings(), configured=False)
-    labels = [
-        _provider_title(option.settings.provider)
-        + ("" if option.configured else " — не настроен")
-        for option in options
-    ]
+    labels = [_provider_label(option) for option in options]
     default_index = _default_provider_index(options, default)
     selected = st.sidebar.selectbox(
         "Провайдер LLM",
@@ -1002,8 +1034,9 @@ def choose_llm_provider(
         index=default_index,
         disabled=disabled,
         help=(
-            "Какой провайдер использовать для разбора вопроса. «Не настроен» — "
-            "нет ключа/сертификата в .env; пока работают офлайн-правила."
+            "Какой провайдер использовать для разбора вопроса. Недоступные "
+            "показаны с причиной: облачным нужен ключ/сертификат в .env, "
+            "Ollama включается флагом OLLAMA_ENABLED."
         ),
     )
     return options[labels.index(selected)]
@@ -1076,11 +1109,17 @@ def choose_gigachat_model(settings: LLMSettings) -> LLMSettings:
 # --------------------------------------------------------------------------- #
 # Боковая панель
 # --------------------------------------------------------------------------- #
+#: Подсказка, когда LLM включена галочкой, но ни один провайдер не доступен.
+NO_PROVIDERS_MESSAGE = (
+    "Нет доступных провайдеров LLM: задайте ключ в `.env` или `OLLAMA_ENABLED=true`."
+)
+
+
 def render_sidebar(
     limiter: RateLimiter,
     session_id: str,
     limit_status: LimitStatus | None,
-) -> tuple[str, Any, bool, Any, Any]:
+) -> tuple[str, Any, bool, Any, Any, LLMSettings, bool]:
     """Отрисовать боковую панель: источник витрины, режим LLM, сброс истории.
 
     Parameters
@@ -1094,10 +1133,11 @@ def render_sidebar(
 
     Returns
     -------
-    tuple[str, Any, bool, Any, Any]
+    tuple[str, Any, bool, Any, Any, LLMSettings, bool]
         Источник, файл, флаг LLM, слот счётчика и слот плашки лимита
-        (``st.empty``), чтобы обновить UI после ``increment`` в том же прогоне.
-        Если LLM не настроена, переключатель заблокирован, флаг ``False``.
+        (``st.empty``), чтобы обновить UI после ``increment`` в том же прогоне,
+        настройки выбранного провайдера и признак «спросить нельзя»
+        (галочка включена, а провайдеров нет).
     """
     st.sidebar.title("Данные")
     source_kind = st.sidebar.radio(
@@ -1129,45 +1169,45 @@ def render_sidebar(
     except ValueError:
         provider_options = []
     configured_options = [option for option in provider_options if option.configured]
-    llm_configured = bool(configured_options)
+    any_available = bool(configured_options)
 
+    # Галочка — выбор пользователя, а не индикатор наличия ключей: она не
+    # блокируется. ON без единого провайдера возможен и обрабатывается ниже
+    # (кнопка «Спросить» блокируется с явным сообщением).
     use_llm = st.sidebar.toggle(
         "Использовать LLM",
-        value=llm_configured,
-        disabled=not llm_configured,
+        value=any_available,
         help=(
-            "Если выключено, вопросы разбираются офлайн-правилами без вызова API."
-            if llm_configured
-            else "LLM не настроена: задайте ключ провайдера (см. .env.example)."
+            "Включено — вопрос разбирает выбранный провайдер; выключено — "
+            "офлайн-правила без вызова API."
         ),
     )
-    # Список показываем всегда: ненастроенные провайдеры помечены «не настроен».
+    # Список показываем всегда: недоступные — с причиной; при выключенной
+    # галочке выбор заблокирован («никакую LLM не выбрать»).
     selected_option = choose_llm_provider(
-        provider_options, default_settings, disabled=not llm_configured
+        provider_options, default_settings, disabled=not use_llm
     )
-    if not llm_configured:
-        # Заблокированный переключатель не должен включать LLM: работают правила.
-        use_llm = False
-        chosen_settings = LLMSettings()
-        st.sidebar.info(
-            "Офлайн-режим: вопрос разбирается детерминированными правилами (без LLM). "
-            "Для LLM задайте ключ провайдера (см. .env.example)."
-        )
-    elif not use_llm:
+    ask_blocked = use_llm and not any_available
+    if not use_llm:
         chosen_settings = LLMSettings()
         st.sidebar.caption("Включены офлайн-правила: API не вызывается.")
+    elif ask_blocked:
+        chosen_settings = LLMSettings()
+        st.sidebar.warning(NO_PROVIDERS_MESSAGE)
     elif selected_option.configured:
         chosen_settings = choose_gigachat_model(selected_option.settings)
         st.sidebar.caption(f"LLM: `{chosen_settings.provider}` / `{chosen_settings.model}`")
     else:
+        # Пользователь явно выбрал недоступного провайдера: честно говорим
+        # причину и работаем правилами, а не молча подменяем провайдера.
         chosen_settings = LLMSettings()
         provider_name = selected_option.settings.provider
+        reason = "выключен в .env" if provider_name == "ollama" else "не настроен"
         st.sidebar.warning(
-            f"Провайдер «{provider_name}» не настроен: задайте "
+            f"Провайдер «{provider_name}» {reason}: задайте "
             f"{_provider_setup_hint(provider_name)} в .env. "
             "Пока работают офлайн-правила."
         )
-        st.sidebar.caption(f"LLM: `{provider_name}` — не настроен")
 
     usage_slot = st.sidebar.empty()
     warn_slot = st.sidebar.empty()
@@ -1196,7 +1236,15 @@ def render_sidebar(
         st.session_state.pop("clarification_answer", None)
         st.session_state.pop("auto_submit", None)
     st.sidebar.divider()
-    return source_kind, uploaded, use_llm, usage_slot, warn_slot, chosen_settings
+    return (
+        source_kind,
+        uploaded,
+        use_llm,
+        usage_slot,
+        warn_slot,
+        chosen_settings,
+        ask_blocked,
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -1241,8 +1289,8 @@ def main() -> None:
             "Система работает в офлайн-режиме."
         )
 
-    source_kind, uploaded, use_llm, usage_slot, warn_slot, settings = render_sidebar(
-        limiter, llm_session_id, limit_status
+    source_kind, uploaded, use_llm, usage_slot, warn_slot, settings, ask_blocked = (
+        render_sidebar(limiter, llm_session_id, limit_status)
     )
 
     limit_blocked = limiter_error is not None or (
@@ -1311,7 +1359,10 @@ def main() -> None:
                 limit_blocked = True
                 llm_allowed = False
 
-    question, submitted = render_question_input()
+    question, submitted = render_question_input(
+        disabled=ask_blocked,
+        reason=NO_PROVIDERS_MESSAGE if ask_blocked else "",
+    )
 
     if st.session_state.get("auto_submit"):
         # Флаг выставлен выбором варианта уточнения (pills/кнопка-ссылка).
@@ -1323,6 +1374,11 @@ def main() -> None:
         submitted = True
 
     if submitted:
+        if ask_blocked:
+            # Enter в поле отправляет форму даже при заблокированной кнопке —
+            # не даём уйти в расчёт без провайдера.
+            st.warning(NO_PROVIDERS_MESSAGE)
+            st.stop()
         if not question.strip():
             st.warning("Введите вопрос.")
             st.stop()

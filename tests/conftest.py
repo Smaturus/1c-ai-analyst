@@ -116,6 +116,18 @@ def _isolated_env_file(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(llm_agent, "_environment_with_dotenv", lambda: dict(os.environ))
 
 
+@pytest.fixture(autouse=True)
+def _ollama_disabled_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ollama — opt-in: тесты не зависят от ``OLLAMA_ENABLED`` разработчика.
+
+    ``.env`` в тестах уже изолирован, но переменная окружения процесса видна.
+    Без этой страховки офлайн-тесты (``LLM_PROVIDER=none``) увидели бы
+    доступную Ollama, галочка «Использовать LLM» включилась бы и вопрос ушёл
+    в реальную локальную модель. Тест, которому нужна Ollama, задаёт флаг сам.
+    """
+    monkeypatch.delenv("OLLAMA_ENABLED", raising=False)
+
+
 @pytest.fixture(autouse=True, scope="session")
 def _isolated_audit_log() -> Iterator[Path]:
     """Все тесты пишут аудит MCP в ``.pytest_tmp``, а не в ``.mcp_state``."""
