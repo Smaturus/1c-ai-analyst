@@ -203,7 +203,8 @@ def test_dynamics_without_growth_does_not_claim_growth() -> None:
 
     assert "Наибольший рост" not in summary
     assert "Роста нет" in summary
-    assert "наибольшее падение" in summary
+    assert "Выпал: «A» — было 100,00 ₽" in summary
+    assert "падений нет" in summary
 
 
 def test_dynamics_with_growth_names_best_growth() -> None:
@@ -402,3 +403,79 @@ def test_month_and_quarter_periods_are_human_readable(
 
     assert month_payload.periods == ("март 2024",)
     assert month_payload.values[0]["period"] == "2024-03"
+
+
+def test_new_counterparty_is_not_ranked_as_growth() -> None:
+    """База периода 1 = 0 («новый») не называется «наибольшим ростом» (DECISIONS)."""
+    result = pd.DataFrame(
+        {
+            "counterparty": ["Дельта", "Альфа"],
+            "period1_value": [0.0, 200.0],
+            "period2_value": [450000.0, 35000.0],
+            "delta": [450000.0, -165000.0],
+            "delta_pct": [None, -82.5],
+            "direction": ["new", "down"],
+        }
+    )
+    decision = _decision(
+        "counterparty_dynamics",
+        period1=DATE_PAIR_2023_2024[0],
+        period2=DATE_PAIR_2023_2024[1],
+        metric="revenue",
+    )
+
+    summary = build_summary(decision, result)
+
+    assert "Наибольший рост: «Дельта»" not in summary
+    assert "Новый участник: «Дельта»" in summary
+    assert "наибольшее падение: «Альфа»" in summary
+
+
+def test_group_dynamics_payload_has_no_duplicate() -> None:
+    """Одна группа: payload несёт одну запись, а не дубль best/worst (028)."""
+    result = pd.DataFrame(
+        {
+            "product_group": ["Электроника"],
+            "period1_value": [100.0],
+            "period2_value": [285000.0],
+            "delta": [185000.0],
+            "delta_pct": [1850.0],
+            "direction": ["up"],
+        }
+    )
+    decision = _decision(
+        "group_dynamics",
+        period1=DATE_PAIR_2023_2024[0],
+        period2=DATE_PAIR_2023_2024[1],
+        metric="revenue",
+    )
+
+    payload = build_summary_payload(decision, result)
+
+    assert len(payload.values) == 1
+
+
+def test_lost_counterparty_is_not_ranked_as_decline() -> None:
+    """«Выпавший» не называется «наибольшим падением» (симметрично zero-base)."""
+    result = pd.DataFrame(
+        {
+            "counterparty": ["Альфа", "Бета"],
+            "period1_value": [165000.0, 50000.0],
+            "period2_value": [0.0, 40000.0],
+            "delta": [-165000.0, -10000.0],
+            "delta_pct": [-100.0, -20.0],
+            "direction": ["lost", "down"],
+        }
+    )
+    decision = _decision(
+        "counterparty_dynamics",
+        period1=DATE_PAIR_2023_2024[0],
+        period2=DATE_PAIR_2023_2024[1],
+        metric="revenue",
+    )
+
+    summary = build_summary(decision, result)
+
+    assert "Выпал: «Альфа» — было 165 000,00 ₽" in summary
+    assert "наибольшее падение: «Альфа»" not in summary
+    assert "наибольшее падение: «Бета»" in summary

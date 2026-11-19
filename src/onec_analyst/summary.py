@@ -458,7 +458,8 @@ def _payload_values(
             best = result.sort_values(DELTA, ascending=False).iloc[0]
             worst = result.sort_values(DELTA).iloc[0]
             rows.append(_value_row(best[dim], "delta", p2, best[DELTA]))
-            rows.append(_value_row(worst[dim], "delta", p2, worst[DELTA]))
+            if worst.name != best.name:
+                rows.append(_value_row(worst[dim], "delta", p2, worst[DELTA]))
     elif intent == "compare_top_products":
         value_p2 = f"{metric}_p2"
         pair = _as_pair(params.get("period2"))
@@ -583,10 +584,14 @@ def _build_summary_text(decision: Any, result: pd.DataFrame) -> str:
                 f"наибольшее падение: «{biggest[dim]}» ({format_metric(biggest[DELTA], metric)} {unit}). "
                 f"Показатель — {metric_noun}."
             )
-        # «Рост» — только строки с положительной дельтой; «падение» — с отрицательной.
-        # Иначе max(delta) при полном спаде выдавал бы «выпавшего» за «наибольший рост».
-        growth = result.loc[result[DELTA].gt(0)]
-        decline = result.loc[result[DELTA].lt(0)]
+        # «Рост» — только строки с положительной дельтой и ненулевой базой:
+        # рост с нуля («новый») несравним с ростом от ненулевой базы и
+        # выносится отдельной строкой (DECISIONS: zero-base не ранжируется как рост).
+        has_direction = DIRECTION in result.columns
+        is_new = result[DIRECTION].astype(str) == "new" if has_direction else False
+        growth = result.loc[result[DELTA].gt(0) & ~is_new]
+        is_lost = result[DIRECTION].astype(str) == "lost" if has_direction else False
+        decline = result.loc[result[DELTA].lt(0) & ~is_lost]
         if not growth.empty:
             best = growth.sort_values(DELTA, ascending=False).iloc[0]
             growth_clause = (
@@ -596,6 +601,24 @@ def _build_summary_text(decision: Any, result: pd.DataFrame) -> str:
             )
         else:
             growth_clause = "Роста нет: все значения снизились или выпали; "
+        newcomers_clause = ""
+        if has_direction and new:
+            newcomers = result.loc[is_new]
+            if not newcomers.empty:
+                top_new = newcomers.sort_values(DELTA, ascending=False).iloc[0]
+                newcomers_clause = (
+                    f"Новый участник: «{top_new[dim]}» — с нуля до "
+                    f"{format_metric(top_new[DELTA], metric)} {unit}. "
+                )
+        lost_clause = ""
+        if has_direction and lost:
+            losers = result.loc[is_lost]
+            if not losers.empty:
+                top_lost = losers.sort_values(DELTA).iloc[0]
+                lost_clause = (
+                    f"Выпал: «{top_lost[dim]}» — было "
+                    f"{format_metric(-top_lost[DELTA], metric)} {unit}. "
+                )
         if not decline.empty:
             worst = decline.sort_values(DELTA).iloc[0]
             decline_clause = (
@@ -607,7 +630,7 @@ def _build_summary_text(decision: Any, result: pd.DataFrame) -> str:
         return (
             f"Сравнение по {len(result)} значени(ям): рост — {up}, падение — {down}, "
             f"новых — {new}, выпало — {lost}. "
-            f"{growth_clause}{decline_clause}"
+            f"{growth_clause}{newcomers_clause}{lost_clause}{decline_clause}"
             f"Показатель — {metric_noun}."
         )
     if intent == "total":

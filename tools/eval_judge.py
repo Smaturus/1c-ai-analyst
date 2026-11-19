@@ -10,8 +10,9 @@
 через ``on_llm_call``.
 
 Рубрика (бинарно, «да»/«нет»):
-- ok: все числа в тексте совпадают с переданными значениями расчёта (payload);
-  выводы следуют из этих значений.
+- ok: нет чисел, противоречащих переданным значениям расчёта; нет утверждений,
+  противоречащих этим значениям (faithfulness, «нет» = корректно; полнота отчёта
+  и насыщенность вывода не оцениваются).
 - refuse: отказ объяснён.
 - clarify: уточнение относится к missing.
 
@@ -157,22 +158,27 @@ def judge_answer(client: Any, answer: dict[str, Any]) -> dict[str, Any]:
         f"Значения расчёта (payload): {payload}\n"
         f"Сгенерированный ответ: {summary}\n"
         f"DSL: {dsl}\n\n"
+        "Важно: payload — минимальный набор посчитанных значений. Сводка может "
+        "содержать производные величины сверх него (доли, счётчики строк, "
+        "first/last) — это НЕ противоречие. Противоречие — только число, которое "
+        "несовместимо с переданными значениями (например, другой знак/порядок "
+        "у той же величины или утверждение, обратное данным).\n\n"
     )
 
     verdicts: dict[str, bool | None] = {}
     if status == "ok":
-        verdicts["numbers_match_payload"] = _parse_yes_no(
+        verdicts["numbers_contradict_data"] = _parse_yes_no(
             _ask(
                 client,
                 base
-                + "Все ли числа в тексте совпадают с переданными значениями расчёта? (да/нет)",
+                + "Есть ли в тексте числа, противоречащие переданным значениям расчёта? (да/нет)",
             )
         )
-        verdicts["conclusions_follow"] = _parse_yes_no(
+        verdicts["contradicts_data"] = _parse_yes_no(
             _ask(
                 client,
                 base
-                + "Следуют ли выводы в ответе из переданных значений расчёта? (да/нет)",
+                + "Содержит ли текст утверждения, противоречащие переданным данным? (да/нет)",
             )
         )
     elif status == "refuse":
@@ -235,20 +241,24 @@ def main(argv: list[str] | None = None) -> int:
     groups: dict[str, list[int]] = {
         "refuse/clarify": [0, 0],
         "ok_numbers": [0, 0],
-        "ok_conclusions": [0, 0],
+        "ok_faithfulness": [0, 0],
     }
     for r in results:
         for key, value in r["verdicts"].items():
-            group = (
-                "ok_numbers"
-                if key == "numbers_match_payload"
-                else "ok_conclusions"
-                if key == "conclusions_follow"
-                else "refuse/clarify"
+            if key == "numbers_contradict_data":
+                group = "ok_numbers"
+            elif key == "contradicts_data":
+                group = "ok_faithfulness"
+            else:
+                group = "refuse/clarify"
+            good = (
+                value is False
+                if key in ("numbers_contradict_data", "contradicts_data")
+                else value is True
             )
             groups[group][1] += 1
             total += 1
-            if value is True:
+            if good:
                 yes += 1
                 groups[group][0] += 1
     share = round(100.0 * yes / total, 1) if total else 0.0
@@ -287,8 +297,8 @@ def main(argv: list[str] | None = None) -> int:
     ]
     for name, label in (
         ("refuse/clarify", "refuse/clarify — объяснение/уточнение"),
-        ("ok_numbers", "ok — числа (payload)"),
-        ("ok_conclusions", "ok — выводы"),
+        ("ok_numbers", "ok — числа (противоречия, «нет» = корректно)"),
+        ("ok_faithfulness", "ok — выводы (faithfulness, «нет» = корректно)"),
     ):
         stats = group_stats[name]
         lines.append(f"| {label} | {stats['yes']}/{stats['total']} ({stats['share']}%) |")

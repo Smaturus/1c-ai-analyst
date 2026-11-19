@@ -2,9 +2,9 @@
   "provider": "deepseek",
   "model": "deepseek-chat",
   "date": "2026-11-19",
-  "yes": 20,
+  "yes": 23,
   "total": 25,
-  "share_yes": 80.0,
+  "share_yes": 92.0,
   "groups": {
     "refuse/clarify": {
       "yes": 5,
@@ -12,14 +12,14 @@
       "share": 100.0
     },
     "ok_numbers": {
-      "yes": 9,
+      "yes": 10,
       "total": 10,
-      "share": 90.0
+      "share": 100.0
     },
-    "ok_conclusions": {
-      "yes": 6,
+    "ok_faithfulness": {
+      "yes": 8,
       "total": 10,
-      "share": 60.0
+      "share": 80.0
     }
   },
   "cases": [
@@ -27,8 +27,8 @@
       "case_id": "test_001_top_simple",
       "status": "ok",
       "verdicts": {
-        "numbers_match_payload": false,
-        "conclusions_follow": false
+        "numbers_contradict_data": false,
+        "contradicts_data": false
       },
       "question": "Покажи топ-5 товаров за 2023 год"
     },
@@ -36,8 +36,8 @@
       "case_id": "test_003_total",
       "status": "ok",
       "verdicts": {
-        "numbers_match_payload": true,
-        "conclusions_follow": true
+        "numbers_contradict_data": false,
+        "contradicts_data": false
       },
       "question": "Сколько мы заработали за прошлый месяц?"
     },
@@ -45,8 +45,8 @@
       "case_id": "test_004_timeseries",
       "status": "ok",
       "verdicts": {
-        "numbers_match_payload": true,
-        "conclusions_follow": true
+        "numbers_contradict_data": false,
+        "contradicts_data": false
       },
       "question": "Покажи динамику продаж по месяцам за 2023 год"
     },
@@ -54,8 +54,8 @@
       "case_id": "test_005_negative",
       "status": "ok",
       "verdicts": {
-        "numbers_match_payload": true,
-        "conclusions_follow": false
+        "numbers_contradict_data": false,
+        "contradicts_data": false
       },
       "question": "Покажи товары с отрицательной выручкой за март 2024"
     },
@@ -63,8 +63,8 @@
       "case_id": "test_007_counterparty",
       "status": "ok",
       "verdicts": {
-        "numbers_match_payload": true,
-        "conclusions_follow": false
+        "numbers_contradict_data": false,
+        "contradicts_data": true
       },
       "question": "Кто из контрагентов вырос сильнее всего во втором квартале 2024 по сравнению с первым?"
     },
@@ -88,8 +88,8 @@
       "case_id": "test_014_filter_product",
       "status": "ok",
       "verdicts": {
-        "numbers_match_payload": true,
-        "conclusions_follow": true
+        "numbers_contradict_data": false,
+        "contradicts_data": true
       },
       "question": "Покажи динамику продаж Колонки Му за 2023 год"
     },
@@ -105,8 +105,8 @@
       "case_id": "test_025_total_year",
       "status": "ok",
       "verdicts": {
-        "numbers_match_payload": true,
-        "conclusions_follow": true
+        "numbers_contradict_data": false,
+        "contradicts_data": false
       },
       "question": "Общая выручка за 2022"
     },
@@ -122,8 +122,8 @@
       "case_id": "test_028_group_specific",
       "status": "ok",
       "verdicts": {
-        "numbers_match_payload": true,
-        "conclusions_follow": false
+        "numbers_contradict_data": false,
+        "contradicts_data": false
       },
       "question": "Сравни продажи группы 'Электроника' за 2023 и 2024"
     },
@@ -131,8 +131,8 @@
       "case_id": "test_032_quantity",
       "status": "ok",
       "verdicts": {
-        "numbers_match_payload": true,
-        "conclusions_follow": true
+        "numbers_contradict_data": false,
+        "contradicts_data": false
       },
       "question": "Сколько мы продали штук в октябре 2023?"
     },
@@ -148,8 +148,8 @@
       "case_id": "test_049_total_quarter",
       "status": "ok",
       "verdicts": {
-        "numbers_match_payload": true,
-        "conclusions_follow": true
+        "numbers_contradict_data": false,
+        "contradicts_data": false
       },
       "question": "Сколько мы заработали в четвертом квартале 2024?"
     }
