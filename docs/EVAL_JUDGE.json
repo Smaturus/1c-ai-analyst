@@ -2,9 +2,9 @@
   "provider": "deepseek",
   "model": "deepseek-chat",
   "date": "2026-11-19",
-  "yes": 23,
+  "yes": 24,
   "total": 25,
-  "share_yes": 92.0,
+  "share_yes": 96.0,
   "groups": {
     "refuse/clarify": {
       "yes": 5,
@@ -17,9 +17,9 @@
       "share": 100.0
     },
     "ok_faithfulness": {
-      "yes": 8,
+      "yes": 9,
       "total": 10,
-      "share": 80.0
+      "share": 90.0
     }
   },
   "cases": [
@@ -89,7 +89,7 @@
       "status": "ok",
       "verdicts": {
         "numbers_contradict_data": false,
-        "contradicts_data": true
+        "contradicts_data": false
       },
       "question": "Покажи динамику продаж Колонки Му за 2023 год"
     },

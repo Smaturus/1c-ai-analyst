@@ -561,12 +561,15 @@ def _build_summary_text(decision: Any, result: pd.DataFrame) -> str:
         total = float(result[value_column].sum())
         first, last = result.iloc[0], result.iloc[-1]
         peak = result.loc[result[value_column].idxmax()]
+        first_label = pd.Timestamp(first[PERIOD]).strftime("%Y-%m")
+        last_label = pd.Timestamp(last[PERIOD]).strftime("%Y-%m")
+        peak_label = pd.Timestamp(peak[PERIOD]).strftime("%Y-%m")
         return (
             f"{len(result)} интервал(ов) по {metric_label}, суммарно {format_metric(total, metric)} {unit}. "
-            f"Первый интервал: {format_metric(first[value_column], metric)} {unit}, "
-            f"последний: {format_metric(last[value_column], metric)} {unit}, "
+            f"В первом ({first_label}): {format_metric(first[value_column], metric)} {unit}, "
+            f"в последнем ({last_label}): {format_metric(last[value_column], metric)} {unit}, "
             f"максимум: {format_metric(peak[value_column], metric)} {unit} "
-            f"({pd.Timestamp(peak[PERIOD]).strftime('%Y-%m')})."
+            f"({peak_label})."
         )
     if intent in ("counterparty_dynamics", "group_dynamics"):
         dim = result.columns[0]
@@ -616,8 +619,8 @@ def _build_summary_text(decision: Any, result: pd.DataFrame) -> str:
             if not losers.empty:
                 top_lost = losers.sort_values(DELTA).iloc[0]
                 lost_clause = (
-                    f"Выпал: «{top_lost[dim]}» — было "
-                    f"{format_metric(-top_lost[DELTA], metric)} {unit}. "
+                    f"«{top_lost[dim]}» отсутствует в периоде 2 "
+                    f"(в периоде 1 — {format_metric(-top_lost[DELTA], metric)} {unit}). "
                 )
         if not decline.empty:
             worst = decline.sort_values(DELTA).iloc[0]

@@ -135,14 +135,15 @@ judge — авторитет по формулировкам и честност
 | 2026-11-18 | gigachat / GigaChat-2-Pro | 69.4 | 100.0 | — |
 | 2026-11-18 | gigachat / GigaChat-2-Pro (judge) | — | — | 92.0 |
 | 2026-11-19 | deepseek / deepseek-chat (S1) | 100.0 | 100.0 | — |
-| 2026-11-19 | deepseek / deepseek-chat (judge, contradiction) | — | — | 92.0 |
+| 2026-11-19 | deepseek / deepseek-chat (judge, contradiction) | — | — | 96.0 |
 
 Status accuracy: deepseek 89.8 %, gigachat 83.7 % (2026-11-18); после S1 — deepseek 100 %.
 Детали — в `EVAL_LIVE*.md`, `EVAL_JUDGE.md` (+ JSON рядом).
 
 **Judge history:** 52.0 % (сырой CSV — мерил арифметику LLM) → 80.0 % (payload,
-рубрика на полноту) → **92.0 %** (рубрика на противоречие + payload минимальный;
-refuse/clarify 5/5, числа 10/10, выводы 8/10). Baseline судьи — **92.0 %**.
+рубрика на полноту) → 92.0 % (рубрика на противоречие) → **96.0 %** (метки периода
+у экстремумов; 007 — известное отклонение: payload `delta` читается как рост/падение).
+Baseline судьи — **96.0 %** (24/25).
 
 ## 8. Пороги
 

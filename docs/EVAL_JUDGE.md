@@ -2,7 +2,7 @@
 
 - Судья: **deepseek / deepseek-chat**
 - Дата: 2026-11-19
-- Доля «да»: **92.0%** (23/25)
+- Доля «да»: **96.0%** (24/25)
 
 ## Сводка по группам
 
@@ -10,7 +10,7 @@
 |---|---|
 | refuse/clarify — объяснение/уточнение | 5/5 (100.0%) |
 | ok — числа (противоречия, «нет» = корректно) | 10/10 (100.0%) |
-| ok — выводы (faithfulness, «нет» = корректно) | 8/10 (80.0%) |
+| ok — выводы (faithfulness, «нет» = корректно) | 9/10 (90.0%) |
 
 ## Результаты по кейсам
 
@@ -23,7 +23,7 @@
 | test_007_counterparty | ok | numbers_contradict_data=нет, contradicts_data=да |
 | test_010_clarify_missing_dates | clarify | clarification_matches_missing=да |
 | test_012_unknown_greeting | refuse | refusal_explained=да |
-| test_014_filter_product | ok | numbers_contradict_data=нет, contradicts_data=да |
+| test_014_filter_product | ok | numbers_contradict_data=нет, contradicts_data=нет |
 | test_015_aggregated_metric | refuse | refusal_explained=да |
 | test_025_total_year | ok | numbers_contradict_data=нет, contradicts_data=нет |
 | test_026_edge_future_date | refuse | refusal_explained=да |

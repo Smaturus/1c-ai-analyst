@@ -75,8 +75,8 @@ SNAPSHOTS = [
             "start_date": "2023-01-01",
             "end_date": "2023-12-31",
         },
-        "За 2023 год: 12 интервал(ов) по выручке, суммарно 330,00 ₽. Первый интервал: 100,00 ₽, "
-        "последний: 0,00 ₽, максимум: 200,00 ₽ (2023-02).",
+        "За 2023 год: 12 интервал(ов) по выручке, суммарно 330,00 ₽. В первом (2023-01): 100,00 ₽, "
+        "в последнем (2023-12): 0,00 ₽, максимум: 200,00 ₽ (2023-02).",
     ),
     (
         "dynamics",
@@ -203,7 +203,7 @@ def test_dynamics_without_growth_does_not_claim_growth() -> None:
 
     assert "Наибольший рост" not in summary
     assert "Роста нет" in summary
-    assert "Выпал: «A» — было 100,00 ₽" in summary
+    assert "«A» отсутствует в периоде 2 (в периоде 1 — 100,00 ₽)" in summary
     assert "падений нет" in summary
 
 
@@ -476,6 +476,6 @@ def test_lost_counterparty_is_not_ranked_as_decline() -> None:
 
     summary = build_summary(decision, result)
 
-    assert "Выпал: «Альфа» — было 165 000,00 ₽" in summary
+    assert "«Альфа» отсутствует в периоде 2 (в периоде 1 — 165 000,00 ₽)" in summary
     assert "наибольшее падение: «Альфа»" not in summary
     assert "наибольшее падение: «Бета»" in summary
