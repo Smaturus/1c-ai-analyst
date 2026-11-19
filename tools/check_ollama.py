@@ -54,6 +54,8 @@ def _settings_for(model: str) -> llm_agent.LLMSettings:
         timeout=TIMEOUT_SECONDS,
         temperature=0.0,
         json_mode=False,
+        num_ctx=8192,
+        think=False,
     )
 
 
@@ -87,6 +89,13 @@ def main() -> int:
     failures = 0
     for name in installed:
         model_client = _client_for(name)
+        # Первый запрос — прогрев (загрузка модели/контекста): время не метрика.
+        try:
+            model_client.chat([{"role": "user", "content": PROMPT}])
+        except llm_agent.LLMError as exc:
+            print(f"WARMUP {name}: ОШИБКА — {exc}")
+            failures += 1
+            continue
         started = time.perf_counter()
         try:
             answer = model_client.chat([{"role": "user", "content": PROMPT}])
@@ -97,7 +106,12 @@ def main() -> int:
             continue
         elapsed = time.perf_counter() - started
         preview = " ".join(answer.split())[:200]
-        print(f"SMOKE {name}: OK за {elapsed:.1f} c — {preview!r}")
+        usage = getattr(model_client, "last_usage", {}) or {}
+        print(
+            f"SMOKE {name}: OK за {elapsed:.1f} c — {preview!r} "
+            f"(eval_count={usage.get('eval_count')}, "
+            f"prompt_eval_count={usage.get('prompt_eval_count')})"
+        )
 
     return 1 if failures else 0
 

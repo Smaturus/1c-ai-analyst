@@ -837,6 +837,10 @@ class LLMSettings:
     auth_url: str = ""
     ca_bundle: str = ""
     verify_tls: bool = True
+    #: Контекст Ollama (`num_ctx`); 0 — не задавать (дефолт сервера). Только ollama.
+    num_ctx: int = 0
+    #: Режим размышлений qwen3 (`think`); False — отключён. Только ollama.
+    think: bool = True
 
     @property
     def is_configured(self) -> bool:
@@ -1024,6 +1028,19 @@ def settings_from_env(
     ).strip()
     ca_bundle = (values.get("LLM_TLS_CA_BUNDLE") or "").strip()
     verify_tls = (values.get("LLM_TLS_VERIFY") or "1") != "0"
+    num_ctx = 0
+    think = True
+    if provider == "ollama":
+        try:
+            num_ctx = int(ollama_alias("OLLAMA_NUM_CTX") or "8192")
+        except ValueError as exc:  # pragma: no cover - защита от кривого env
+            raise ValueError(f"OLLAMA_NUM_CTX должен быть числом: {exc}") from exc
+        think = (ollama_alias("OLLAMA_THINK") or "0").strip().lower() not in (
+            "0",
+            "false",
+            "no",
+            "off",
+        )
     try:
         timeout = float(pick("LLM_TIMEOUT") or "60")
         temperature = float(pick("LLM_TEMPERATURE") or "0")
@@ -1043,6 +1060,8 @@ def settings_from_env(
         auth_url=auth_url.rstrip("/"),
         ca_bundle=ca_bundle,
         verify_tls=verify_tls,
+        num_ctx=num_ctx,
+        think=think,
     )
 
 
@@ -1248,12 +1267,16 @@ class LLMClient:
             headers["Authorization"] = f"Bearer {self._settings.api_key}"
         return headers
 
+    def _chat_url(self) -> str:
+        """URL чата; Ollama переопределяет на нативный ``/api/chat``."""
+        return f"{self._settings.base_url}/chat/completions"
+
     def _post_json(self, payload: dict[str, Any]) -> dict[str, Any]:
         """POST к Chat Completions и разбор JSON-ответа провайдера."""
         settings = self._settings
         if not settings.is_configured or not settings.base_url:
             raise LLMError("LLM не настроена: задайте LLM_PROVIDER/LLM_API_KEY/LLM_BASE_URL")
-        url = f"{settings.base_url}/chat/completions"
+        url = self._chat_url()
         request = urllib.request.Request(
             url,
             data=json.dumps(payload).encode("utf-8"),
@@ -1355,6 +1378,99 @@ class LLMClient:
                 if isinstance(identifier, str) and identifier:
                     models.append(identifier)
         return models
+
+
+class OllamaChatClient(LLMClient):
+    """Нативный ``/api/chat`` Ollama: ``options.num_ctx`` и ``think``.
+
+    OpenAI-совместимый ``/v1`` эти поля игнорирует (CONTEXT остаётся 4096),
+    поэтому нативный API — единственный способ применить решения DECISIONS #17.
+    Ответ ``/api/chat`` — ``{"message": {"content", "tool_calls"}}`` (без ``choices``),
+    поэтому разбор переопределён, а интерфейс (``chat``/``complete``/``list_models``)
+    остаётся тем же — вызывающий код не меняется.
+    """
+
+    #: Нативный API Ollama поддерживает tools (qwen3:4b — да).
+    supports_tools = True
+
+    #: Токены последнего вызова (``prompt_eval_count``/``eval_count``).
+    last_usage: dict[str, Any] = {}
+
+    def _post_json(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """POST ``/api/chat`` и запоминание токенов ответа (для smoke/диагностики)."""
+        data = super()._post_json(payload)
+        self.last_usage = {
+            "prompt_eval_count": data.get("prompt_eval_count"),
+            "eval_count": data.get("eval_count"),
+        }
+        return data
+
+    def _api_root(self) -> str:
+        """``http://host:11434/v1`` → ``http://host:11434``."""
+        base = self._settings.base_url.rstrip("/")
+        return base[:-3] if base.endswith("/v1") else base
+
+    def _chat_url(self) -> str:
+        return self._api_root() + "/api/chat"
+
+    def _payload(
+        self,
+        messages: list[dict[str, str]],
+        tools: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "model": self._settings.model,
+            "messages": messages,
+            "stream": False,
+            "think": self._settings.think,
+        }
+        if self._settings.num_ctx:
+            payload["options"] = {"num_ctx": self._settings.num_ctx}
+        if tools:
+            payload["tools"] = tools
+        return payload
+
+    def _message(self, data: dict[str, Any]) -> dict[str, Any]:
+        message = data.get("message")
+        if not isinstance(message, dict):
+            raise LLMError(f"Неожиданный ответ /api/chat: {data!r}"[:300])
+        return message
+
+    def _content_from_response(self, data: dict[str, Any]) -> str:
+        content = self._message(data).get("content")
+        if not isinstance(content, str) or not content.strip():
+            raise LLMError("Ollama вернула пустой ответ")
+        return content
+
+    def _completion_from_response(self, data: dict[str, Any]) -> CompletionResult:
+        message = self._message(data)
+        content = message.get("content") or ""
+        if not isinstance(content, str):
+            content = ""
+        calls: list[ToolCall] = []
+        for call in message.get("tool_calls") or []:
+            if not isinstance(call, dict):
+                continue
+            function = call.get("function")
+            if not isinstance(function, dict):
+                continue
+            name = function.get("name")
+            arguments = function.get("arguments")
+            if isinstance(arguments, str):
+                try:
+                    arguments = json.loads(arguments)
+                except json.JSONDecodeError as exc:
+                    raise LLMError(f"Аргументы инструмента {name!r} — не JSON") from exc
+            if (
+                not isinstance(name, str)
+                or not name.strip()
+                or not isinstance(arguments, dict)
+            ):
+                raise LLMError(f"Некорректный tool_call: {call!r}"[:300])
+            calls.append(ToolCall(name=name, arguments=arguments))
+        if not content.strip() and not calls:
+            raise LLMError("Ollama вернула пустой ответ")
+        return CompletionResult(content=content, tool_calls=tuple(calls))
 
 
 class GigaChatClient:
@@ -1609,6 +1725,8 @@ def make_client(settings: LLMSettings) -> LLMClient | GigaChatClient:
     """Создать HTTP-клиент под провайдера (GigaChat — OAuth + tool calling)."""
     if settings.provider == "gigachat":
         return GigaChatClient(settings)
+    if settings.provider == "ollama":
+        return OllamaChatClient(settings)
     return LLMClient(settings)
 
 
