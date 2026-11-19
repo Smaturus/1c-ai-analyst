@@ -1035,7 +1035,7 @@ def settings_from_env(
             num_ctx = int(ollama_alias("OLLAMA_NUM_CTX") or "8192")
         except ValueError as exc:  # pragma: no cover - защита от кривого env
             raise ValueError(f"OLLAMA_NUM_CTX должен быть числом: {exc}") from exc
-        think = (ollama_alias("OLLAMA_THINK") or "0").strip().lower() not in (
+        think = (ollama_alias("OLLAMA_THINK") or "1").strip().lower() not in (
             "0",
             "false",
             "no",
@@ -1393,8 +1393,10 @@ class OllamaChatClient(LLMClient):
     #: Нативный API Ollama поддерживает tools (qwen3:4b — да).
     supports_tools = True
 
-    #: Токены последнего вызова (``prompt_eval_count``/``eval_count``).
-    last_usage: dict[str, Any] = {}
+    def __init__(self, settings: LLMSettings) -> None:
+        super().__init__(settings)
+        #: Токены последнего вызова (``prompt_eval_count``/``eval_count``).
+        self.last_usage: dict[str, Any] = {}
 
     def _post_json(self, payload: dict[str, Any]) -> dict[str, Any]:
         """POST ``/api/chat`` и запоминание токенов ответа (для smoke/диагностики)."""

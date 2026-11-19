@@ -55,7 +55,7 @@ def _settings_for(model: str) -> llm_agent.LLMSettings:
         temperature=0.0,
         json_mode=False,
         num_ctx=8192,
-        think=False,
+        think=True,
     )
 
 

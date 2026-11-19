@@ -241,13 +241,15 @@ ADR 0007, только с обратным знаком (не добавлени
 `think:false` — меньше латентности (~1600 «думающих» токенов на вызов) и меньше риска,
 что reasoning-блок попадёт в ответ и сломает парсинг JSON-DSL.
 
-**Проверка (2026-11-19).** `num_ctx=8192` подтверждён: `ollama ps` → CONTEXT 8192.
-Через OpenAI-совместимый `/v1` поля `options` игнорировались, поэтому понадобился
-нативный `/api/chat` (`OllamaChatClient`, интерфейс `chat`/`complete` сохранён).
-`think:false` клиент передаёт, но Ollama 0.40.16 его не применил: `eval_count=1628`
-на «2+2», reasoning в `message.content`. Кандидат — `/no_think` в промпте (это
-изменение промпта — решение человека, не агента) либо принять thinking как есть.
-Judge не затронут (DeepSeek).
+**Проверка (2026-11-19).** `num_ctx=8192` подтверждён (`ollama ps` → CONTEXT 8192);
+нативный `/api/chat` (`OllamaChatClient`) — единственный способ применить (через `/v1`
+поля `options` игнорируются). Сырой `/api/chat` на «2+2»: `think:false` → reasoning в
+`message.content`, `message.thinking` пуст, `eval_count=364`; `think:true` → reasoning в
+`message.thinking`, `content=«четыре»`, `eval_count=795`. Значит поле **работает**, но
+`think:false` — это «без разделения» (reasoning уходит в `content`, т.е. в канал парсинга
+JSON-DSL), а не «без размышлений». Для контракта корректна конфигурация **`think:true`**
+(чистый `content` = ответ); `think:false` отклонён. `/no_think` не нужен.
+Версия 0.40.16 старше 0.9.0 не является — `think` поддерживается изначально.
 
 **Затронуто:** `llm_agent.py` (`LLMSettings`, `OllamaChatClient`), `tools/check_ollama.py`,
 `.env.example`.
