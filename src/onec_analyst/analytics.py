@@ -56,6 +56,7 @@ import numpy as np
 import pandas as pd
 
 from onec_analyst.data_loader import COUNTERPARTY, DATE, PRODUCT, QUANTITY, REVENUE
+from onec_analyst.entities import resolve_entity
 
 __all__ = [
     "CHECK",
@@ -191,7 +192,7 @@ _FALSE_STRINGS: Final[frozenset[str]] = frozenset({"false", "0", "no", "n", "н�
 def get_top_bottom_products(
     df: pd.DataFrame,
     metric: MetricName = REVENUE,
-    limit: int = 10,
+    limit: int = 5,
     ascending: bool = False,
     *,
     start_date: DateLike | None = None,
@@ -1170,10 +1171,12 @@ def _filter_text(
         raise ValueError(
             f"Для {label} нужна колонка {column!r}; доступно: {list(df.columns)}"
         )
+    catalog = df[column].dropna().astype("string").unique().tolist()
+    resolution = resolve_entity(value.strip(), catalog)
     mask = (
         df[column]
         .astype("string")
-        .str.contains(value.strip(), case=False, na=False, regex=False)
+        .str.contains(resolution.value, case=False, na=False, regex=False)
     )
     return df.loc[mask]
 

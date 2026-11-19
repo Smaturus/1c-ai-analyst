@@ -9,13 +9,14 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime
 from typing import Any
 
 import pandas as pd
 
-from onec_analyst.analytics import dispatch_intent
+from onec_analyst.analytics import PRODUCT, PRODUCT_GROUP, dispatch_intent
+from onec_analyst.entities import resolve_entity
 from onec_analyst.llm_agent import (
     AgentDecision,
     ClarificationPlan,
@@ -115,6 +116,31 @@ def validate_decision(dsl: dict[str, Any]) -> AgentDecision:
 normalize_dsl = validate_decision
 
 
+def _resolve_decision_filters(decision: AgentDecision, df: pd.DataFrame) -> AgentDecision:
+    """Канонизировать ``product_filter``/``group_filter`` по каталогу витрины.
+
+    Идемпотентно: каноническая строка не меняется, повторный резолв — no-op.
+    Нерезолвнутая строка остаётся как есть: витрина даст честный пустой
+    результат (ADR 0007, зеркальная сторона), а не «похожий» товар.
+    """
+    params = dict(decision.params or {})
+    changed = False
+    for key, column in (("product_filter", PRODUCT), ("group_filter", PRODUCT_GROUP)):
+        value = params.get(key)
+        if not (isinstance(value, str) and value.strip() and column in df.columns):
+            continue
+        catalog = df[column].dropna().astype("string").unique().tolist()
+        resolved = resolve_entity(value.strip(), catalog).value
+        if resolved != value:
+            params[key] = resolved
+            changed = True
+    if not changed:
+        return decision
+    dsl = dict(decision.dsl or {})
+    dsl["params"] = params
+    return replace(decision, params=params, dsl=dsl)
+
+
 def execute(
     decision: AgentDecision,
     df: pd.DataFrame,
@@ -133,6 +159,7 @@ def execute(
         raise ValueError(
             f"Решение не подлежит исполнению: ok={decision.ok!r}, intent={intent!r}"
         )
+    decision = _resolve_decision_filters(decision, df)
     result = dispatch_intent(intent, df, decision.params)
     payload = build_summary_payload(decision, result, profile)
     return ExecutionResult(

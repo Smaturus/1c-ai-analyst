@@ -27,6 +27,7 @@ from onec_analyst.analytics import (
     ROWS_COUNT,
     STATUS,
 )
+from onec_analyst.entities import resolve_entity
 
 #: Единица измерения выручки для подписей и текста сводки.
 REVENUE_UNIT = "₽"
@@ -197,6 +198,11 @@ def _filter_note(decision: Any, result: pd.DataFrame) -> str:
     filter_text = params.get("product_filter") or params.get("group_filter")
     if not filter_text:
         return ""
+    if isinstance(filter_text, str):
+        column = PRODUCT if params.get("product_filter") else PRODUCT_GROUP
+        if column in result.columns:
+            catalog = result[column].dropna().astype("string").unique().tolist()
+            filter_text = resolve_entity(filter_text, catalog).value
     return f"По фильтру «{filter_text}» найдено {len(result)} записей."
 
 
