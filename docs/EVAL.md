@@ -87,14 +87,21 @@ python tools/record_cassettes.py --provider gigachat --model GigaChat-2-Pro
 
 | Статус | Вопросы судьи |
 |---|---|
-| ok | все числа в сводке совпадают с таблицей? выводы следуют из таблицы? |
+| ok | все числа в тексте совпадают с переданными значениями расчёта (payload)? выводы следуют из этих значений? |
 | refuse | отказ объяснён понятно и по существу? |
 | clarify | уточнение относится к `missing`? |
 
+Вход судьи — **`SummaryPayload`** (посчитанные значения), а не сырой CSV витрины:
+LLM не должен складывать строки в уме, иначе рубрика меряет арифметику модели,
+а не форматтер. Отчёт разделяет сигналы: refuse/clarify, ok-числа, ok-выводы.
+
 Ограничения: судья — **отдельный провайдер** (`JUDGE_PROVIDER`/`JUDGE_MODEL`),
 **не** через `on_llm_call`; не CI-гейт; бинарный ответ — грубый сигнал при
-изменении промптов, а не абсолютная истина. Судья получает question, таблицу
-(CSV фикстуры), summary и DSL.
+изменении промптов, а не абсолютная истина.
+
+**Цепочка проверки:** факт-чек (ручные константы) — авторитет по числам;
+judge — авторитет по формулировкам и честности отказов/уточнений. Слои не
+дублируются: каждый меряет своё.
 
 ## 6. Команды запуска
 
@@ -123,9 +130,15 @@ python tools/record_cassettes.py --provider gigachat --model GigaChat-2-Pro
 | 2026-11-18 | deepseek / deepseek-chat | 81.6 | 100.0 | — |
 | 2026-11-18 | gigachat / GigaChat-2-Pro | 69.4 | 100.0 | — |
 | 2026-11-18 | gigachat / GigaChat-2-Pro (judge) | — | — | 92.0 |
+| 2026-11-19 | deepseek / deepseek-chat (S1) | 100.0 | 100.0 | — |
+| 2026-11-19 | deepseek / deepseek-chat (judge, payload) | — | — | 80.0 |
 
-Status accuracy: deepseek 89.8 %, gigachat 83.7 %. Детали — в
-`EVAL_LIVE.md` (deepseek), `EVAL_LIVE_gigachat.md`, `EVAL_JUDGE.md` (+ JSON рядом).
+Status accuracy: deepseek 89.8 %, gigachat 83.7 % (2026-11-18); после S1 — deepseek 100 %.
+Детали — в `EVAL_LIVE*.md`, `EVAL_JUDGE.md` (+ JSON рядом).
+
+**Judge history:** до фикса (2026-11-19) — 52.0 % (13/25): рубрика сверяла агрегаты
+с сырым CSV, т.е. мерила арифметику LLM. После фикса входа (payload) — 80.0 % (20/25):
+refuse/clarify 5/5, ok-числа 9/10, ok-выводы 6/10. Baseline судьи — **80.0 %**.
 
 ## 8. Пороги
 

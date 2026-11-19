@@ -10,7 +10,8 @@
 через ``on_llm_call``.
 
 Рубрика (бинарно, «да»/«нет»):
-- ok: все числа в сводке совпадают с таблицей; выводы следуют из таблицы.
+- ok: все числа в тексте совпадают с переданными значениями расчёта (payload);
+  выводы следуют из этих значений.
 - refuse: отказ объяснён.
 - clarify: уточнение относится к missing.
 
@@ -45,7 +46,6 @@ from onec_analyst.agent.graph import run_agent_graph  # noqa: E402
 from onec_analyst.agent.state import CallBudgetGuard, initial_state, status_of  # noqa: E402
 from onec_analyst.audit import AuditLog  # noqa: E402
 from onec_analyst.pipeline import execute  # noqa: E402
-
 from tests.golden.cassette_client import CassetteClient  # noqa: E402
 from tests.golden.schema import FIXTURE_PATH, load_cases  # noqa: E402
 
@@ -78,10 +78,6 @@ _SYSTEM = (
     "Ты — строгий ревизор ответов аналитического ассистента по продажам. "
     "Отвечай РОВНО ОДНИМ словом: «да» или «нет». Без пояснений."
 )
-
-
-def _table_text(frame: pd.DataFrame) -> str:
-    return frame.to_csv(index=False)
 
 
 def _ask(client: Any, question: str) -> str:
@@ -132,6 +128,7 @@ def build_answer(case: dict[str, Any], frame: pd.DataFrame, profile: dict[str, s
     if status == "ok":
         execution = execute(decision, frame, profile)
         answer["summary"] = execution.summary
+        answer["payload"] = [dict(value) for value in execution.summary_payload.values]
     elif status == "refuse":
         answer["summary"] = decision.refusal_reason if decision is not None else ""
     elif status == "clarify":
@@ -143,27 +140,40 @@ def build_answer(case: dict[str, Any], frame: pd.DataFrame, profile: dict[str, s
     return answer
 
 
-def judge_answer(client: Any, answer: dict[str, Any], table: str) -> dict[str, Any]:
+def judge_answer(client: Any, answer: dict[str, Any]) -> dict[str, Any]:
     """Задать бинарные вопросы судье по статусу ответа."""
     status = answer["status"]
     question = answer["question"]
     summary = answer["summary"]
     dsl = json.dumps(answer["dsl"], ensure_ascii=False) if answer.get("dsl") else "—"
+    payload = (
+        json.dumps(answer["payload"], ensure_ascii=False)
+        if answer.get("payload")
+        else "—"
+    )
 
     base = (
         f"Вопрос пользователя: {question}\n"
-        f"Таблица данных (CSV):\n{table}\n"
+        f"Значения расчёта (payload): {payload}\n"
         f"Сгенерированный ответ: {summary}\n"
         f"DSL: {dsl}\n\n"
     )
 
     verdicts: dict[str, bool | None] = {}
     if status == "ok":
-        verdicts["numbers_match_table"] = _parse_yes_no(
-            _ask(client, base + "Все ли числа в ответе совпадают с таблицей? (да/нет)")
+        verdicts["numbers_match_payload"] = _parse_yes_no(
+            _ask(
+                client,
+                base
+                + "Все ли числа в тексте совпадают с переданными значениями расчёта? (да/нет)",
+            )
         )
         verdicts["conclusions_follow"] = _parse_yes_no(
-            _ask(client, base + "Следуют ли выводы в ответе из таблицы? (да/нет)")
+            _ask(
+                client,
+                base
+                + "Следуют ли выводы в ответе из переданных значений расчёта? (да/нет)",
+            )
         )
     elif status == "refuse":
         verdicts["refusal_explained"] = _parse_yes_no(
@@ -206,7 +216,6 @@ def main(argv: list[str] | None = None) -> int:
         "date_min": str(frame["date"].min().date()),
         "date_max": str(frame["date"].max().date()),
     }
-    table = _table_text(frame)
     cases = {c["id"]: c for c in load_cases()}
     sample = [cases[cid] for cid in JUDGE_SAMPLE if cid in cases]
 
@@ -216,19 +225,41 @@ def main(argv: list[str] | None = None) -> int:
         audit_dir = Path(audit_tmp)
         for case in sample:
             answer = build_answer(case, frame, profile, audit_dir)
-            verdict = judge_answer(judge_client, answer, table)
+            verdict = judge_answer(judge_client, answer)
             verdict["question"] = case["question"]
             results.append(verdict)
             print(f"  {verdict['case_id']}: {verdict['verdicts']}")
 
     yes = 0
     total = 0
+    groups: dict[str, list[int]] = {
+        "refuse/clarify": [0, 0],
+        "ok_numbers": [0, 0],
+        "ok_conclusions": [0, 0],
+    }
     for r in results:
-        for value in r["verdicts"].values():
+        for key, value in r["verdicts"].items():
+            group = (
+                "ok_numbers"
+                if key == "numbers_match_payload"
+                else "ok_conclusions"
+                if key == "conclusions_follow"
+                else "refuse/clarify"
+            )
+            groups[group][1] += 1
             total += 1
             if value is True:
                 yes += 1
+                groups[group][0] += 1
     share = round(100.0 * yes / total, 1) if total else 0.0
+    group_stats = {
+        name: {
+            "yes": hit,
+            "total": count,
+            "share": round(100.0 * hit / count, 1) if count else 0.0,
+        }
+        for name, (hit, count) in groups.items()
+    }
 
     payload = {
         "provider": settings.provider,
@@ -237,6 +268,7 @@ def main(argv: list[str] | None = None) -> int:
         "yes": yes,
         "total": total,
         "share_yes": share,
+        "groups": group_stats,
         "cases": results,
     }
     JUDGE_JSON.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -248,11 +280,27 @@ def main(argv: list[str] | None = None) -> int:
         f"- Дата: {date.today().isoformat()}",
         f"- Доля «да»: **{share}%** ({yes}/{total})",
         "",
-        "## Результаты по кейсам",
+        "## Сводка по группам",
         "",
-        "| Кейс | Статус | Вердикты |",
-        "|---|---|---|",
+        "| Группа | «да» |",
+        "|---|---|",
     ]
+    for name, label in (
+        ("refuse/clarify", "refuse/clarify — объяснение/уточнение"),
+        ("ok_numbers", "ok — числа (payload)"),
+        ("ok_conclusions", "ok — выводы"),
+    ):
+        stats = group_stats[name]
+        lines.append(f"| {label} | {stats['yes']}/{stats['total']} ({stats['share']}%) |")
+    lines.extend(
+        [
+            "",
+            "## Результаты по кейсам",
+            "",
+            "| Кейс | Статус | Вердикты |",
+            "|---|---|---|",
+        ]
+    )
     for r in results:
         verdicts = ", ".join(f"{k}={('да' if v is True else 'нет' if v is False else '?')}" for k, v in r["verdicts"].items())
         lines.append(f"| {r['case_id']} | {r['status']} | {verdicts} |")

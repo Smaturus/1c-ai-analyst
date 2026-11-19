@@ -1,17 +1,34 @@
 {
-  "provider": "gigachat",
-  "model": "GigaChat-2-Pro",
-  "date": "2026-11-18",
-  "yes": 23,
+  "provider": "deepseek",
+  "model": "deepseek-chat",
+  "date": "2026-11-19",
+  "yes": 20,
   "total": 25,
-  "share_yes": 92.0,
+  "share_yes": 80.0,
+  "groups": {
+    "refuse/clarify": {
+      "yes": 5,
+      "total": 5,
+      "share": 100.0
+    },
+    "ok_numbers": {
+      "yes": 9,
+      "total": 10,
+      "share": 90.0
+    },
+    "ok_conclusions": {
+      "yes": 6,
+      "total": 10,
+      "share": 60.0
+    }
+  },
   "cases": [
     {
       "case_id": "test_001_top_simple",
       "status": "ok",
       "verdicts": {
-        "numbers_match_table": true,
-        "conclusions_follow": true
+        "numbers_match_payload": false,
+        "conclusions_follow": false
       },
       "question": "Покажи топ-5 товаров за 2023 год"
     },
@@ -19,7 +36,7 @@
       "case_id": "test_003_total",
       "status": "ok",
       "verdicts": {
-        "numbers_match_table": true,
+        "numbers_match_payload": true,
         "conclusions_follow": true
       },
       "question": "Сколько мы заработали за прошлый месяц?"
@@ -28,7 +45,7 @@
       "case_id": "test_004_timeseries",
       "status": "ok",
       "verdicts": {
-        "numbers_match_table": true,
+        "numbers_match_payload": true,
         "conclusions_follow": true
       },
       "question": "Покажи динамику продаж по месяцам за 2023 год"
@@ -37,8 +54,8 @@
       "case_id": "test_005_negative",
       "status": "ok",
       "verdicts": {
-        "numbers_match_table": true,
-        "conclusions_follow": true
+        "numbers_match_payload": true,
+        "conclusions_follow": false
       },
       "question": "Покажи товары с отрицательной выручкой за март 2024"
     },
@@ -46,7 +63,7 @@
       "case_id": "test_007_counterparty",
       "status": "ok",
       "verdicts": {
-        "numbers_match_table": true,
+        "numbers_match_payload": true,
         "conclusions_follow": false
       },
       "question": "Кто из контрагентов вырос сильнее всего во втором квартале 2024 по сравнению с первым?"
@@ -71,7 +88,7 @@
       "case_id": "test_014_filter_product",
       "status": "ok",
       "verdicts": {
-        "numbers_match_table": false,
+        "numbers_match_payload": true,
         "conclusions_follow": true
       },
       "question": "Покажи динамику продаж Колонки Му за 2023 год"
@@ -88,7 +105,7 @@
       "case_id": "test_025_total_year",
       "status": "ok",
       "verdicts": {
-        "numbers_match_table": true,
+        "numbers_match_payload": true,
         "conclusions_follow": true
       },
       "question": "Общая выручка за 2022"
@@ -105,8 +122,8 @@
       "case_id": "test_028_group_specific",
       "status": "ok",
       "verdicts": {
-        "numbers_match_table": true,
-        "conclusions_follow": true
+        "numbers_match_payload": true,
+        "conclusions_follow": false
       },
       "question": "Сравни продажи группы 'Электроника' за 2023 и 2024"
     },
@@ -114,7 +131,7 @@
       "case_id": "test_032_quantity",
       "status": "ok",
       "verdicts": {
-        "numbers_match_table": true,
+        "numbers_match_payload": true,
         "conclusions_follow": true
       },
       "question": "Сколько мы продали штук в октябре 2023?"
@@ -131,7 +148,7 @@
       "case_id": "test_049_total_quarter",
       "status": "ok",
       "verdicts": {
-        "numbers_match_table": true,
+        "numbers_match_payload": true,
         "conclusions_follow": true
       },
       "question": "Сколько мы заработали в четвертом квартале 2024?"
