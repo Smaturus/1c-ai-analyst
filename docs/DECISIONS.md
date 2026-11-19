@@ -250,6 +250,10 @@ ADR 0007, только с обратным знаком (не добавлени
 JSON-DSL), а не «без размышлений». Для контракта корректна конфигурация **`think:true`**
 (чистый `content` = ответ); `think:false` отклонён. `/no_think` не нужен.
 Версия 0.40.16 старше 0.9.0 не является — `think` поддерживается изначально.
+Различие `think:false`/`think:true` подтверждено raw-пробами; перед live конфигурация
+дефолта верифицирована логированием payload: клиент отправляет `think=true`,
+`options.num_ctx=8192`, `stream=false`; ответ — reasoning в `message.thinking`
+(574 символа), `content='4'`, `eval_count=212`.
 
 **Затронуто:** `llm_agent.py` (`LLMSettings`, `OllamaChatClient`), `tools/check_ollama.py`,
 `.env.example`.

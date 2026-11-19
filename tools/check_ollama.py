@@ -23,6 +23,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 import time
 from pathlib import Path
@@ -89,6 +90,14 @@ def main() -> int:
     failures = 0
     for name in installed:
         model_client = _client_for(name)
+        preview_payload = model_client._payload([{"role": "user", "content": PROMPT}])
+        print(
+            f"PAYLOAD {name}: "
+            + json.dumps(
+                {k: v for k, v in preview_payload.items() if k != "messages"},
+                ensure_ascii=False,
+            )
+        )
         # Первый запрос — прогрев (загрузка модели/контекста): время не метрика.
         try:
             model_client.chat([{"role": "user", "content": PROMPT}])
@@ -110,7 +119,8 @@ def main() -> int:
         print(
             f"SMOKE {name}: OK за {elapsed:.1f} c — {preview!r} "
             f"(eval_count={usage.get('eval_count')}, "
-            f"prompt_eval_count={usage.get('prompt_eval_count')})"
+            f"prompt_eval_count={usage.get('prompt_eval_count')}, "
+            f"thinking_chars={usage.get('thinking_chars')})"
         )
 
     return 1 if failures else 0

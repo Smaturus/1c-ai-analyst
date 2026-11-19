@@ -1401,9 +1401,11 @@ class OllamaChatClient(LLMClient):
     def _post_json(self, payload: dict[str, Any]) -> dict[str, Any]:
         """POST ``/api/chat`` и запоминание токенов ответа (для smoke/диагностики)."""
         data = super()._post_json(payload)
+        message = data.get("message") or {}
         self.last_usage = {
             "prompt_eval_count": data.get("prompt_eval_count"),
             "eval_count": data.get("eval_count"),
+            "thinking_chars": len(message.get("thinking") or ""),
         }
         return data
 
