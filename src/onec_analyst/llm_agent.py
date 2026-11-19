@@ -814,7 +814,8 @@ class LLMSettings:
     model:
         Имя модели; по умолчанию зависит от провайдера.
     api_key:
-        Ключ API (для ollama не нужен).
+        Ключ API (для ollama — заглушка ``"ollama"``: сервер ключ не проверяет,
+        но заголовок нужен OpenAI-совместимому клиенту).
     base_url:
         Базовый URL OpenAI-совместимого API (без ``/chat/completions``).
     timeout:
@@ -850,7 +851,9 @@ class LLMSettings:
 _DEFAULT_MODELS: Final[dict[str, str]] = {
     "openai": "gpt-4o-mini",
     "deepseek": "deepseek-chat",
-    "ollama": "llama3.1",
+    # Локальная модель по умолчанию: CPU-only, 16 ГБ ОЗУ — 4B-квант.
+    # Источник: `ollama pull qwen3:4b`; имя — ровно как в Ollama, без алиасов.
+    "ollama": "qwen3:4b",
     "gigachat": "GigaChat-2-Pro",
 }
 _DEFAULT_BASE_URLS: Final[dict[str, str]] = {
@@ -973,6 +976,11 @@ def settings_from_env(
         ``LLM_API_KEY_<PROVIDER>``/``LLM_MODEL_<PROVIDER>``/``LLM_BASE_URL_<PROVIDER>``:
         общие ``LLM_API_KEY``/``LLM_MODEL``/``LLM_BASE_URL`` принадлежат провайдеру
         по умолчанию и на чужого провайдера не распространяются.
+
+    Для локальной Ollama дополнительно читаются ``OLLAMA_MODEL`` и
+    ``OLLAMA_BASE_URL`` (только при ``provider="ollama"``): они уступают
+    ``LLM_MODEL_OLLAMA``/``LLM_BASE_URL_OLLAMA`` и существуют для явного
+    локального профиля. Дефолт модели — ``qwen3:4b``.
     """
     values = env if env is not None else _environment_with_dotenv()
     env_provider = (values.get("LLM_PROVIDER") or "none").strip().lower()
@@ -986,8 +994,29 @@ def settings_from_env(
         """Настройка провайдера: ``<NAME>_<PROVIDER>``, а общий ``<NAME>`` — см. ниже."""
         return _pick_setting(values, name, provider, env_provider)
 
-    model = pick("LLM_MODEL") or _DEFAULT_MODELS.get(provider, "")
-    base_url = pick("LLM_BASE_URL") or _DEFAULT_BASE_URLS.get(provider, "")
+    def ollama_alias(name: str) -> str:
+        """Локальные ``OLLAMA_MODEL``/``OLLAMA_BASE_URL`` (только для ollama).
+
+        Добавлены аддитивно к ``LLM_*``-механизму: существующие переменные
+        имеют приоритет, а эти читаются, только если провайдер — ``ollama``.
+        Имена не пересекаются с переменными самого сервера Ollama
+        (``OLLAMA_HOST``/``OLLAMA_MODELS``): ``OLLAMA_MODEL``/``OLLAMA_BASE_URL``
+        описывают клиент, а не сервер.
+        """
+        if provider != "ollama":
+            return ""
+        return (values.get(name) or "").strip()
+
+    model = (
+        pick("LLM_MODEL")
+        or ollama_alias("OLLAMA_MODEL")
+        or _DEFAULT_MODELS.get(provider, "")
+    )
+    base_url = (
+        pick("LLM_BASE_URL")
+        or ollama_alias("OLLAMA_BASE_URL")
+        or _DEFAULT_BASE_URLS.get(provider, "")
+    )
     json_mode = (pick("LLM_JSON_MODE") or ("0" if provider == "ollama" else "1")) != "0"
     scope = (values.get("GIGACHAT_SCOPE") or "GIGACHAT_API_PERS").strip()
     auth_url = (
@@ -1003,7 +1032,9 @@ def settings_from_env(
     return LLMSettings(
         provider=provider,
         model=model,
-        api_key=pick("LLM_API_KEY"),
+        # Ollama не проверяет ключ, но OpenAI-совместимый клиент отправляет
+        # заголовок только при непустом ключе — подставляем заглушку.
+        api_key=pick("LLM_API_KEY") or ("ollama" if provider == "ollama" else ""),
         base_url=base_url.rstrip("/"),
         timeout=timeout,
         temperature=temperature,
