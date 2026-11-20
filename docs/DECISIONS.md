@@ -444,6 +444,35 @@ fallback остаётся лишь для непомеченных внутре�
 
 ---
 
+## 23. Ollama: переключатель нативных tools (`OLLAMA_TOOLS`)
+
+**Проблема (2026-11-20, live).** Импортированные в Ollama GGUF-модели не умеют
+tools: запрос с `tools` падает `500 «tools param requires --jinja flag»`, а флага
+`--jinja` в сборке 0.40.16 нет (`unknown flag`), и библиотечного тега
+`qwen3:4b-instruct-2507` в registry тоже нет. При этом JSON-адаптер агента
+(`{"tool": ..., "arguments": ...}`) такие модели выдают корректно: выход проходит
+`parse_completion`/`validate_meta_arguments` и полный граф.
+
+**Решение.** Настройка `OLLAMA_TOOLS` (default `1` — поведение не меняется):
+`0/false/no/off` — `OllamaChatClient.supports_tools=False`, и агент идёт
+JSON-адаптером, не отправляя `tools`. Для остальных провайдеров ничего не
+меняется.
+
+**Эксперимент с `qwen3:4b-instruct-2507`.** Модель импортирована из GGUF
+(unsloth, Q4_K_M) с ChatML-шаблоном без `<think>` (шаблон от `qwen3:4b` вставлял
+`<|im_start|>assistant <think>` и ломал ответ). Результат: reasoning нет
+(`thinking=0`), скорость после прогрева **7–12 с** на кейс (первый холодный —
+~70 с), на эталонных кейсах **2/3**: `003` — точный DSL, `012` — refuse,
+`010` («Сколько мы заработали?» без периода) — `total` вместо `clarify`.
+Модель пригодна как опция через `.env` (`OLLAMA_MODEL=qwen3-4b-instruct-2507`,
+`OLLAMA_TOOLS=0`), но дефолтом не становится: качество на уточнениях ниже
+контракта.
+
+**Затронуто:** `llm_agent.py` (`LLMSettings.tools`, `settings_from_env`,
+`OllamaChatClient`), `.env.example`, `tests/test_ollama_tools_switch.py`.
+
+---
+
 ## Накопленные правки ТЗ (на релизный проход)
 
 Правки ТЗ внутри спринта не выполняются; список — для одного прохода на релизном этапе:

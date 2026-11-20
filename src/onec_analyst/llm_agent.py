@@ -845,6 +845,10 @@ class LLMSettings:
     num_ctx: int = 0
     #: Режим размышлений qwen3 (`think`); False — отключён. Только ollama.
     think: bool = True
+    #: Отправлять ли нативные tools. Только ollama: для импортированных моделей
+    #: (GGUF) сборка Ollama не умеет tools без ``--jinja``, и запрос падает 500.
+    #: ``False`` переключает агента на JSON-адаптер (``{"tool": ..., "arguments": ...}``).
+    tools: bool = True
 
     @property
     def is_configured(self) -> bool:
@@ -1034,12 +1038,21 @@ def settings_from_env(
     verify_tls = (values.get("LLM_TLS_VERIFY") or "1") != "0"
     num_ctx = 0
     think = True
+    tools = True
     if provider == "ollama":
         try:
             num_ctx = int(ollama_alias("OLLAMA_NUM_CTX") or "8192")
         except ValueError as exc:  # pragma: no cover - защита от кривого env
             raise ValueError(f"OLLAMA_NUM_CTX должен быть числом: {exc}") from exc
         think = (ollama_alias("OLLAMA_THINK") or "1").strip().lower() not in (
+            "0",
+            "false",
+            "no",
+            "off",
+        )
+        # Импортированные GGUF-модели в Ollama 0.40.16 не умеют tools без
+        # ``--jinja`` (флага нет): OLLAMA_TOOLS=0 переключает агента на JSON-адаптер.
+        tools = (ollama_alias("OLLAMA_TOOLS") or "1").strip().lower() not in (
             "0",
             "false",
             "no",
@@ -1066,6 +1079,7 @@ def settings_from_env(
         verify_tls=verify_tls,
         num_ctx=num_ctx,
         think=think,
+        tools=tools,
     )
 
 
@@ -1426,6 +1440,9 @@ class OllamaChatClient(LLMClient):
         super().__init__(settings)
         #: Токены последнего вызова (``prompt_eval_count``/``eval_count``).
         self.last_usage: dict[str, Any] = {}
+        # Импортированные GGUF-модели в Ollama без ``--jinja`` не умеют tools:
+        # тогда работаем JSON-адаптером, а не роняем запрос 500 (DECISIONS #23).
+        self.supports_tools = settings.tools
 
     def _post_json(self, payload: dict[str, Any]) -> dict[str, Any]:
         """POST ``/api/chat`` и запоминание токенов ответа (для smoke/диагностики)."""
