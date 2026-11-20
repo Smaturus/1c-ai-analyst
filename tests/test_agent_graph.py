@@ -405,6 +405,10 @@ def test_app_llm_path_renders_result(
     modes = [markdown.value for markdown in at.markdown if "Статус" in markdown.value]
     assert modes, "статус должен быть в «Технических деталях»"
     assert "`ok`" in modes[0]
+    # Результат подписан вопросом: иначе старая таблица читается как ответ на новый.
+    captions = " ".join(caption.value for caption in at.caption)
+    assert "Расчёт по вопросу" in captions, captions
+    assert "Сколько мы продали за 2024 год?" in captions, captions
 
 
 def test_app_long_run_notice_not_left_after_answer(
