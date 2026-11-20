@@ -123,6 +123,21 @@ def test_sidebar_ollama_label_and_preselect_fallback(
     assert box.value == "DeepSeek", "недоступный преселект падает на первого доступного"
 
 
+def test_sidebar_local_provider_says_quota_is_not_consumed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """При выбранной Ollama сайдбар объясняет, почему квота не растёт."""
+    monkeypatch.setenv("LLM_PROVIDER", "ollama")
+    monkeypatch.setenv("OLLAMA_ENABLED", "true")
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+
+    at = AppTest.from_file(APP_FILE, default_timeout=TIMEOUT).run()
+
+    assert len(at.exception) == 0
+    captions = " ".join(caption.value for caption in at.sidebar.caption)
+    assert "внешняя квота не расходуется" in captions, captions
+
+
 def test_toggle_off_switches_question_to_offline_rules(llm_env: None) -> None:
     """Выключение переключателя переводит разбор вопроса на офлайн-правила."""
     at = AppTest.from_file(APP_FILE, default_timeout=TIMEOUT).run()

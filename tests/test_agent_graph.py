@@ -20,6 +20,7 @@ from onec_analyst.agent.graph import (
 from onec_analyst.agent.state import CallBudgetGuard, initial_state
 from onec_analyst.dispatcher import process_request
 from onec_analyst.llm_agent import AgentDecision, LLMSettings, CompletionResult
+from onec_analyst.rate_limiter import RateLimiter
 from onec_analyst.session import ConversationState
 
 from tests.agent_support import (
@@ -422,6 +423,44 @@ def test_app_long_run_notice_not_left_after_answer(
     assert len(at.exception) == 0
     captions = [caption.value for caption in at.caption]
     assert not any("Не обновляйте страницу" in text for text in captions), captions
+
+
+def test_app_cloud_call_consumes_quota(
+    llm_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Облачный провайдер по-прежнему расходует квоту (инвариант не отключён)."""
+    at = _ask(
+        AppTest.from_file(APP_FILE, default_timeout=TIMEOUT),
+        "Сколько мы продали за 2024 год?",
+        monkeypatch,
+        [json_response("total", {"start_date": "2024-01-01", "end_date": "2024-12-31"})],
+    )
+
+    assert len(at.exception) == 0
+    session_id = str(at.session_state["llm_session_id"])
+    assert RateLimiter().check_limit(session_id).used_session >= 1
+
+
+def test_app_ollama_call_does_not_consume_quota(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Локальная модель не тратит внешние токены — квота остаётся нетронутой."""
+    monkeypatch.setenv("LLM_PROVIDER", "ollama")
+    monkeypatch.setenv("OLLAMA_ENABLED", "true")
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+
+    at = _ask(
+        AppTest.from_file(APP_FILE, default_timeout=TIMEOUT),
+        "Сколько мы продали за 2024 год?",
+        monkeypatch,
+        [json_response("total", {"start_date": "2024-01-01", "end_date": "2024-12-31"})],
+    )
+
+    assert len(at.exception) == 0
+    session_id = str(at.session_state["llm_session_id"])
+    status = RateLimiter().check_limit(session_id)
+    assert status.used_session == 0, "локальный вызов не должен тратить внешнюю квоту"
+    assert status.used_global == 0
+    # Вызов действительно состоялся: есть «Технические детали» со статусом.
+    assert any("Статус" in markdown.value for markdown in at.markdown)
 
 
 def test_app_refuse_plate(

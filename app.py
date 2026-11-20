@@ -1119,8 +1119,12 @@ NO_PROVIDERS_MESSAGE = (
 #: всего; для облака плашка мелькает незаметно и после ответа не остаётся.
 LONG_RUN_NOTICE = (
     "Идёт расчёт. Не обновляйте страницу и не закрывайте вкладку: "
-    "текущий ответ не сохранится, а вызов будет засчитан."
+    "текущий ответ не сохранится, и запрос придётся повторить."
 )
+
+#: Провайдеры с локальной моделью: вызов не тратит внешние токены и поэтому
+#: не должен расходовать квоту облачных API (``RateLimiter``).
+LOCAL_PROVIDERS = frozenset({"ollama"})
 
 
 def render_sidebar(
@@ -1206,6 +1210,9 @@ def render_sidebar(
     elif selected_option.configured:
         chosen_settings = choose_gigachat_model(selected_option.settings)
         st.sidebar.caption(f"LLM: `{chosen_settings.provider}` / `{chosen_settings.model}`")
+        if chosen_settings.provider in LOCAL_PROVIDERS:
+            # Счётчик квоты при локальной модели не растёт — говорим почему.
+            st.sidebar.caption("Локальная модель: внешняя квота не расходуется.")
     else:
         # Выбран недоступный провайдер: при включённой галочке офлайн-правила
         # запрещены. Не подменяем молча — просим выбрать доступного.
@@ -1310,6 +1317,8 @@ def main() -> None:
         ask_blocked,
         ask_blocked_reason,
     ) = render_sidebar(limiter, llm_session_id, limit_status)
+    # Локальная модель не тратит внешние токены — её вызовы не расходуют квоту.
+    local_llm = settings.provider in LOCAL_PROVIDERS
 
     limit_blocked = limiter_error is not None or (
         limit_status is not None and not limit_status.allowed
@@ -1374,7 +1383,8 @@ def main() -> None:
         st.session_state["clarification_source"] = resolved.source
         st.session_state["auto_submit"] = True
         # Классификатор — отдельный вызов API; учитываем в лимите, как и plan().
-        if resolved.source == SOURCE_LLM:
+        # Локальная модель внешнюю квоту не расходует — не учитываем.
+        if resolved.source == SOURCE_LLM and not local_llm:
             refreshed = record_llm_usage(
                 limiter, llm_session_id, usage_slot, warn_slot
             )
@@ -1419,10 +1429,15 @@ def main() -> None:
         # Композитный guard: потолок 3 вызова на запрос + лимит сессии/дня (15/100).
         # Каждый вызов графа (resolve_context/agent_decision/fix_dsl) резервирует
         # слот атомарно; при сетевом сбое резерв возвращается.
-        llm_guard = CompositeGuard(
-            CallBudgetGuard(3),
-            RateLimiterGuard(limiter, llm_session_id),
-        )
+        # Локальная модель (ollama) внешних токенов не тратит: для неё остаётся
+        # только потолок вызовов на запрос, квота облачных API не расходуется.
+        if local_llm:
+            llm_guard: Any = CallBudgetGuard(3)
+        else:
+            llm_guard = CompositeGuard(
+                CallBudgetGuard(3),
+                RateLimiterGuard(limiter, llm_session_id),
+            )
         notice_slot = st.empty()
         try:
             with st.spinner("Разбираю вопрос…"):
