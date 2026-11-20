@@ -79,6 +79,9 @@ class AgentState(TypedDict, total=False):
     #: Отличается от лимита: лимит по-прежнему уходит в fallback-правила,
     #: а техническая недоступность даёт честную ошибку (DECISIONS #20).
     llm_unavailable: bool
+    #: Текст, отправленный модели (system + user) последним вызовом: только для
+    #: диагностики ошибки, в UI «Технические детали».
+    llm_request: str
 
 
 class LLMCallGuard(Protocol):
@@ -205,6 +208,7 @@ def initial_state(
         llm_success=False,
         llm_calls=0,
         llm_unavailable=False,
+        llm_request="",
     )
 
 

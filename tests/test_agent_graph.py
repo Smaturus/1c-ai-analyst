@@ -482,14 +482,19 @@ def test_app_llm_unavailable_shows_error_without_rules(
 
     assert len(at.exception) == 0
     errors = " ".join(item.value for item in at.error)
-    assert "LLM не дала ответа" in errors, errors
+    assert "LLM `deepseek-chat` не дала ответа" in errors, errors
+    assert "детерминированным режимом" in errors, errors
     captions = " ".join(caption.value for caption in at.caption)
     assert "1200" in captions, captions
-    assert "Выберите другую модель или провайдера" in captions, captions
     # Ответа по правилам нет: ни расчётной подписи режима, ни JSON-DSL.
     assert not any("офлайн-правила" in item.value for item in at.markdown)
+    # В «Технических деталях» — ровно тот текст, что ушёл модели.
+    marks = " ".join(item.value for item in at.markdown)
+    assert "Запрос к модели" in marks, marks
     technical = " ".join(item.value for item in at.code)
     assert "не ответил за 1200" in technical, technical
+    assert "===== system =====" in technical, "system-промпт должен быть показан"
+    assert "Сколько мы продали за 2024 год?" in technical, "вопрос должен быть показан"
 
 
 def test_app_refuse_plate(

@@ -469,6 +469,20 @@ def _apply_guards(
     return _check_compare_periods(decision)
 
 
+def _render_request(messages: list[dict[str, str]]) -> str:
+    """Текст запроса к модели как есть: роли и содержимое, без пересказа.
+
+    Нужен для диагностики неудачного вызова: показать пользователю ровно то, что
+    ушло в LLM (системный промпт + вопрос и контекст).
+    """
+    parts: list[str] = []
+    for message in messages:
+        role = str(message.get("role") or "unknown")
+        content = str(message.get("content") or "")
+        parts.append(f"===== {role} =====\n{content}")
+    return "\n\n".join(parts)
+
+
 def agent_decision(state: AgentState) -> dict[str, Any]:
     """Один LLM-вызов с tool calling и нормализация в решение со статусом."""
     trace = mark_step(state, "agent_decision")
@@ -501,6 +515,7 @@ def agent_decision(state: AgentState) -> dict[str, Any]:
             "error": f"LLM недоступна: {exc}",
             "validation_error": f"LLM недоступна: {exc}",
             "llm_unavailable": True,
+            "llm_request": _render_request(messages),
             "trace": trace,
         }
     if guard is not None:
@@ -731,6 +746,7 @@ def handle_error(state: AgentState) -> dict[str, Any]:
                 ok=False,
                 status="error",
                 error=str(error),
+                llm_request=str(state.get("llm_request") or ""),
                 source="llm",
                 trace=tuple(trace),
             ),

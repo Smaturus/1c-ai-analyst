@@ -75,6 +75,9 @@ class AssistantResult:
         ``"llm"`` или ``"rules"`` — чем получен DSL после защиты.
     raw_response:
         Сырой ответ модели (для блока «Технические детали»).
+    llm_request:
+        Текст, отправленный модели в последнем вызове (system + user) — для
+        диагностики, когда ответа не было.
     llm_success:
         Был ли успешный вызов LLM **до** ``guard_decision``: лимит считается
         по факту вызова, даже если защита заменила решение правилами.
@@ -98,6 +101,7 @@ class AssistantResult:
     trace: tuple[str, ...] = ()
     source: str = "rules"
     raw_response: str = ""
+    llm_request: str = ""
     llm_success: bool = False
     status: str = "ok"
     refusal_reason: str | None = None
@@ -111,6 +115,7 @@ class AssistantResult:
             clarification=self.clarification,
             error=self.error,
             raw_response=self.raw_response,
+            llm_request=self.llm_request,
             dsl=dict(self.dsl),
             source=self.source,
             status=self.status,
@@ -264,6 +269,7 @@ def process_request(
         trace=tuple(steps),
         source=decision.source,
         raw_response=decision.raw_response,
+        llm_request=decision.llm_request,
         llm_success=llm_success,
         status=decision.status,
         refusal_reason=decision.refusal_reason,
@@ -299,6 +305,7 @@ def process_request(
         trace=tuple(steps),
         source=decision.source,
         raw_response=decision.raw_response,
+        llm_request=decision.llm_request,
         llm_success=llm_success,
         status=decision.status,
         refusal_reason=decision.refusal_reason,

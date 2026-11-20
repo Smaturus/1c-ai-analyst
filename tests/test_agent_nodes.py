@@ -338,12 +338,14 @@ def test_handle_error_does_not_substitute_rules_when_llm_unavailable() -> None:
             question="Сколько мы продали за 2024 год?",
             error="LLM недоступна: провайдер не ответил за 1200 с",
             llm_unavailable=True,
+            llm_request="===== user =====\nСколько мы продали за 2024 год?",
         )
     )
 
     assert update["decision"].status == "error"
     assert update["decision"].source == "llm"
     assert "1200" in (update["decision"].error or "")
+    assert "===== user =====" in update["decision"].llm_request
 
 
 def test_handle_error_without_rules_is_error() -> None:
@@ -594,6 +596,9 @@ def test_agent_decision_llm_error_is_error() -> None:
 
     assert update["decision"] is None
     assert "LLM недоступна" in update["error"]
+    # Для диагностики сохранён ровно тот текст, что ушёл модели.
+    assert "===== system =====" in update["llm_request"]
+    assert "Сколько мы продали за 2024 год?" in update["llm_request"]
 
 
 def test_agent_decision_against_refuse_reason() -> None:

@@ -473,6 +473,9 @@ class AgentDecision:
         Дружелюбное описание ошибки (для fallback-сообщения в UI).
     raw_response:
         Сырой ответ LLM (для блока «Как я это посчитал»).
+    llm_request:
+        Текст, отправленный модели в последнем вызове (system + user): нужен для
+        диагностики, когда ответа нет. Аддитивное поле, по умолчанию пусто.
     dsl:
         JSON-безопасное представление DSL (для показа пользователю).
     source:
@@ -495,6 +498,7 @@ class AgentDecision:
     clarification: ClarificationPlan | None = None
     error: str | None = None
     raw_response: str = ""
+    llm_request: str = ""
     dsl: dict[str, Any] = field(default_factory=dict)
     source: str = "rules"
     status: str = "ok"

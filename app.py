@@ -792,20 +792,24 @@ def render_refusal(reason: str | None) -> None:
     st.caption("Числа и таблица не строятся: честный отказ лучше «похожего» ответа.")
 
 
-def render_error(decision: AgentDecision) -> None:
+def render_error(decision: AgentDecision, model: str = "") -> None:
     """Дружелюбная ошибка: LLM недоступна или вопрос не разобран."""
     if decision.source == "llm" and decision.status == "error":
         # Галочка «Использовать LLM» включена — подменять ответ правилами нельзя
         # (DECISIONS #20): честно просим выбрать другого провайдера или режим.
-        st.error("LLM не дала ответа. Ответ по офлайн-правилам не подставлен.")
+        model_label = f"`{model}`" if model else "выбранная модель"
+        st.error(
+            f"LLM {model_label} не дала ответа. Выберите другую модель LLM "
+            "или воспользуйтесь детерминированным режимом."
+        )
         if decision.error:
             st.caption(f"Причина: {decision.error}")
-        st.caption(
-            "Выберите другую модель или провайдера в сайдбаре либо выключите "
-            "«Использовать LLM», чтобы получить ответ по правилам."
-        )
         with st.expander("Технические детали"):
-            st.code(decision.raw_response or decision.error or "нет ответа модели")
+            if decision.llm_request:
+                st.markdown("**Запрос к модели:**")
+                st.code(decision.llm_request)
+            st.markdown("**Ошибка:**")
+            st.code(decision.error or decision.raw_response or "нет ответа модели")
         return
     st.error(
         "Не удалось разобрать вопрос. "
@@ -1518,7 +1522,7 @@ def main() -> None:
                             "Не удалось однозначно разобрать вопрос даже после уточнений. "
                             "Задайте, пожалуйста, один показатель и один период."
                         )
-                        render_error(decision)
+                        render_error(decision, model=settings.model)
                         decision = None
                 else:
                     st.session_state["clarification_rounds"] = rounds + 1
@@ -1543,7 +1547,7 @@ def main() -> None:
                 decision = None
 
             if decision is not None and not decision.ok:
-                render_error(decision)
+                render_error(decision, model=settings.model)
                 st.session_state["clarification_rounds"] = 0
                 conversation.clarification_rounds = 0
             elif decision is not None:
