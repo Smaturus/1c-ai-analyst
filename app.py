@@ -918,13 +918,28 @@ def clear_question() -> None:
     st.session_state["clarification_rounds"] = 0
 
 
+_ASK_BUTTON_CSS = """
+<style>
+div[data-testid="stForm"] .st-key-ask_button button {
+    background-color: #dbeafe !important;
+    color: #1e3a8a !important;
+    border: 1px solid #93c5fd !important;
+}
+div[data-testid="stForm"] .st-key-ask_button button:hover {
+    background-color: #bfdbfe !important;
+    border-color: #60a5fa !important;
+}
+</style>
+"""
+
+
 def render_question_input(*, disabled: bool = False, reason: str = "") -> tuple[str, bool]:
     """Отрисовать поле вопроса: очистка «✖️» и отправка кнопкой или Enter.
 
-    Поле и кнопка «Спросить» находятся внутри ``st.form``: **Enter в поле
-    отправляет форму**, то есть работает как обычная отправка вопроса. Кнопка
-    «✖️» вынесена за пределы формы, поэтому очистка поля не отправляет запрос
-    (это было причиной отказа от формы на шаге 3 — теперь ограничение снято).
+    Поле и обе кнопки находятся внутри ``st.form``: **Enter в поле отправляет
+    форму**, то есть работает как обычная отправка вопроса. «✖️» — второй
+    submit-элемент формы с ``on_click=clear_question``: клик очищает поле и не
+    запускает расчёт (``submitted`` от «Спросить» остаётся ``False``).
 
     Parameters
     ----------
@@ -938,25 +953,26 @@ def render_question_input(*, disabled: bool = False, reason: str = "") -> tuple[
     tuple[str, bool]
         Текст вопроса и признак отправки (кнопка «Спросить» или Enter).
     """
-    question_col, clear_col = st.columns([5, 1], vertical_alignment="bottom")
-    with question_col:
-        with st.form("question_form", clear_on_submit=False, border=False):
-            question = st.text_input(
-                "Вопрос к данным",
-                key="question_input",
-                placeholder="Например: какие 5 товаров продаются хуже остальных за 2024 год?",
-                label_visibility="collapsed",
-            )
+    st.markdown(_ASK_BUTTON_CSS, unsafe_allow_html=True)
+    with st.form("question_form", clear_on_submit=False, border=False):
+        question = st.text_input(
+            "Вопрос к данным",
+            key="question_input",
+            placeholder="Например: какие 5 товаров продаются хуже остальных за 2024 год?",
+            label_visibility="collapsed",
+        )
+        ask_col, clear_col, _spacer = st.columns([1.3, 0.5, 4], vertical_alignment="center")
+        with ask_col:
             submitted = st.form_submit_button(
                 "Спросить",
-                type="primary",
+                key="ask_button",
                 disabled=disabled,
                 help=reason or None,
             )
-        if disabled and reason:
-            st.caption(reason)
-    with clear_col:
-        st.button("✖️", help="Очистить поле", on_click=clear_question)
+        with clear_col:
+            st.form_submit_button("✖️", help="Очистить поле", on_click=clear_question)
+    if disabled and reason:
+        st.caption(reason)
 
     return question, submitted
 
