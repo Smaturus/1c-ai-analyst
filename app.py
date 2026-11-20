@@ -1468,6 +1468,9 @@ def main() -> None:
         disabled=ask_blocked,
         reason=ask_blocked_reason,
     )
+    # Единый контейнер ответа: перерисовывается каждым прогоном, поэтому
+    # результат прошлого вопроса не остаётся под новым (DECISIONS #26).
+    answer_slot = st.empty()
 
     if st.session_state.get("auto_submit"):
         # Флаг выставлен выбором варианта уточнения (pills/кнопка-ссылка).
@@ -1530,7 +1533,8 @@ def main() -> None:
                     llm_guard=llm_guard,
                 )
         except DispatchError as exc:
-            render_dispatch_error(exc.decision, exc.original)
+            with answer_slot.container():
+                render_dispatch_error(exc.decision, exc.original)
             outcome = None
         finally:
             # Плашка живёт только на время вызова: после ответа она не должна
@@ -1575,7 +1579,8 @@ def main() -> None:
                             "Не удалось однозначно разобрать вопрос даже после уточнений. "
                             "Задайте, пожалуйста, один показатель и один период."
                         )
-                        render_error(decision, model=settings.model)
+                        with answer_slot.container():
+                            render_error(decision, model=settings.model)
                         decision = None
                 else:
                     st.session_state["clarification_rounds"] = rounds + 1
@@ -1583,7 +1588,8 @@ def main() -> None:
                     # Запоминаем исходный вопрос: выбранный вариант уточнения будет
                     # склеен с ним, чтобы в поле и в запросе не терялась первая часть.
                     st.session_state["clarification_base"] = question
-                    render_clarification(decision)
+                    with answer_slot.container():
+                        render_clarification(decision)
                     decision = None
 
             if (
@@ -1593,14 +1599,16 @@ def main() -> None:
             ):
                 # Отказ агента: причина есть, расчета нет, счётчик уточнений
                 # сбрасывается — это не незавершённый диалог.
-                render_refusal(outcome.refusal_reason)
+                with answer_slot.container():
+                    render_refusal(outcome.refusal_reason)
                 st.session_state["clarification_rounds"] = 0
                 conversation.clarification_rounds = 0
                 st.session_state.pop("clarification_base", None)
                 decision = None
 
             if decision is not None and not decision.ok:
-                render_error(decision, model=settings.model)
+                with answer_slot.container():
+                    render_error(decision, model=settings.model)
                 st.session_state["clarification_rounds"] = 0
                 conversation.clarification_rounds = 0
             elif decision is not None:
@@ -1615,7 +1623,8 @@ def main() -> None:
                     try:
                         execution = execute(decision, dataset, profile)
                     except (ValueError, TypeError, KeyError) as exc:
-                        render_dispatch_error(decision, exc)
+                        with answer_slot.container():
+                            render_dispatch_error(decision, exc)
                         result = None
                     else:
                         result = execution.result
@@ -1625,7 +1634,8 @@ def main() -> None:
                         )
 
                 if result is not None:
-                    render_result(decision, result, profile, summary=summary)
+                    with answer_slot.container():
+                        render_result(decision, result, profile, summary=summary)
                     st.session_state["history"].append(
                         {"role": "user", "content": question}
                     )
