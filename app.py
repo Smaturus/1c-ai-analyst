@@ -793,7 +793,20 @@ def render_refusal(reason: str | None) -> None:
 
 
 def render_error(decision: AgentDecision) -> None:
-    """Дружелюбная ошибка + список доступных интентов (fallback по ТЗ)."""
+    """Дружелюбная ошибка: LLM недоступна или вопрос не разобран."""
+    if decision.source == "llm" and decision.status == "error":
+        # Галочка «Использовать LLM» включена — подменять ответ правилами нельзя
+        # (DECISIONS #20): честно просим выбрать другого провайдера или режим.
+        st.error("LLM не дала ответа. Ответ по офлайн-правилам не подставлен.")
+        if decision.error:
+            st.caption(f"Причина: {decision.error}")
+        st.caption(
+            "Выберите другую модель или провайдера в сайдбаре либо выключите "
+            "«Использовать LLM», чтобы получить ответ по правилам."
+        )
+        with st.expander("Технические детали"):
+            st.code(decision.raw_response or decision.error or "нет ответа модели")
+        return
     st.error(
         "Не удалось разобрать вопрос. "
         "Попробуйте переформулировать или выбрать один из примеров ниже."

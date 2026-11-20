@@ -75,6 +75,10 @@ class AgentState(TypedDict, total=False):
     inherited: dict[str, Any]
     llm_success: bool
     llm_calls: int
+    #: Вызов LLM не состоялся по технической причине (сеть/таймаут).
+    #: Отличается от лимита: лимит по-прежнему уходит в fallback-правила,
+    #: а техническая недоступность даёт честную ошибку (DECISIONS #20).
+    llm_unavailable: bool
 
 
 class LLMCallGuard(Protocol):
@@ -200,6 +204,7 @@ def initial_state(
         inherited={},
         llm_success=False,
         llm_calls=0,
+        llm_unavailable=False,
     )
 
 

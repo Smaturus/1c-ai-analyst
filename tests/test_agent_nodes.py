@@ -331,6 +331,21 @@ def test_handle_error_falls_back_to_rules() -> None:
     assert update["decision"].ok is True
 
 
+def test_handle_error_does_not_substitute_rules_when_llm_unavailable() -> None:
+    """Недоступность LLM — честная ошибка, а не ответ правилами (DECISIONS #20)."""
+    update = nodes.handle_error(
+        _state(  # type: ignore[arg-type]
+            question="Сколько мы продали за 2024 год?",
+            error="LLM недоступна: провайдер не ответил за 1200 с",
+            llm_unavailable=True,
+        )
+    )
+
+    assert update["decision"].status == "error"
+    assert update["decision"].source == "llm"
+    assert "1200" in (update["decision"].error or "")
+
+
 def test_handle_error_without_rules_is_error() -> None:
     """Если правила не разобрали вопрос — честная ошибка, без «похожего» ответа."""
     update = nodes.handle_error(_state(question="Расскажи анекдот", error="сбой"))  # type: ignore[arg-type]

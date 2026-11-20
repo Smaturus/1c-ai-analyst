@@ -197,7 +197,10 @@ def test_network_failure_does_not_consume(rate_limit_db_path) -> None:
     final = run_agent_graph(state, client=client, guard=guard)
 
     assert limiter.check_limit("s1").used_session == 0
-    assert final["decision"].status == "fallback"
+    # Недоступность LLM не подменяется правилами (DECISIONS #20), но лимит
+    # при этом не съеден.
+    assert final["decision"].status == "error"
+    assert "недоступна" in (final["decision"].error or "")
 
 
 def test_composite_budget_caps_calls_per_request(rate_limit_db_path) -> None:

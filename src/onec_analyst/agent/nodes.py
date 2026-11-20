@@ -500,6 +500,7 @@ def agent_decision(state: AgentState) -> dict[str, Any]:
             "decision": None,
             "error": f"LLM недоступна: {exc}",
             "validation_error": f"LLM недоступна: {exc}",
+            "llm_unavailable": True,
             "trace": trace,
         }
     if guard is not None:
@@ -708,7 +709,14 @@ def refuse(state: AgentState) -> dict[str, Any]:
 
 
 def handle_error(state: AgentState) -> dict[str, Any]:
-    """Техническая ошибка/лимит/сеть: fallback в правила или честная ошибка."""
+    """Техническая ошибка/лимит/сеть: fallback в правила или честная ошибка.
+
+    Лимит и разбор вопроса остаются как были: при исчерпанном лимите и при
+    непонятом вопросе приложение отдаёт детерминированный ответ правилами
+    (ТЗ 6.4 §4.2). А вот **недоступность самого LLM** (таймаут/сеть) правилами
+    не подменяется: пользователь включил LLM, значит ответ должен быть её —
+    либо честная ошибка с просьбой выбрать другого провайдера (DECISIONS #20).
+    """
     trace = mark_step(state, "handle_error")
     decision = state.get("decision")
     error = (
@@ -717,6 +725,18 @@ def handle_error(state: AgentState) -> dict[str, Any]:
         or (decision.error if decision is not None else None)
         or "Не удалось получить решение"
     )
+    if state.get("llm_unavailable"):
+        return {
+            "decision": AgentDecision(
+                ok=False,
+                status="error",
+                error=str(error),
+                source="llm",
+                trace=tuple(trace),
+            ),
+            "error": error,
+            "trace": trace,
+        }
     planner = state.get("planner") or RuleBasedPlanner()
     question = str(state.get("resolved_question") or state.get("question") or "")
     try:

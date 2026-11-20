@@ -248,3 +248,24 @@ def test_no_tools_uses_text_path(monkeypatch: pytest.MonkeyPatch) -> None:
     assert result.content == "text answer"
     assert result.tool_calls == ()
     assert "tools" not in sent[0]
+
+def test_timeout_error_names_configured_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Таймаут называет заданный лимит времени, а не безликое «сеть недоступна»."""
+    import urllib.request
+
+    settings = LLMSettings(
+        provider="ollama",
+        model="qwen3:4b",
+        api_key="ollama",
+        base_url="http://localhost:11434/v1",
+        timeout=1200,
+    )
+    client = LLMClient(settings)
+
+    def urlopen(*args: object, **kwargs: object) -> object:
+        raise TimeoutError("timed out")
+
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+
+    with pytest.raises(LLMError, match="не ответил за 1200"):
+        client.chat([{"role": "user", "content": "hi"}])

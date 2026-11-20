@@ -1300,7 +1300,21 @@ class LLMClient:
         except urllib.error.HTTPError as exc:
             details = exc.read().decode("utf-8", errors="replace")[:500]
             raise LLMError(f"HTTP {exc.code}: {details}") from exc
-        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        except TimeoutError as exc:
+            # Таймаут — не «сеть недоступна»: пользователю важно знать лимит
+            # времени, который он сам задал (LLM_TIMEOUT / LLM_TIMEOUT_<PROVIDER>).
+            raise LLMError(
+                f"провайдер не ответил за {settings.timeout:g} с"
+            ) from exc
+        except urllib.error.URLError as exc:
+            # urlopen иногда заворачивает таймаут в URLError(reason=timeout):
+            # текст для пользователя должен остаться тем же.
+            if isinstance(exc.reason, TimeoutError):
+                raise LLMError(
+                    f"провайдер не ответил за {settings.timeout:g} с"
+                ) from exc
+            raise LLMError(f"Сеть недоступна: {exc}") from exc
+        except OSError as exc:
             raise LLMError(f"Сеть недоступна: {exc}") from exc
         try:
             data = json.loads(body)

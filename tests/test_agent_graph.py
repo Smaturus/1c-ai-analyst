@@ -19,7 +19,7 @@ from onec_analyst.agent.graph import (
 )
 from onec_analyst.agent.state import CallBudgetGuard, initial_state
 from onec_analyst.dispatcher import process_request
-from onec_analyst.llm_agent import AgentDecision, LLMSettings, CompletionResult
+from onec_analyst.llm_agent import AgentDecision, LLMError, LLMSettings, CompletionResult
 from onec_analyst.rate_limiter import RateLimiter
 from onec_analyst.session import ConversationState
 
@@ -461,6 +461,35 @@ def test_app_ollama_call_does_not_consume_quota(monkeypatch: pytest.MonkeyPatch)
     assert status.used_global == 0
     # Вызов действительно состоялся: есть «Технические детали» со статусом.
     assert any("Статус" in markdown.value for markdown in at.markdown)
+
+
+def test_app_llm_unavailable_shows_error_without_rules(
+    llm_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Таймаут LLM при включённой галочке → ошибка с подсказкой, без правил."""
+
+    class FailingClient:
+        supports_tools = False
+
+        def complete(self, messages: object, tools: object = None) -> object:
+            raise LLMError("провайдер не ответил за 1200 с")
+
+    monkeypatch.setattr(llm_agent, "make_client", lambda settings: FailingClient())
+    at = AppTest.from_file(APP_FILE, default_timeout=TIMEOUT).run()
+    at.text_input[0].set_value("Сколько мы продали за 2024 год?")
+    next(button for button in at.button if button.label == "Спросить").click()
+    at.run()
+
+    assert len(at.exception) == 0
+    errors = " ".join(item.value for item in at.error)
+    assert "LLM не дала ответа" in errors, errors
+    captions = " ".join(caption.value for caption in at.caption)
+    assert "1200" in captions, captions
+    assert "Выберите другую модель или провайдера" in captions, captions
+    # Ответа по правилам нет: ни расчётной подписи режима, ни JSON-DSL.
+    assert not any("офлайн-правила" in item.value for item in at.markdown)
+    technical = " ".join(item.value for item in at.code)
+    assert "не ответил за 1200" in technical, technical
 
 
 def test_app_refuse_plate(
