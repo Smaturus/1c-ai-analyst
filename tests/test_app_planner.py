@@ -86,7 +86,7 @@ def test_sidebar_toggle_is_manageable_without_providers(
     assert toggle.disabled is False
     assert toggle.value is False
     captions = [caption.value for caption in at.sidebar.caption]
-    assert any("офлайн-правила" in text for text in captions), captions
+    assert any("Офлайн-режим" in text for text in captions), captions
 
 
 def test_ask_button_blocked_when_llm_on_without_providers(

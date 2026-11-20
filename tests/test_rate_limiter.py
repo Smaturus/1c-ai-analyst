@@ -177,17 +177,17 @@ def test_format_usage_caption_includes_counts() -> None:
         limit_session=MAX_PER_SESSION,
         limit_global=MAX_GLOBAL,
     )
-    assert format_usage_caption(status) == "Использовано вызовов ИИ: 3/15"
+    assert format_usage_caption(status) == "Внешняя квота ИИ: 3/15"
 
 
 def test_sidebar_shows_usage_counter(
     monkeypatch: pytest.MonkeyPatch, rate_limit_db_path: Path
 ) -> None:
-    """В сайдбаре виден счётчик «Использовано вызовов ИИ: 0/15»."""
+    """В сайдбаре виден счётчик «Внешняя квота ИИ: 0/15»."""
     at = _run_app(monkeypatch)
 
     captions = [caption.value for caption in at.sidebar.caption]
-    assert any("Использовано вызовов ИИ: 0/15" in text for text in captions)
+    assert any("Внешняя квота ИИ: 0/15" in text for text in captions)
     assert at.session_state["llm_session_id"]
 
 
@@ -268,7 +268,7 @@ def test_clarification_llm_source_increments_usage(
 
     assert RateLimiter(rate_limit_db_path).check_limit(session_id).used_session == 1
     captions = [caption.value for caption in at.sidebar.caption]
-    assert any("Использовано вызовов ИИ: 1/15" in text for text in captions)
+    assert any("Внешняя квота ИИ: 1/15" in text for text in captions)
 
 
 def test_session_limit_shows_warning_without_reset_by_default(
@@ -315,7 +315,7 @@ def test_session_limit_reset_button_when_allowed(
     reset[0].click()
     at.run()
     captions = [caption.value for caption in at.sidebar.caption]
-    assert any("Использовано вызовов ИИ: 0/15" in text for text in captions)
+    assert any("Внешняя квота ИИ: 0/15" in text for text in captions)
     assert not any("Вы достигли лимита вызовов ИИ" in warning.value for warning in at.warning)
 
 

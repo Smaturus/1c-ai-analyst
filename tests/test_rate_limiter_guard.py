@@ -225,7 +225,7 @@ def test_composite_budget_caps_calls_per_request(rate_limit_db_path) -> None:
 def test_app_graph_path_counts_calls(
     monkeypatch: pytest.MonkeyPatch, rate_limit_db_path
 ) -> None:
-    """Граф-путь с одним вызовом показывает «Использовано вызовов ИИ: 1/15»."""
+    """Граф-путь с одним вызовом показывает «Внешняя квота ИИ: 1/15»."""
     monkeypatch.setenv("LLM_PROVIDER", "deepseek")
     monkeypatch.setenv("LLM_MODEL", "deepseek-chat")
     monkeypatch.setenv("LLM_API_KEY", "test-key")
@@ -240,5 +240,5 @@ def test_app_graph_path_counts_calls(
     at.run()
 
     captions = [caption.value for caption in at.sidebar.caption]
-    assert any("Использовано вызовов ИИ: 1/15" in text for text in captions)
+    assert any("Внешняя квота ИИ: 1/15" in text for text in captions)
     assert len(at.exception) == 0

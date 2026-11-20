@@ -131,9 +131,13 @@ def _rate_limit_reset_allowed() -> bool:
 
 
 def format_usage_caption(limit_status: LimitStatus) -> str:
-    """Текст счётчика LLM в сайдбаре."""
+    """Текст счётчика внешней квоты LLM в сайдбаре.
+
+    Считаются только вызовы внешних провайдеров: локальная Ollama токенов не
+    тратит и квоту не расходует (DECISIONS #19).
+    """
     return (
-        f"Использовано вызовов ИИ: "
+        f"Внешняя квота ИИ: "
         f"{limit_status.used_session}/{limit_status.limit_session}"
     )
 
@@ -1203,7 +1207,10 @@ def render_sidebar(
     ask_blocked_reason = NO_PROVIDERS_MESSAGE if ask_blocked else ""
     if not use_llm:
         chosen_settings = LLMSettings()
-        st.sidebar.caption("Включены офлайн-правила: API не вызывается.")
+        st.sidebar.caption(
+            "Офлайн-режим: модель не используется, вопрос разбирают "
+            "детерминированные правила."
+        )
     elif ask_blocked:
         chosen_settings = LLMSettings()
         st.sidebar.warning(NO_PROVIDERS_MESSAGE)
