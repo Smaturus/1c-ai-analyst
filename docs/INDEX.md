@@ -33,6 +33,7 @@
 | [REPORT_LANGGRAPH_STAGE3.md](REPORT_LANGGRAPH_STAGE3.md) | Отчёт этапа 3: нативные tool calls и аудит шагов графа (исправления 3.1) |
 | [REPORT_LANGGRAPH_STAGE4.md](REPORT_LANGGRAPH_STAGE4.md) | Отчёт этапа 4: eval-слой — кассеты, replay, live, judge |
 | [REPORT_LANGGRAPH_STAGE5.md](REPORT_LANGGRAPH_STAGE5.md) | Отчёт этапа 5: качество DSL, per-call лимиты (§4.2), релиз 0.8.0 |
+| [REPORT_PROVIDERS_GOLDSET.md](REPORT_PROVIDERS_GOLDSET.md) | Сравнение DeepSeek и Ollama Qwen на внешнем GoldSet (50 кейсов): 42/50 и 34/50 |
 | [intent_schema.json](intent_schema.json) | Схема 7 интентов для LLM/интеграций |
 | [../CHANGELOG.md](../CHANGELOG.md) | История версий (Keep a Changelog) |
 
