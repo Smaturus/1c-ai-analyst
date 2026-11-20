@@ -798,9 +798,10 @@ def render_error(decision: AgentDecision, model: str = "") -> None:
         # Галочка «Использовать LLM» включена — подменять ответ правилами нельзя
         # (DECISIONS #20/#21): честно просим выбрать другого провайдера или режим.
         limit_hit = (decision.error or "").startswith("Лимит")
+        unavailable = (decision.error or "").startswith("LLM недоступна")
         if limit_hit:
             st.error(f"{decision.error}: {DETERMINISTIC_HINT}")
-        else:
+        elif unavailable:
             model_label = f"`{model}`" if model else "выбранная модель"
             st.error(
                 f"LLM {model_label} не дала ответа. Выберите другую модель LLM "
@@ -808,12 +809,23 @@ def render_error(decision: AgentDecision, model: str = "") -> None:
             )
             if decision.error:
                 st.caption(f"Причина: {decision.error}")
+        else:
+            # Модель ответила, но ответ не прошёл контракт (DECISIONS #22).
+            st.error(
+                "Модель ответила, но ответ не соответствует контракту. "
+                + DETERMINISTIC_HINT
+            )
+            if decision.error:
+                st.caption(f"Причина: {decision.error}")
         with st.expander("Технические детали"):
             if decision.llm_request:
                 st.markdown("**Запрос к модели:**")
                 st.code(decision.llm_request)
+            if decision.raw_response:
+                st.markdown("**Ответ модели:**")
+                st.code(decision.raw_response)
             st.markdown("**Ошибка:**")
-            st.code(decision.error or decision.raw_response or "нет ответа модели")
+            st.code(decision.error or "нет текста ошибки")
         return
     st.error(
         "Не удалось разобрать вопрос. "

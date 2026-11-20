@@ -159,8 +159,8 @@ def test_every_event_has_step_and_duration(tmp_path) -> None:
         assert record["duration_ms"] >= 0, record
 
 
-def test_fallback_writes_fallback_event(tmp_path) -> None:
-    """При fallback пишется отдельное событие ``fallback``, а graph_end — fallback=True."""
+def test_invalid_response_is_error_without_fallback_event(tmp_path) -> None:
+    """Невалидный ответ модели: status=error, события fallback нет (DECISIONS #22)."""
     audit = AuditLog(tmp_path / "audit.jsonl")
     final, records = _run(
         audit,
@@ -169,11 +169,11 @@ def test_fallback_writes_fallback_event(tmp_path) -> None:
         question="Итог за 2024",
     )
 
-    assert final["decision"].status == "fallback"
-    assert any(record["event"] == "fallback" for record in records)
+    assert final["decision"].status == "error"
+    assert not any(record["event"] == "fallback" for record in records)
     graph_end = [record for record in records if record["event"] == "graph_end"][-1]
-    assert graph_end["status"] == "fallback"
-    assert graph_end["fallback"] is True
+    assert graph_end["status"] == "error"
+    assert graph_end["fallback"] is False
 
 
 def test_graph_end_has_status_fallback_and_error_type(tmp_path) -> None:

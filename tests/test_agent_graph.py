@@ -162,12 +162,13 @@ def test_bad_model_answers_go_to_handle_error(response, marker: str) -> None:
     assert marker in (final.get("validation_error") or final["decision"].error or "")
 
 
-def test_free_text_falls_back_to_rules_when_possible() -> None:
-    """Разборчивый вопрос после сбоя модели получает fallback в правила."""
+def test_free_text_is_error_with_model_answer_not_rules() -> None:
+    """Невалидный ответ модели — ошибка с её текстом, а не подмена правилами."""
     final, _ = _run("Итог за 2024", [text_response("не знаю")])
 
-    assert final["decision"].status == "fallback"
-    assert final["decision"].intent == "total"
+    assert final["decision"].status == "error"
+    assert final["decision"].raw_response == "не знаю"
+    assert "Итог за 2024" in final["decision"].llm_request
 
 
 def test_unparseable_question_is_error_not_guess() -> None:
@@ -497,6 +498,30 @@ def test_app_llm_unavailable_shows_error_without_rules(
     assert "не ответил за 1200" in technical, technical
     assert "===== system =====" in technical, "system-промпт должен быть показан"
     assert "Сколько мы продали за 2024 год?" in technical, "вопрос должен быть показан"
+
+
+def test_app_invalid_llm_answer_shows_error_with_model_text(
+    llm_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Невалидный ответ модели → ошибка с её текстом, без офлайн-правил."""
+    monkeypatch.setattr(
+        llm_agent,
+        "make_client",
+        lambda settings: FakeLLMClient([text_response("не знаю")]),
+    )
+    at = AppTest.from_file(APP_FILE, default_timeout=TIMEOUT).run()
+    at.text_input[0].set_value("Итог за 2024")
+    next(button for button in at.button if button.label == "Спросить").click()
+    at.run()
+
+    assert len(at.exception) == 0
+    errors = " ".join(item.value for item in at.error)
+    assert "не соответствует контракту" in errors, errors
+    assert not any("офлайн-правила" in item.value for item in at.markdown)
+    marks = " ".join(item.value for item in at.markdown)
+    assert "Ответ модели" in marks, marks
+    technical = " ".join(item.value for item in at.code)
+    assert "не знаю" in technical, technical
 
 
 def test_app_refuse_plate(

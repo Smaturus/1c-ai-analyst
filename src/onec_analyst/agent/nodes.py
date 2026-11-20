@@ -41,6 +41,7 @@ from onec_analyst.clarification import force_interpretation
 from onec_analyst.llm_agent import (
     AgentDecision,
     ClarificationPlan,
+    CompletionResult,
     LLMError,
     RuleBasedPlanner,
     _short_error,
@@ -483,6 +484,20 @@ def _render_request(messages: list[dict[str, str]]) -> str:
     return "\n\n".join(parts)
 
 
+def _raw_text(result: CompletionResult) -> str:
+    """Текст, который вернула модель: ``content`` или вызовы инструментов.
+
+    Для ошибки контракта это единственное доказательство «что именно пришло»:
+    у текстового ответа — ``content``, у tool calling — сериализованные вызовы.
+    """
+    if result.content:
+        return result.content
+    if result.tool_calls:
+        rendered = [f"{call.name}({json.dumps(call.arguments, ensure_ascii=False)})" for call in result.tool_calls]
+        return "\n".join(rendered)
+    return ""
+
+
 def agent_decision(state: AgentState) -> dict[str, Any]:
     """Один LLM-вызов с tool calling и нормализация в решение со статусом."""
     trace = mark_step(state, "agent_decision")
@@ -529,6 +544,8 @@ def agent_decision(state: AgentState) -> dict[str, Any]:
             "decision": None,
             "error": str(exc),
             "validation_error": str(exc),
+            "invalid_response": _raw_text(result),
+            "llm_request": _render_request(messages),
             "llm_success": True,
             "llm_calls": calls,
             "trace": trace,
@@ -540,6 +557,8 @@ def agent_decision(state: AgentState) -> dict[str, Any]:
             "decision": None,
             "error": str(exc),
             "validation_error": str(exc),
+            "invalid_response": _raw_text(result),
+            "llm_request": _render_request(messages),
             "llm_success": True,
             "llm_calls": calls,
             "trace": trace,
@@ -615,6 +634,8 @@ def fix_dsl(state: AgentState) -> dict[str, Any]:
         return {
             "validation_error": f"LLM недоступна: {exc}",
             "error": f"LLM недоступна: {exc}",
+            "llm_unavailable": True,
+            "llm_request": _render_request(messages),
             "retry_count": retry,
             "trace": trace,
         }
@@ -634,6 +655,8 @@ def fix_dsl(state: AgentState) -> dict[str, Any]:
     except (ToolCallError, ValueError, ValidationError) as exc:
         return {
             "validation_error": _short_error(exc),
+            "invalid_response": _raw_text(result),
+            "llm_request": _render_request(messages),
             "decision": decision,
             "retry_count": retry,
             "llm_success": True,
@@ -750,6 +773,22 @@ def handle_error(state: AgentState) -> dict[str, Any]:
                 ok=False,
                 status="error",
                 error="Лимит вызовов LLM исчерпан",
+                source="llm",
+                trace=tuple(trace),
+            ),
+            "error": error,
+            "trace": trace,
+        }
+    if state.get("invalid_response"):
+        # Модель ответила, но ответ не прошёл контракт: показываем ошибку и её
+        # текст, а не подставляем правила (DECISIONS #22).
+        return {
+            "decision": AgentDecision(
+                ok=False,
+                status="error",
+                error=str(error),
+                raw_response=str(state.get("invalid_response") or ""),
+                llm_request=str(state.get("llm_request") or ""),
                 source="llm",
                 trace=tuple(trace),
             ),

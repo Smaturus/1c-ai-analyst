@@ -85,6 +85,9 @@ class AgentState(TypedDict, total=False):
     #: Guard отказал в вызове из-за лимита: это не ошибка LLM и не повод
     #: подставлять правила при включённой галочке (DECISIONS #21).
     limit_blocked: bool
+    #: Ответ модели, не прошедший контракт (JSON-DSL): показывается в ошибке
+    #: вместо молчаливого перехода на правила (DECISIONS #22).
+    invalid_response: str
 
 
 class LLMCallGuard(Protocol):
@@ -213,6 +216,7 @@ def initial_state(
         llm_unavailable=False,
         llm_request="",
         limit_blocked=False,
+        invalid_response="",
     )
 
 
