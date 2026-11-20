@@ -1,4 +1,4 @@
-"""Узлы агента: контекст, валидация, починка, уточнение, отказ, ошибки."""
+﻿"""Узлы агента: контекст, валидация, починка, уточнение, отказ, ошибки."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import pytest
 
 from onec_analyst.agent import nodes
 from onec_analyst.agent.state import CallBudgetGuard, initial_state
-from onec_analyst.llm_agent import AgentDecision, ClarificationPlan
+from onec_analyst.llm_agent import AgentDecision, ClarificationPlan, LLMError
 
 from tests.agent_support import (
     FakeLLMClient,
@@ -601,6 +601,34 @@ def test_agent_decision_llm_error_is_error() -> None:
     # Для диагностики сохранён ровно тот текст, что ушёл модели.
     assert "===== system =====" in update["llm_request"]
     assert "Сколько мы продали за 2024 год?" in update["llm_request"]
+
+
+def test_agent_decision_passes_previous_context_only_for_contextual_questions() -> None:
+    """Контекст прошлого шага — только вопросам со ссылкой («а теперь», «те же»)."""
+
+    class Broken(FakeLLMClient):
+        def complete(self, messages, tools=None):  # type: ignore[override]
+            raise LLMError("нет сети")
+
+    greeting = nodes.agent_decision(
+        _state(  # type: ignore[arg-type]
+            question="Привет, как у тебя дела?",
+            previous_dsl={"intent": "top_bottom_products"},
+            result_entities=["Телевизор Zeta"],
+            client=Broken([text_response("x")]),
+        )
+    )
+    follow_up = nodes.agent_decision(
+        _state(  # type: ignore[arg-type]
+            question="А теперь покажи топ-3",
+            previous_dsl={"intent": "top_bottom_products"},
+            result_entities=["Телевизор Zeta"],
+            client=Broken([text_response("x")]),
+        )
+    )
+
+    assert "КОНТЕКСТ ПРЕДЫДУЩЕГО ШАГА" not in greeting["llm_request"]
+    assert "КОНТЕКСТ ПРЕДЫДУЩЕГО ШАГА" in follow_up["llm_request"]
 
 
 def test_agent_decision_against_refuse_reason() -> None:

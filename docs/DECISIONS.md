@@ -538,9 +538,20 @@ server.log второго запроса: `prompt eval = 1,8 с / 22 токен�
 system и инвалидирует префикс — первый запрос дня снова платит полный
 prompt-eval (~55–77 с).
 
+**Уточнение: контекст прошлого шага передаётся только по ссылке (2026-11-20).**
+После переноса блока в user выяснилось, что instruct-2507 на несвязанном
+вопросе («Привет, как у тебя дела?») копирует `previous_dsl` и возвращает
+`ok/top_bottom_products` — новый ответ с данными прошлого вопроса, который
+выглядит как «залипшая» таблица (DeepSeek в том же месте отдаёт `refuse`).
+Поэтому `agent_decision` передаёт `previous_dsl`/`result_entities` модели
+**только если вопрос содержит контекстный триггер** (`has_context_triggers`:
+«а теперь», «те же», «за тот же период» и т.п.). Промпт при этом не менялся,
+а стабильный system-префикс сохраняется.
+
 **Затронуто:** `agent/prompts.py` (`_context_block`,
-`build_agent_system_prompt`, `build_agent_messages`), тесты
-`test_agent_prompts.py`.
+`build_agent_system_prompt`, `build_agent_messages`), `agent/nodes.py`
+(`agent_decision` — гейт контекста), тесты `test_agent_prompts.py`,
+`test_agent_nodes.py`.
 
 ---
 

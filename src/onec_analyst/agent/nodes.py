@@ -523,11 +523,15 @@ def agent_decision(state: AgentState) -> dict[str, Any]:
         }
     question = str(state.get("resolved_question") or state.get("question") or "")
     tools = build_agent_tools() if _supports_tools(client) else None
+    # Контекст предыдущего шага отдаём модели только для вопросов, которые на
+    # него ссылаются («а теперь», «те же»): иначе слабая модель копирует старый
+    # DSL вместо ответа по существу (приветствие → повтор прошлого расчёта).
+    context_relevant = has_context_triggers(question)
     messages = build_agent_messages(
         question,
         today=state_today(state),
-        previous_dsl=state.get("previous_dsl"),
-        result_entities=state.get("result_entities"),
+        previous_dsl=state.get("previous_dsl") if context_relevant else None,
+        result_entities=state.get("result_entities") if context_relevant else None,
         json_tools=not _supports_tools(client),
     )
     calls = int(state.get("llm_calls") or 0) + 1
