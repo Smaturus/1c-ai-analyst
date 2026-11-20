@@ -17,6 +17,7 @@ from typing import Any
 
 import pandas as pd
 
+from onec_analyst.analytics import PRODUCT, PRODUCT_GROUP
 from onec_analyst.llm_agent import (
     AgentDecision,
     ClarificationPlan,
@@ -147,6 +148,21 @@ def _mark(
     session.record_trace(step)
 
 
+def _build_filter_catalog(df: pd.DataFrame) -> dict[str, list[str]]:
+    """Каталог сущностей витрины для guard'а фильтров (товары и группы).
+
+    Нужен, чтобы отличить галлюцинированный фильтр модели от честного парафраза
+    («кондиционеры» → «Кондиционер») ещё в графе, до исполнения расчёта.
+    """
+    catalog: dict[str, list[str]] = {}
+    for key, column in (("product_filter", PRODUCT), ("group_filter", PRODUCT_GROUP)):
+        if column in df.columns:
+            catalog[key] = [
+                str(value) for value in df[column].dropna().unique() if str(value).strip()
+            ]
+    return catalog
+
+
 def process_request(
     question: str,
     use_llm: bool,
@@ -223,6 +239,7 @@ def process_request(
             planner=RuleBasedPlanner(),
             guard=llm_guard,
             audit=audit,
+            filter_catalog=_build_filter_catalog(df),
         )
         final_state = run_agent_graph(state, settings=settings, guard=llm_guard, audit=audit)
         decision: AgentDecision = final_state.get("decision") or AgentDecision(

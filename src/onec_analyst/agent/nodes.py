@@ -38,6 +38,7 @@ from onec_analyst.agent.tools import (
     validate_meta_arguments,
 )
 from onec_analyst.clarification import force_interpretation
+from onec_analyst.entities import resolve_entity
 from onec_analyst.llm_agent import (
     AgentDecision,
     ClarificationPlan,
@@ -81,6 +82,36 @@ _AVERAGE_RE = re.compile(r"средн\w*\s+(чек|выручк|оборот)", 
 _VAT_RE = re.compile(r"\bс\s+ндс\b|revenue_vat", re.IGNORECASE)
 
 _PRODUCT_FILTER_KEYS = ("product_filter", "group_filter")
+
+
+def find_hallucinated_filter(
+    question: str,
+    params: dict[str, Any],
+    catalog: dict[str, list[str]] | None,
+) -> str | None:
+    """Ключ фильтра, который модель выдумала, а не взяла из вопроса/каталога.
+
+    Три ветки (см. DECISIONS #19):
+    1. значение фильтра — подстрока вопроса (регистронезависимо) → ок;
+    2. значение резолвится в каталог витрины (парафраз) → ок;
+    3. ни того, ни другого → галлюцинация, возвращается ключ фильтра.
+
+    Пустой ``catalog`` не считается ошибкой: тогда ветка 2 просто не срабатывает
+    (как на путях без витрины), и решение принимается по веткам 1 и 3.
+    """
+    lowered = (question or "").casefold()
+    for key in _PRODUCT_FILTER_KEYS:
+        value = params.get(key)
+        if not (isinstance(value, str) and value.strip()):
+            continue
+        needle = value.strip().casefold()
+        if needle and needle in lowered:
+            continue
+        names = [str(item) for item in ((catalog or {}).get(key) or []) if str(item).strip()]
+        if names and resolve_entity(value.strip(), names).resolved:
+            continue
+        return key
+    return None
 
 
 # --------------------------------------------------------------------------- #
@@ -476,6 +507,19 @@ def _apply_guards(
             "Период позже сегодняшней даты не поддерживается: данных за будущее ещё нет.",
             source=decision.source,
         )
+    hallucinated = find_hallucinated_filter(
+        question, decision.params or {}, state.get("filter_catalog")
+    )
+    if hallucinated:
+        label = "товар" if hallucinated == "product_filter" else "группу"
+        return _clarify_decision(
+            missing=[hallucinated],
+            question=(
+                f"Указанный {label} не найден ни в вопросе, ни в витрине. "
+                f"Уточните, какой {label} показать."
+            ),
+            source=decision.source,
+        )
     return _check_compare_periods(decision)
 
 
@@ -854,6 +898,7 @@ __all__ = [
     "agent_decision",
     "clarify",
     "describe_context",
+    "find_hallucinated_filter",
     "fix_dsl",
     "handle_error",
     "has_context_triggers",

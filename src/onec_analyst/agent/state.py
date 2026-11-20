@@ -89,6 +89,10 @@ class AgentState(TypedDict, total=False):
     #: Ответ модели, не прошедший контракт (JSON-DSL): показывается в ошибке
     #: вместо молчаливого перехода на правила (DECISIONS #22).
     invalid_response: str
+    #: Каталог сущностей витрины для guard'а фильтров: ключи ``product_filter``/
+    #: ``group_filter`` → список фактических имён. None — проверка каталога
+    #: пропускается (остаётся только подстрока в вопросе).
+    filter_catalog: dict[str, list[str]] | None
 
 
 class LLMCallGuard(Protocol):
@@ -191,6 +195,7 @@ def initial_state(
     planner: RuleBasedPlanner | None = None,
     guard: LLMCallGuard | None = None,
     audit: Any = None,
+    filter_catalog: dict[str, list[str]] | None = None,
 ) -> AgentState:
     """Собрать начальное состояние графа из запроса и памяти диалога."""
     current = today or date.today()
@@ -218,6 +223,7 @@ def initial_state(
         llm_request="",
         limit_blocked=False,
         invalid_response="",
+        filter_catalog=dict(filter_catalog) if filter_catalog else None,
     )
 
 
