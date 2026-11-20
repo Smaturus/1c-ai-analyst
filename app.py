@@ -31,6 +31,8 @@ import os
 import sys
 import tempfile
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -933,6 +935,19 @@ div[data-testid="stForm"] .st-key-ask_button button:hover {
 """
 
 
+@contextmanager
+def _answer_area(slot: Any, caption: str) -> Iterator[None]:
+    """Контейнер ответа: подпись вопроса и содержимое в одном слоте.
+
+    Содержимое рисуется в ``slot.container()``; подпись — тем же контейнером,
+    поэтому она всегда остаётся над результатом и исчезает вместе с ним при
+    следующем прогоне.
+    """
+    with slot.container():
+        st.caption(caption)
+        yield
+
+
 def render_question_input(*, disabled: bool = False, reason: str = "") -> tuple[str, bool]:
     """Отрисовать поле вопроса: очистка «✖️» и отправка кнопкой или Enter.
 
@@ -1470,7 +1485,10 @@ def main() -> None:
     )
     # Единый контейнер ответа: перерисовывается каждым прогоном, поэтому
     # результат прошлого вопроса не остаётся под новым (DECISIONS #26).
+    # Явный empty() обязателен: Streamlit может сохранить детей плейсхолдера
+    # между прогонами, и новый ответ допишется под старым.
     answer_slot = st.empty()
+    answer_slot.empty()
 
     if st.session_state.get("auto_submit"):
         # Флаг выставлен выбором варианта уточнения (pills/кнопка-ссылка).
@@ -1491,10 +1509,9 @@ def main() -> None:
             st.warning("Введите вопрос.")
             st.stop()
 
-        # Подпись привязывает результат к вопросу: форма не делает rerun при
-        # вводе, поэтому таблица прошлого расчёта видна, пока набирают новый
-        # вопрос, и без подписи кажется ответом на него.
-        st.caption(f"Расчёт по вопросу: «{question.strip()}»")
+        # Подпись привязывает результат к вопросу и живёт в том же слоте, что и
+        # ответ, — над ним, а не под ним.
+        caption_text = f"Расчёт по вопросу: «{question.strip()}»"
 
         # Память диалога — отдельно от истории сообщений. Счётчик уточнений
         # остаётся один: живёт в st.session_state и синхронизируется с ядром.
@@ -1533,7 +1550,7 @@ def main() -> None:
                     llm_guard=llm_guard,
                 )
         except DispatchError as exc:
-            with answer_slot.container():
+            with _answer_area(answer_slot, caption_text):
                 render_dispatch_error(exc.decision, exc.original)
             outcome = None
         finally:
@@ -1579,7 +1596,7 @@ def main() -> None:
                             "Не удалось однозначно разобрать вопрос даже после уточнений. "
                             "Задайте, пожалуйста, один показатель и один период."
                         )
-                        with answer_slot.container():
+                        with _answer_area(answer_slot, caption_text):
                             render_error(decision, model=settings.model)
                         decision = None
                 else:
@@ -1588,7 +1605,7 @@ def main() -> None:
                     # Запоминаем исходный вопрос: выбранный вариант уточнения будет
                     # склеен с ним, чтобы в поле и в запросе не терялась первая часть.
                     st.session_state["clarification_base"] = question
-                    with answer_slot.container():
+                    with _answer_area(answer_slot, caption_text):
                         render_clarification(decision)
                     decision = None
 
@@ -1599,7 +1616,7 @@ def main() -> None:
             ):
                 # Отказ агента: причина есть, расчета нет, счётчик уточнений
                 # сбрасывается — это не незавершённый диалог.
-                with answer_slot.container():
+                with _answer_area(answer_slot, caption_text):
                     render_refusal(outcome.refusal_reason)
                 st.session_state["clarification_rounds"] = 0
                 conversation.clarification_rounds = 0
@@ -1607,7 +1624,7 @@ def main() -> None:
                 decision = None
 
             if decision is not None and not decision.ok:
-                with answer_slot.container():
+                with _answer_area(answer_slot, caption_text):
                     render_error(decision, model=settings.model)
                 st.session_state["clarification_rounds"] = 0
                 conversation.clarification_rounds = 0
@@ -1623,7 +1640,7 @@ def main() -> None:
                     try:
                         execution = execute(decision, dataset, profile)
                     except (ValueError, TypeError, KeyError) as exc:
-                        with answer_slot.container():
+                        with _answer_area(answer_slot, caption_text):
                             render_dispatch_error(decision, exc)
                         result = None
                     else:
@@ -1634,7 +1651,7 @@ def main() -> None:
                         )
 
                 if result is not None:
-                    with answer_slot.container():
+                    with _answer_area(answer_slot, caption_text):
                         render_result(decision, result, profile, summary=summary)
                     st.session_state["history"].append(
                         {"role": "user", "content": question}
