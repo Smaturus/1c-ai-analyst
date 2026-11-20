@@ -21,12 +21,8 @@ from onec_analyst.agent.tools import build_agent_tools
 TODAY = date(2024, 5, 15)
 
 
-def _prompt(today: date = TODAY, **kwargs) -> str:
-    return build_agent_system_prompt(
-        today=today,
-        previous_dsl=kwargs.get("previous_dsl"),
-        result_entities=kwargs.get("result_entities"),
-    )
+def _prompt(today: date = TODAY) -> str:
+    return build_agent_system_prompt(today=today)
 
 
 def test_rules_cover_weak_zones() -> None:
@@ -100,3 +96,32 @@ def test_messages_carry_question_and_today() -> None:
     assert messages[0]["role"] == "system"
     assert "2024-05-15" in messages[0]["content"]
     assert messages[1] == {"role": "user", "content": "Сколько продали?"}
+
+
+def test_previous_context_goes_to_user_not_system() -> None:
+    """Переменный контекст шага — в user, чтобы system оставался стабильным."""
+    messages = build_agent_messages(
+        "А теперь топ-3",
+        today=TODAY,
+        previous_dsl={"intent": "total"},
+        result_entities=["Кофе"],
+    )
+
+    system, user = messages[0]["content"], messages[1]["content"]
+    assert "КОНТЕКСТ ПРЕДЫДУЩЕГО ШАГА" not in system
+    assert user.startswith("А теперь топ-3")
+    assert 'previous_dsl: {"intent": "total"}' in user
+    assert "Кофе" in user
+
+
+def test_system_prompt_is_stable_across_questions() -> None:
+    """Системный промпт одинаков для разных вопросов одного дня (KV-кэш)."""
+    first = build_agent_messages("лучшие 2 товара 2023", today=TODAY)
+    second = build_agent_messages(
+        "Сколько продали за 2024 год?",
+        today=TODAY,
+        previous_dsl={"intent": "top_bottom_products"},
+        result_entities=["Кондиционер ELEKTA"],
+    )
+
+    assert first[0]["content"] == second[0]["content"]

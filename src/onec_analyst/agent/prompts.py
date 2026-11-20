@@ -142,15 +142,40 @@ def tool_catalog(tools: Sequence[dict[str, Any]] | None = None) -> str:
     return "\n".join(lines)
 
 
+def _context_block(
+    previous_dsl: dict[str, Any] | None,
+    result_entities: Sequence[str] | None,
+) -> str:
+    """Переменный блок «данные предыдущего шага» для user-сообщения.
+
+    В системном промпте его быть не должно: он меняется от вопроса к вопросу и
+    разрывал бы стабильный префикс, из-за чего KV-кэш Ollama не переиспользовался
+    (DECISIONS #25). Пустой блок не добавляется вовсе.
+    """
+    entities = list(result_entities or [])
+    if not previous_dsl and not entities:
+        return ""
+    return "\n".join(
+        [
+            "КОНТЕКСТ ПРЕДЫДУЩЕГО ШАГА",
+            f"previous_dsl: {_json(previous_dsl) if previous_dsl else 'нет'}",
+            f"result_entities: {_json(entities) if entities else 'нет'}",
+        ]
+    )
+
+
 def build_agent_system_prompt(
     *,
     today: date | str,
-    previous_dsl: dict[str, Any] | None,
-    result_entities: Sequence[str] | None,
     json_tools: bool = False,
     tools: Sequence[dict[str, Any]] | None = None,
 ) -> str:
     """Системный промпт ``agent_decision`` (ТЗ 6.4 §3.1).
+
+    Промпт **стабилен для всех вопросов одного дня**: дата, инструменты, правила
+    и примеры — без переменных данных шага. Всё, что зависит от предыдущего
+    шага, уходит в user-сообщение (:func:`_context_block`), чтобы Ollama
+    переиспользовала KV-кэш префикса (DECISIONS #25).
 
     ``json_tools=True`` добавляет инструкцию JSON-адаптера для провайдеров без
     нативного tool calling: ответ — ``{"tool": "<имя>", "arguments": {...}}``.
@@ -158,17 +183,12 @@ def build_agent_system_prompt(
     """
     date_text = today.isoformat() if isinstance(today, date) else str(today)
     today_date = today if isinstance(today, date) else _coerce_date(date_text)
-    entities = list(result_entities or [])
     parts = [
         f"Сегодняшняя дата: {date_text}.",
         "Используй её для относительных периодов.",
         "",
         "ДОСТУПНЫЕ ИНСТРУМЕНТЫ (подписи собраны из Pydantic-схем; ? — необязательный параметр):",
         tool_catalog(tools),
-        "",
-        "КОНТЕКСТ ПРЕДЫДУЩЕГО ШАГА",
-        f"previous_dsl: {_json(previous_dsl) if previous_dsl else 'нет'}",
-        f"result_entities: {_json(entities) if entities else 'нет'}",
         "",
         _AGENT_RULES,
         "",
@@ -199,18 +219,18 @@ def build_agent_messages(
     result_entities: Sequence[str] | None = None,
     json_tools: bool = False,
 ) -> list[dict[str, str]]:
-    """Сообщения для ``agent_decision``: система с today/памятью + вопрос."""
+    """Сообщения для ``agent_decision``: стабильная система + вопрос с контекстом."""
+    system = build_agent_system_prompt(
+        today=today,
+        json_tools=json_tools,
+    )
+    user = (question or "").strip()
+    context = _context_block(previous_dsl, result_entities)
+    if context:
+        user = f"{user}\n\n{context}"
     return [
-        {
-            "role": "system",
-            "content": build_agent_system_prompt(
-                today=today,
-                previous_dsl=previous_dsl,
-                result_entities=result_entities,
-                json_tools=json_tools,
-            ),
-        },
-        {"role": "user", "content": (question or "").strip()},
+        {"role": "system", "content": system},
+        {"role": "user", "content": user},
     ]
 
 
