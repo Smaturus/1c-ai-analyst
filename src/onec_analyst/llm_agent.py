@@ -48,8 +48,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Annotated, Any, Final, Literal
@@ -102,10 +102,12 @@ __all__ = [
     "is_negative_revenue_question",
     "make_client",
     "make_planner",
+    "ollama_capabilities",
     "parse_plan_json",
     "provider_catalog",
     "settings_from_env",
     "to_dispatch_params",
+    "with_ollama_capabilities",
 ]
 
 # --------------------------------------------------------------------------- #
@@ -1778,6 +1780,73 @@ def make_client(settings: LLMSettings) -> LLMClient | GigaChatClient:
     if settings.provider == "ollama":
         return OllamaChatClient(settings)
     return LLMClient(settings)
+
+
+def ollama_capabilities(
+    settings: LLMSettings, model: str | None = None
+) -> frozenset[str]:
+    """Возможности модели Ollama по ``POST /api/show``.
+
+    Набор из поля ``capabilities``: ``completion``, ``tools``, ``thinking``,
+    ``vision``… Именно эти флаги решают, можно ли отправлять модели ``think``
+    и ``tools``: gemma3, например, отвечает 400 на оба.
+
+    Для не-ollama провайдера возвращается пустой набор. Ошибка сети/HTTP —
+    :class:`LLMError`: вызывающий сам решает, что делать (UI оставляет
+    настройки как есть и не гадает).
+    """
+    if settings.provider != "ollama":
+        return frozenset()
+    name = (model or settings.model).strip()
+    if not name:
+        return frozenset()
+    base = settings.base_url.rstrip("/")
+    root = base[:-3] if base.endswith("/v1") else base
+    request = urllib.request.Request(
+        root + "/api/show",
+        data=json.dumps({"model": name}).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(
+            request, timeout=min(5.0, settings.timeout)
+        ) as response:
+            data = json.loads(response.read().decode("utf-8", errors="replace"))
+    except (
+        urllib.error.HTTPError,
+        urllib.error.URLError,
+        TimeoutError,
+        OSError,
+        json.JSONDecodeError,
+    ) as exc:
+        raise LLMError(f"Ollama /api/show ({name}) недоступен: {exc}") from exc
+    capabilities = data.get("capabilities") if isinstance(data, dict) else None
+    if not isinstance(capabilities, list):
+        return frozenset()
+    return frozenset(item for item in capabilities if isinstance(item, str))
+
+
+def with_ollama_capabilities(
+    settings: LLMSettings, capabilities: Iterable[str] | None
+) -> LLMSettings:
+    """Выключить ``think``/``tools``, которых у модели нет.
+
+    Настройки могут только **выключать** несовместимую возможность: явный
+    ``OLLAMA_THINK=1`` не заставит модель без capability думать (иначе снова
+    400 «does not support thinking»). Пустой набор (сервер не ответил) —
+    настройки без изменений, чтобы сбой пробы не ломал рабочий профиль.
+    """
+    if settings.provider != "ollama":
+        return settings
+    caps = frozenset(str(item) for item in (capabilities or ()))
+    if not caps:
+        return settings
+    think = settings.think and "thinking" in caps
+    tools = settings.tools and "tools" in caps
+    if think == settings.think and tools == settings.tools:
+        return settings
+    return replace(settings, think=think, tools=tools)
 
 
 # --------------------------------------------------------------------------- #

@@ -81,14 +81,17 @@ from onec_analyst.llm_agent import (
     AgentDecision,
     ClarificationPlan,
     GigaChatClient,
+    LLMClient,
     LLMPlanner,
     LLMSettings,
     ProviderOption,
     RuleBasedPlanner,
     check_schema_sync,
     make_client,
+    ollama_capabilities,
     provider_catalog,
     settings_from_env,
+    with_ollama_capabilities,
 )
 from onec_analyst.onec_source import load_sample_vitrina, load_vitrina
 from onec_analyst.pipeline import execute, extract_entities
@@ -1178,6 +1181,88 @@ def choose_gigachat_model(settings: LLMSettings) -> LLMSettings:
 # --------------------------------------------------------------------------- #
 # Боковая панель
 # --------------------------------------------------------------------------- #
+def _ollama_models(settings: LLMSettings) -> tuple[str, ...]:
+    """Модели Ollama из ``GET /v1/models``; кеш на сессию, ошибка → пусто.
+
+    Как и у GigaChat, список — факт из API, а не из документации. Ошибку
+    (сервер не запущен) не маскируем исключением на весь UI: селектор просто
+    не рисуется, действует модель из ``OLLAMA_MODEL``.
+    """
+    cache_key = f"_ollama_models:{settings.base_url}"
+    if cache_key in st.session_state:
+        return tuple(st.session_state[cache_key])
+    try:
+        client = make_client(settings)
+        models = tuple(client.list_models()) if isinstance(client, LLMClient) else ()
+    except Exception:  # сеть/HTTP/формат ответа — список необязателен
+        models = ()
+    st.session_state[cache_key] = models
+    return models
+
+
+def _ollama_capabilities(settings: LLMSettings, model: str) -> frozenset[str]:
+    """Возможности модели по ``/api/show``; кеш на сессию, ошибка → пусто."""
+    cache_key = f"_ollama_caps:{settings.base_url}:{model}"
+    if cache_key in st.session_state:
+        return frozenset(st.session_state[cache_key])
+    try:
+        capabilities = ollama_capabilities(settings, model)
+    except Exception:  # сервер недоступен — не гадаем, оставляем настройки
+        capabilities = frozenset()
+    st.session_state[cache_key] = tuple(sorted(capabilities))
+    return capabilities
+
+
+def choose_ollama_model(settings: LLMSettings) -> LLMSettings:
+    """Выбрать модель Ollama в сайдбаре; вернуть настройки с выбором на сессию.
+
+    Аналог :func:`choose_gigachat_model`: список из ``GET /v1/models``, выбор
+    живёт в ``st.session_state`` и не пишется в ``.env``. Модель из ``.env``
+    не подменяется на первую из списка, даже если её там нет.
+    """
+    if settings.provider != "ollama":
+        return settings
+    models = list(_ollama_models(settings))
+    if not models:
+        return settings
+    # Ollama хранит модель как ``<имя>:<тег>``; без тега тег — ``latest``.
+    # Канонизируем имя из .env, иначе один и тот же вес показан двумя строками
+    # («qwen3:4b» из .env и «qwen3:4b:latest» из API).
+    canonical = (
+        settings.model if ":" in settings.model else f"{settings.model}:latest"
+    )
+    if canonical in models:
+        settings = dataclasses.replace(settings, model=canonical)
+    elif settings.model not in models:
+        models.insert(0, settings.model)
+    selected = st.sidebar.selectbox(
+        "Модель Ollama",
+        options=models,
+        index=models.index(settings.model),
+        help=(
+            "Какая локальная модель отвечает. Список — из запущенного Ollama; "
+            "модель по умолчанию задаётся OLLAMA_MODEL."
+        ),
+    )
+    if selected == settings.model:
+        return settings
+    return dataclasses.replace(settings, model=selected)
+
+
+def apply_ollama_capabilities(settings: LLMSettings) -> LLMSettings:
+    """Согласовать ``think``/``tools`` с возможностями выбранной модели.
+
+    gemma3 не умеет ни thinking, ни tools и отвечает 400 на эти поля; qwen3
+    умеет оба. Флаги берутся из ``/api/show``, поэтому переключение модели в
+    сайдбаре не требует правки ``.env`` и не ломает запрос.
+    """
+    if settings.provider != "ollama":
+        return settings
+    return with_ollama_capabilities(
+        settings, _ollama_capabilities(settings, settings.model)
+    )
+
+
 #: Подсказка, когда LLM включена галочкой, но ни один провайдер не доступен.
 NO_PROVIDERS_MESSAGE = (
     "Нет доступных провайдеров LLM: задайте ключ в `.env` или `OLLAMA_ENABLED=true`."
@@ -1290,7 +1375,15 @@ def render_sidebar(
         chosen_settings = LLMSettings()
         st.sidebar.warning(NO_PROVIDERS_MESSAGE)
     elif selected_option.configured:
-        chosen_settings = choose_gigachat_model(selected_option.settings)
+        chosen_settings = selected_option.settings
+        if chosen_settings.provider == "ollama":
+            # Сначала модель, затем её возможности: gemma3 без thinking/tools
+            # не должна получать эти поля (400 от Ollama).
+            chosen_settings = apply_ollama_capabilities(
+                choose_ollama_model(chosen_settings)
+            )
+        else:
+            chosen_settings = choose_gigachat_model(chosen_settings)
         st.sidebar.caption(f"LLM: `{chosen_settings.provider}` / `{chosen_settings.model}`")
         if chosen_settings.provider in LOCAL_PROVIDERS:
             # Счётчик квоты при локальной модели не растёт — говорим почему.
