@@ -69,9 +69,22 @@
 
 Планировщик работает с любым из провайдеров, переключатель — в сайдбаре:
 
-- **DeepSeek / OpenAI / Ollama** — OpenAI-совместимый протокол, модель возвращает JSON-DSL;
+- **DeepSeek / OpenAI** — OpenAI-совместимый протокол, модель возвращает JSON-DSL;
+- **Ollama (локально, без ключа)** — доступна только при `OLLAMA_ENABLED=true` (по умолчанию выключена, opt-in), модель и адрес — `OLLAMA_MODEL` / `OLLAMA_BASE_URL`. Клиент ходит в нативный `/api/chat` (работают `num_ctx` и `think`), поддерживает импортированные GGUF; при `OLLAMA_TOOLS=0` агент идёт JSON-адаптером (`{"tool": ..., "arguments": ...}`) — так работают модели, которым сборка Ollama без `--jinja` не даёт нативные tools. Локальные вызовы **не расходуют внешнюю квоту**, и лимиты к ним не применяются;
 - **GigaChat (Сбер)** — двухшаговый OAuth (`authorization key` + `scope`), TLS с доверием к корню НУЦ Минцифры, вместо `response_format` — **tool calling**: модель выбирает функцию-интент, а её аргументы валидируются тем же Pydantic-контрактом ([ADR 0012](docs/adr/0012-gigachat-provider.md)); в LangGraph-агенте GigaChat подключается через официальную `langchain-gigachat`, модель берётся только из настроек (`model=settings.model`) — без хардкода и автоподбора ([ADR 0014](docs/adr/0014-gigachat-langchain.md));
-- без ключа — офлайн-правила (`RuleBasedPlanner`): приложение остаётся полностью работоспособным.
+- **Галочка «Использовать LLM»** — выбор пользователя, а не индикатор ключей: ON — ответ только от выбранного провайдера (недоступный провайдер или исчерпанный лимит блокируют «Спросить» с причиной), OFF — офлайн-правила.
+
+Список провайдеров показывает всех: доступные — обычным именем, недоступные — с причиной
+(«не настроен» / «выключена в .env»). `LLM_PROVIDER` работает как преселект: выбирается,
+если доступен, иначе первый доступный ([DECISIONS #18](docs/DECISIONS.md)).
+
+**Ошибки LLM не подменяются правилами.** Таймаут/сеть — «LLM `модель` не дала ответа…» с
+лимитом времени; невалидный JSON — «ответ не соответствует контракту». В «Технических
+деталях» видны запрос к модели, её ответ и причина ([DECISIONS #20, #22](docs/DECISIONS.md)).
+Промпт агента собран стабильным префиксом (дата, инструменты, правила, few-shot), а
+контекст предыдущего шага уходит в user-сообщение и только для вопросов со ссылкой
+(«а теперь», «те же») — поэтому KV-кэш Ollama переиспользуется: тёплый ответ на CPU
+~7–12 с, первый после простоя или смены дня ~60–70 с ([DECISIONS #25](docs/DECISIONS.md)).
 
 У GigaChat в сайдбаре есть список **«Модель GigaChat»**: он строится из фактического
 `GET /v1/models` этого ключа (модели эмбеддингов отфильтрованы по типу) и действует
@@ -196,6 +209,19 @@ volumes:
   - ./1c_export:/app/1c_export:ro
 ```
 
+### Сценарий В. Локальная Ollama (без внешних ключей)
+
+1. Установите [Ollama](https://ollama.com) и модель: `ollama pull qwen3:4b`.
+2. В `.env` включите провайдера:
+   ```
+   OLLAMA_ENABLED=true
+   OLLAMA_MODEL=qwen3:4b
+   LLM_TIMEOUT_OLLAMA=600
+   ```
+3. Перезапустите UI и выберите в сайдбаре провайдера **Ollama**. Внешняя квота не расходуется, лимиты 15/100 к локальной модели не применяются.
+
+По умолчанию это thinking-модель: на CPU ответ может занять минуты, а reasoning иногда упирается в контекст. Вариант без reasoning — `qwen3-4b-instruct-2507` (импорт GGUF + `OLLAMA_TOOLS=0`), тёплый ответ ~7–12 с; мотивы, замеры и ограничения — в [DECISIONS #23](docs/DECISIONS.md).
+
 ### Обновление снимка
 
 - **Вручную:** повторно запустите `onec_source.py`; приложение подхватит новый файл при следующем запросе (кеш привязан к времени изменения файла).
@@ -227,11 +253,11 @@ python -m onec_analyst.mcp_server
 
 ## Инженерные решения
 
-- **953 pytest-теста** в `tests/` и CI на GitHub Actions (Python 3.12): расчёты, планировщик, LangGraph-агент, UI через `AppTest`, лимиты LLM, eval (GoldSet/кассеты/replay); плюс `ruff` и `mypy`.
+- **989 pytest-тестов** в `tests/` (2 skipped) и CI на GitHub Actions (Python 3.12): расчёты, планировщик, LangGraph-агент, UI через `AppTest`, лимиты LLM, eval (GoldSet/кассеты/replay); плюс `ruff` и `mypy`.
 - **Защита от галлюцинаций LLM:** жёсткий JSON-DSL, Pydantic-модели с `extra="forbid"`, `dispatch_intent`, никаких чисел или SQL от модели.
 - **LangGraph-агент ([ADR 0013](docs/adr/0013-langgraph-hybrid-contract.md)):** вопрос идёт через граф `resolve_context → agent_decision → validate_dsl → fix_dsl → clarify/refuse`; нативные tool calls из Pydantic-схем ([ADR 0015](docs/adr/0015-native-tools-audit.md)); GigaChat — через `langchain-gigachat` ([ADR 0014](docs/adr/0014-gigachat-langchain.md)); каждый шаг пишется в `.mcp_state/audit.jsonl`.
 - **Eval-слой ([docs/EVAL.md](docs/EVAL.md)):** GoldSet из 50 кейсов, кассеты + replay (регрессия пайплайна), live-прогон живой модели и LLM-as-judge — измерение качества DSL/статусов/факт-чека без правки GoldSet под модель.
-- **Rate Limiting ([rate_limiter.py](rate_limiter.py)):** 15 успешных **вызовов** LLM на сессию и 100 в день глобально (SQLite, атомарный резерв `try_consume`); счёт считается на каждый вызов графа, сетевой сбой лимит не съедает; при исчерпании — fallback в правила без обращения к API; ручной сброс сессии только при `RATE_LIMIT_ALLOW_RESET=1` ([LLM_CALLS.md](docs/LLM_CALLS.md)).
+- **Rate Limiting ([rate_limiter.py](rate_limiter.py)):** 15 **вызовов** LLM на сессию и 100 в день глобально (SQLite, атомарный резерв `try_consume`); счёт идёт по каждому вызову графа, сетевой сбой лимит не съедает; при исчерпании и включённой галочке вопрос блокируется с явным сообщением, офлайн-правила не подставляются; локальная Ollama квоту не расходует и лимитами не блокируется; ручной сброс сессии только при `RATE_LIMIT_ALLOW_RESET=1` ([LLM_CALLS.md](docs/LLM_CALLS.md), [DECISIONS #21](docs/DECISIONS.md)).
 - **Graceful degradation ([ADR 0007](docs/adr/0007-graceful-degradation.md)):** неоднозначный вопрос уточняется максимум дважды, затем выполняется детерминированная ближайшая интерпретация с честной плашкой «Уточнения исчерпаны — показываю как понял…»; если разобрать нельзя — понятная ошибка вместо падения. Составной запрос «топ за 2023 и за 2024» поддерживается отдельным интентом сравнения топов (L4L, [ADR 0008](docs/adr/0008-compare-tops-intent.md)): одна таблица с местами, дельтой и статусами — без multi-intent.
 - **Разделение ETL и UI (Data Snapshot):** аналитика и дашборд не зависят от доступности 1С; результаты воспроизводимы, тесты не требуют живой базы.
 - **Контейнеризация:** `Dockerfile`, `docker-compose.yml`, `.dockerignore`; образ запускается на Linux и Windows без 1С.
@@ -240,10 +266,11 @@ python -m onec_analyst.mcp_server
 
 ## Безопасность и надёжность
 
+- **Честные ошибки вместо подмены режима:** таймаут/сеть и невалидный JSON показываются плашкой с моделью и причиной, в «Технических деталях» — запрос и ответ модели; при включённой галочке приложение не отвечает правилами «за модель» ([DECISIONS #20, #22](docs/DECISIONS.md)).
 - **Строгая валидация DSL:** Pydantic-модели с `extra="forbid"` и `dispatch_intent` — LLM не может передать неизвестный интент/параметр или «сырое» число вместо параметра.
 - **LLM не считает числа:** все суммы, ранги и дельты считает pandas; модель только заполняет JSON-DSL.
 - **Честные отказы вместо галлюцинаций:** на неподдерживаемые запросы («средний чек», «средняя выручка») возвращается `clarification` с объяснением, а не подмена топом; при отсутствии данных — сообщение с доступным диапазоном дат.
-- **Лимиты LLM:** 15 вызовов на сессию и 100 в день глобально (per-call, §4.2); при исчерпании — офлайн-режим и баннер; ручной сброс — только с `RATE_LIMIT_ALLOW_RESET=1`.
+- **Лимиты LLM:** 15 вызовов на сессию и 100 в день глобально (per-call); при исчерпании и включённой галочке «Спросить» блокируется с сообщением, а не подменяется правилами; для локальной Ollama лимиты не проверяются и квота не расходуется; ручной сброс — только с `RATE_LIMIT_ALLOW_RESET=1`.
 - **Данные и секреты:** в репозитории только синтетика; `.env`, реальные выгрузки 1С, локальная база, сертификат НУЦ и файлы стресс-тестов исключены через `.gitignore`.
 - **Ключи не публикуются:** ключи LLM живут только в локальном `.env`; файл не отслеживается git, в истории репозитория ключей нет (проверяется по всем blob-объектам). Локальная версия UI `app_local.py` в GitHub не попадает никогда — публикуется только `app.py`.
 
@@ -254,14 +281,14 @@ python -m onec_analyst.mcp_server
 | UI | Streamlit, Altair |
 | Аналитика | pandas, numpy |
 | Контракт LLM | Pydantic v2, JSON-DSL |
-| LLM | OpenAI-совместимый протокол: DeepSeek, OpenAI, Ollama; GigaChat (OAuth 2.0, TLS НУЦ, tool calling); офлайн-правила |
+| LLM | OpenAI-совместимый протокол: DeepSeek, OpenAI; Ollama — нативный `/api/chat` + JSON-адаптер (Qwen3, импортированные GGUF); GigaChat (OAuth 2.0, TLS НУЦ, tool calling); офлайн-правила |
 | ETL 1С | `V83.COMConnector`, `pywin32` (только Windows) |
 | Инфраструктура | Docker, GitHub Actions, pytest |
 
 ## Проверки
 
 ```powershell
-python -m pytest -q          # 953 passed, 2 skipped
+python -m pytest -q          # 989 passed, 2 skipped
 python smoke_test.py         # SMOKE TEST PASSED
 python smoke_llm.py          # SMOKE LLM PASSED: 95 проверок
 ruff check src               # линтер
@@ -288,9 +315,9 @@ python -m onec_analyst.llm_agent --check   # живая проверка про�
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — компоненты и потоки данных (актуальная спецификация).
 - [docs/DATA_CONTRACT.md](docs/DATA_CONTRACT.md) — схема витрины и CSV.
-- [docs/LLM_CALLS.md](docs/LLM_CALLS.md) — все LLM-вызовы, per-call лимиты (§4.2), аудит, fallback.
+- [docs/LLM_CALLS.md](docs/LLM_CALLS.md) — все LLM-вызовы, per-call лимиты, аудит, поведение при ошибках и лимитах.
 - [docs/EVAL.md](docs/EVAL.md) — eval-слой: кассеты, replay, live, judge, метрики и пороги.
-- [docs/DECISIONS.md](docs/DECISIONS.md) — журнал принятых решений (канон спринта S1).
+- [docs/DECISIONS.md](docs/DECISIONS.md) — журнал принятых решений (№1–26): канон S1, Ollama, лимиты, ошибки LLM, кэш промпта.
 - [docs/SPRINT-S1.md](docs/SPRINT-S1.md) — спринт «Канонизация»: истории, AC, итоги.
 - [docs/RUNBOOK.md](docs/RUNBOOK.md) — запуск, выгрузка 1С, лицензии, типовые ошибки.
 - [docs/UI_ACCEPTANCE.md](docs/UI_ACCEPTANCE.md) — приёмка UI и контрольные вопросы.
