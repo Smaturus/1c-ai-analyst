@@ -68,3 +68,26 @@ def test_other_provider_tools_unaffected() -> None:
 
     assert settings.tools is True
     assert getattr(client, "supports_tools", False) is True
+
+
+def test_payload_includes_temperature_and_num_ctx() -> None:
+    """``LLM_TEMPERATURE=0`` доезжает до /api/chat; ``num_ctx`` не теряется.
+
+    Без явной ``temperature`` Ollama берёт дефолт модели (у gemma3 — 1.0),
+    и ноль из ``.env`` молча игнорируется.
+    """
+    client = OllamaChatClient(_ollama_settings(num_ctx=8192, temperature=0.0))
+
+    payload = client._payload([{"role": "user", "content": "x"}])
+
+    assert payload["options"]["temperature"] == 0.0
+    assert payload["options"]["num_ctx"] == 8192
+
+
+def test_payload_omits_num_ctx_when_unset() -> None:
+    """Без ``num_ctx`` ключа нет: ``options`` несёт только температуру."""
+    client = OllamaChatClient(_ollama_settings(temperature=0.0))
+
+    payload = client._payload([{"role": "user", "content": "x"}])
+
+    assert payload["options"] == {"temperature": 0.0}

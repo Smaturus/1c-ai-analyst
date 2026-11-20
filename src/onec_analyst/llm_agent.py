@@ -1476,8 +1476,12 @@ class OllamaChatClient(LLMClient):
             "stream": False,
             "think": self._settings.think,
         }
+        # ``temperature`` всегда в явном виде: иначе /api/chat берёт дефолт
+        # модели (у gemma3 — 1.0), и LLM_TEMPERATURE=0 молча игнорируется.
+        options: dict[str, Any] = {"temperature": self._settings.temperature}
         if self._settings.num_ctx:
-            payload["options"] = {"num_ctx": self._settings.num_ctx}
+            options["num_ctx"] = self._settings.num_ctx
+        payload["options"] = options
         if tools:
             payload["tools"] = tools
         return payload
