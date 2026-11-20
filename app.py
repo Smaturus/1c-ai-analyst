@@ -1114,6 +1114,14 @@ NO_PROVIDERS_MESSAGE = (
     "Нет доступных провайдеров LLM: задайте ключ в `.env` или `OLLAMA_ENABLED=true`."
 )
 
+#: Напоминание на время вызова LLM: обновление вкладки создаёт новую сессию.
+#: Локальная модель на CPU отвечает минутами, и именно там потеря ответа обиднее
+#: всего; для облака плашка мелькает незаметно и после ответа не остаётся.
+LONG_RUN_NOTICE = (
+    "Идёт расчёт. Не обновляйте страницу и не закрывайте вкладку: "
+    "текущий ответ не сохранится, а вызов будет засчитан."
+)
+
 
 def render_sidebar(
     limiter: RateLimiter,
@@ -1349,14 +1357,19 @@ def main() -> None:
     pending_answer = st.session_state.pop("clarification_answer", None)
     if pending_answer:
         base = str(st.session_state.get("clarification_base") or "")
-        with st.spinner("Уточняю запрос…"):
-            resolved = choose_clarified_text(
-                base,
-                str(pending_answer),
-                use_llm=llm_allowed,
-                settings=settings,
-                data_profile=profile,
-            )
+        clarification_notice = st.empty()
+        try:
+            with st.spinner("Уточняю запрос…"):
+                clarification_notice.caption(LONG_RUN_NOTICE)
+                resolved = choose_clarified_text(
+                    base,
+                    str(pending_answer),
+                    use_llm=llm_allowed,
+                    settings=settings,
+                    data_profile=profile,
+                )
+        finally:
+            clarification_notice.empty()
         st.session_state["question_input"] = resolved.text
         st.session_state["clarification_source"] = resolved.source
         st.session_state["auto_submit"] = True
@@ -1410,8 +1423,10 @@ def main() -> None:
             CallBudgetGuard(3),
             RateLimiterGuard(limiter, llm_session_id),
         )
+        notice_slot = st.empty()
         try:
             with st.spinner("Разбираю вопрос…"):
+                notice_slot.caption(LONG_RUN_NOTICE)
                 outcome = process_request(
                     question,
                     llm_allowed,
@@ -1425,6 +1440,10 @@ def main() -> None:
         except DispatchError as exc:
             render_dispatch_error(exc.decision, exc.original)
             outcome = None
+        finally:
+            # Плашка живёт только на время вызова: после ответа она не должна
+            # оставаться на экране.
+            notice_slot.empty()
 
         if outcome is not None:
             decision: AgentDecision | None = outcome.as_decision()

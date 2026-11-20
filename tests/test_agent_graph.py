@@ -403,6 +403,27 @@ def test_app_llm_path_renders_result(
     assert "`ok`" in modes[0]
 
 
+def test_app_long_run_notice_not_left_after_answer(
+    llm_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Плашка «не обновляйте страницу» не остаётся после ответа.
+
+    Она рисуется только на время вызова (``st.empty`` + очистка в ``finally``):
+    если бы оставалась, пользователь видел бы устаревшее предупреждение под
+    каждым ответом.
+    """
+    at = _ask(
+        AppTest.from_file(APP_FILE, default_timeout=TIMEOUT),
+        "Сколько мы продали за 2024 год?",
+        monkeypatch,
+        [json_response("total", {"start_date": "2024-01-01", "end_date": "2024-12-31"})],
+    )
+
+    assert len(at.exception) == 0
+    captions = [caption.value for caption in at.caption]
+    assert not any("Не обновляйте страницу" in text for text in captions), captions
+
+
 def test_app_refuse_plate(
     llm_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
