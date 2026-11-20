@@ -153,7 +153,7 @@ def fill_usage_caption(slot: Any, limit_status: LimitStatus | None) -> None:
 def fill_session_limit_warning(slot: Any, limit_status: LimitStatus | None) -> None:
     """Показать/убрать плашку исчерпания лимита сессии в сайдбаре."""
     if limit_status is not None and limit_status.used_session >= limit_status.limit_session:
-        slot.warning("Лимит ИИ в этой сессии исчерпан — включён офлайн-режим.")
+        slot.warning("Лимит ИИ в этой сессии исчерпан.")
     else:
         slot.empty()
 
@@ -796,14 +796,18 @@ def render_error(decision: AgentDecision, model: str = "") -> None:
     """Дружелюбная ошибка: LLM недоступна или вопрос не разобран."""
     if decision.source == "llm" and decision.status == "error":
         # Галочка «Использовать LLM» включена — подменять ответ правилами нельзя
-        # (DECISIONS #20): честно просим выбрать другого провайдера или режим.
-        model_label = f"`{model}`" if model else "выбранная модель"
-        st.error(
-            f"LLM {model_label} не дала ответа. Выберите другую модель LLM "
-            "или воспользуйтесь детерминированным режимом."
-        )
-        if decision.error:
-            st.caption(f"Причина: {decision.error}")
+        # (DECISIONS #20/#21): честно просим выбрать другого провайдера или режим.
+        limit_hit = (decision.error or "").startswith("Лимит")
+        if limit_hit:
+            st.error(f"{decision.error}: {DETERMINISTIC_HINT}")
+        else:
+            model_label = f"`{model}`" if model else "выбранная модель"
+            st.error(
+                f"LLM {model_label} не дала ответа. Выберите другую модель LLM "
+                "или воспользуйтесь детерминированным режимом."
+            )
+            if decision.error:
+                st.caption(f"Причина: {decision.error}")
         with st.expander("Технические детали"):
             if decision.llm_request:
                 st.markdown("**Запрос к модели:**")
@@ -1147,6 +1151,16 @@ LONG_RUN_NOTICE = (
 #: не должен расходовать квоту облачных API (``RateLimiter``).
 LOCAL_PROVIDERS = frozenset({"ollama"})
 
+#: Общий хвост сообщений при исчерпанном/недоступном лимите.
+DETERMINISTIC_HINT = (
+    "Выберите другую модель LLM или воспользуйтесь детерминированным режимом."
+)
+DAILY_LIMIT_MESSAGE = f"Дневной лимит исчерпан: {DETERMINISTIC_HINT}"
+SESSION_LIMIT_MESSAGE = (
+    f"Лимит вызовов ИИ в этой сессии исчерпан: {DETERMINISTIC_HINT}"
+)
+LIMIT_TRACKING_MESSAGE = f"Учёт лимитов ИИ недоступен: {DETERMINISTIC_HINT}"
+
 
 def render_sidebar(
     limiter: RateLimiter,
@@ -1252,8 +1266,8 @@ def render_sidebar(
 
     usage_slot = st.sidebar.empty()
     warn_slot = st.sidebar.empty()
-    fill_usage_caption(usage_slot, limit_status)
-    fill_session_limit_warning(warn_slot, limit_status)
+    # Тексты счётчика и плашки лимита заполняет main: для локальной модели
+    # лимиты не проверяются, и плашка не должна показываться (DECISIONS #21).
     if (
         limit_status is not None
         and limit_status.used_session >= limit_status.limit_session
@@ -1321,16 +1335,6 @@ def main() -> None:
     except RateLimiterError as exc:
         limiter_error = str(exc)
 
-    if limiter_error is not None:
-        st.warning(
-            "⚠️ Учёт лимитов ИИ недоступен (база занята) — работаю в офлайн-режиме правил."
-        )
-    elif limit_status is not None and limit_status.reason == "global":
-        st.error(
-            "🔴 Дневной лимит ИИ-запросов исчерпан. "
-            "Система работает в офлайн-режиме."
-        )
-
     (
         source_kind,
         uploaded,
@@ -1341,20 +1345,36 @@ def main() -> None:
         ask_blocked,
         ask_blocked_reason,
     ) = render_sidebar(limiter, llm_session_id, limit_status)
-    # Локальная модель не тратит внешние токены — её вызовы не расходуют квоту.
+    # Локальная модель не тратит внешние токены — её вызовы не расходуют квоту,
+    # и внешние лимиты к ней не применяются (DECISIONS #19/#21).
     local_llm = settings.provider in LOCAL_PROVIDERS
 
-    limit_blocked = limiter_error is not None or (
-        limit_status is not None and not limit_status.allowed
+    limit_blocked = not local_llm and (
+        limiter_error is not None
+        or (limit_status is not None and not limit_status.allowed)
     )
-    if (
-        limit_status is not None
-        and limit_status.reason == "session"
-        and use_llm
-    ):
-        st.warning(
-            "⚠️ Вы достигли лимита вызовов ИИ в этой сессии. "
-            "Переключаюсь на офлайн-режим."
+    limit_message = ""
+    if limit_blocked:
+        if limiter_error is not None:
+            limit_message = LIMIT_TRACKING_MESSAGE
+            st.warning(f"⚠️ {LIMIT_TRACKING_MESSAGE}")
+        elif limit_status is not None and limit_status.reason == "global":
+            limit_message = DAILY_LIMIT_MESSAGE
+            st.error(f"🔴 {DAILY_LIMIT_MESSAGE}")
+        elif limit_status is not None and limit_status.reason == "session":
+            limit_message = SESSION_LIMIT_MESSAGE
+            st.warning(f"⚠️ {SESSION_LIMIT_MESSAGE}")
+
+    fill_usage_caption(usage_slot, limit_status)
+    if not local_llm:
+        fill_session_limit_warning(warn_slot, limit_status)
+
+    # Галочка ON + лимит исчерпан/учёт недоступен → вопрос блокируется, а не
+    # подменяется офлайн-правилами (DECISIONS #21). При OFF правила законны.
+    if limit_message and use_llm:
+        ask_blocked = True
+        ask_blocked_reason = " ".join(
+            part for part in (ask_blocked_reason, limit_message) if part
         )
 
     try:

@@ -222,8 +222,8 @@ def test_invalid_twice_no_third_attempt() -> None:
 # --------------------------------------------------------------------------- #
 # Лимит и сбой графа
 # --------------------------------------------------------------------------- #
-def test_exhausted_guard_falls_back_without_partial_calls() -> None:
-    """Лимит исчерпан до вызова — ни одного обращения к провайдеру, fallback."""
+def test_exhausted_guard_blocks_without_rules_and_without_calls() -> None:
+    """Лимит исчерпан до вызова — ни обращения к провайдеру, ни ответа правилами."""
     final, client = _run(
         "Сколько мы продали за 2024 год?",
         [json_response("total", {})],
@@ -231,7 +231,9 @@ def test_exhausted_guard_falls_back_without_partial_calls() -> None:
     )
 
     assert client.calls == 0
-    assert final["decision"].status == "fallback"
+    # DECISIONS #21: при включённой LLM лимит блокирует, а не подменяется.
+    assert final["decision"].status == "error"
+    assert "Лимит" in (final["decision"].error or "")
     assert "handle_error" in final["trace"]
 
 

@@ -287,7 +287,7 @@ def test_session_limit_shows_warning_without_reset_by_default(
         limiter.increment(session_id)
     at.run()
 
-    assert any("Вы достигли лимита вызовов ИИ" in warning.value for warning in at.warning)
+    assert any("Лимит вызовов ИИ в этой сессии исчерпан" in warning.value for warning in at.warning)
     reset = [button for button in at.button if "Сбросить лимит" in button.label]
     assert not reset, "без RATE_LIMIT_ALLOW_RESET кнопка сброса не должна быть видна"
 
@@ -308,7 +308,7 @@ def test_session_limit_reset_button_when_allowed(
         limiter.increment(session_id)
     at.run()
 
-    assert any("Вы достигли лимита вызовов ИИ" in warning.value for warning in at.warning)
+    assert any("Лимит вызовов ИИ в этой сессии исчерпан" in warning.value for warning in at.warning)
     reset = [button for button in at.button if button.label == "Сбросить лимит сессии"]
     assert reset, "кнопка сброса лимита должна быть видна при RATE_LIMIT_ALLOW_RESET=1"
 
@@ -316,7 +316,7 @@ def test_session_limit_reset_button_when_allowed(
     at.run()
     captions = [caption.value for caption in at.sidebar.caption]
     assert any("Внешняя квота ИИ: 0/15" in text for text in captions)
-    assert not any("Вы достигли лимита вызовов ИИ" in warning.value for warning in at.warning)
+    assert not any("Лимит вызовов ИИ в этой сессии" in warning.value for warning in at.warning)
 
 
 def test_global_limit_shows_banner(
@@ -328,4 +328,66 @@ def test_global_limit_shows_banner(
         limiter.increment("other-session")
     at = _run_app(monkeypatch)
 
-    assert any("Дневной лимит ИИ-запросов исчерпан" in error.value for error in at.error)
+    assert any("Дневной лимит исчерпан" in error.value for error in at.error)
+
+def _exhaust_session(rate_limit_db_path: Path, session_id: str) -> None:
+    """Довести счётчик сессии до лимита (без UI)."""
+    limiter = RateLimiter(rate_limit_db_path)
+    for _ in range(MAX_PER_SESSION):
+        limiter.increment(session_id)
+
+
+def test_session_limit_blocks_ask_when_llm_on(
+    monkeypatch: pytest.MonkeyPatch, rate_limit_db_path: Path
+) -> None:
+    """ON + исчерпанный лимит: «Спросить» заблокирована, ответа правилами нет."""
+    monkeypatch.setenv("LLM_PROVIDER", "deepseek")
+    monkeypatch.setenv("LLM_API_KEY", "test-key")
+    monkeypatch.setenv("LLM_MODEL", "deepseek-chat")
+    at = AppTest.from_file(APP_FILE, default_timeout=TIMEOUT).run()
+    session_id = str(at.session_state["llm_session_id"])
+    _exhaust_session(rate_limit_db_path, session_id)
+    at.run()
+
+    ask = next(button for button in at.button if button.label == "Спросить")
+    assert ask.proto.disabled is True
+    warnings = " ".join(item.value for item in at.warning)
+    assert "Лимит вызовов ИИ в этой сессии исчерпан" in warnings, warnings
+    assert "детерминированным режимом" in warnings, warnings
+    assert not any("офлайн-правила" in item.value for item in at.markdown)
+
+
+def test_session_limit_allows_offline_answer_when_llm_off(
+    monkeypatch: pytest.MonkeyPatch, rate_limit_db_path: Path
+) -> None:
+    """OFF + исчерпанный лимит: вопрос разрешён — правила выбраны осознанно."""
+    monkeypatch.setenv("LLM_PROVIDER", "deepseek")
+    monkeypatch.setenv("LLM_API_KEY", "test-key")
+    monkeypatch.setenv("LLM_MODEL", "deepseek-chat")
+    at = AppTest.from_file(APP_FILE, default_timeout=TIMEOUT).run()
+    session_id = str(at.session_state["llm_session_id"])
+    _exhaust_session(rate_limit_db_path, session_id)
+    at.run()
+    at.sidebar.toggle[0].set_value(False).run()
+
+    ask = next(button for button in at.button if button.label == "Спросить")
+    assert ask.proto.disabled is False
+    captions = " ".join(caption.value for caption in at.sidebar.caption)
+    assert "Офлайн-режим" in captions, captions
+
+
+def test_local_provider_ignores_limits(
+    monkeypatch: pytest.MonkeyPatch, rate_limit_db_path: Path
+) -> None:
+    """Ollama не расходует квоту — исчерпанный внешний лимит её не блокирует."""
+    monkeypatch.setenv("LLM_PROVIDER", "ollama")
+    monkeypatch.setenv("OLLAMA_ENABLED", "true")
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+    at = AppTest.from_file(APP_FILE, default_timeout=TIMEOUT).run()
+    session_id = str(at.session_state["llm_session_id"])
+    _exhaust_session(rate_limit_db_path, session_id)
+    at.run()
+
+    ask = next(button for button in at.button if button.label == "Спросить")
+    assert ask.proto.disabled is False
+    assert not any("лимит" in item.value.lower() for item in at.sidebar.warning)

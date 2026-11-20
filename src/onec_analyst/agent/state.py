@@ -82,6 +82,9 @@ class AgentState(TypedDict, total=False):
     #: Текст, отправленный модели (system + user) последним вызовом: только для
     #: диагностики ошибки, в UI «Технические детали».
     llm_request: str
+    #: Guard отказал в вызове из-за лимита: это не ошибка LLM и не повод
+    #: подставлять правила при включённой галочке (DECISIONS #21).
+    limit_blocked: bool
 
 
 class LLMCallGuard(Protocol):
@@ -209,6 +212,7 @@ def initial_state(
         llm_calls=0,
         llm_unavailable=False,
         llm_request="",
+        limit_blocked=False,
     )
 
 

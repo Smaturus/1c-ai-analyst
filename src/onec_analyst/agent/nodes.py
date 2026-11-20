@@ -494,6 +494,7 @@ def agent_decision(state: AgentState) -> dict[str, Any]:
         return {
             "decision": None,
             "error": "Лимит вызовов LLM исчерпан",
+            "limit_blocked": True,
             "trace": trace,
         }
     question = str(state.get("resolved_question") or state.get("question") or "")
@@ -596,6 +597,7 @@ def fix_dsl(state: AgentState) -> dict[str, Any]:
         return {
             "validation_error": "Лимит вызовов LLM исчерпан",
             "error": "Лимит вызовов LLM исчерпан",
+            "limit_blocked": True,
             "retry_count": retry,
             "trace": trace,
         }
@@ -740,6 +742,20 @@ def handle_error(state: AgentState) -> dict[str, Any]:
         or (decision.error if decision is not None else None)
         or "Не удалось получить решение"
     )
+    if state.get("limit_blocked"):
+        # Лимит — не повод подставлять правила при включённой галочке
+        # (DECISIONS #21): пользователь видит ошибку и выбирает режим сам.
+        return {
+            "decision": AgentDecision(
+                ok=False,
+                status="error",
+                error="Лимит вызовов LLM исчерпан",
+                source="llm",
+                trace=tuple(trace),
+            ),
+            "error": error,
+            "trace": trace,
+        }
     if state.get("llm_unavailable"):
         return {
             "decision": AgentDecision(

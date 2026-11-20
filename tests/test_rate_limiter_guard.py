@@ -150,8 +150,8 @@ def test_three_llm_calls_increment_by_three(rate_limit_db_path) -> None:
     assert status.used_global == 3
 
 
-def test_sixteenth_call_falls_back_without_api(rate_limit_db_path) -> None:
-    """После 15 вызовов следующий запрос уходит в fallback, API не вызывается."""
+def test_sixteenth_call_blocks_without_api(rate_limit_db_path) -> None:
+    """После 15 вызовов следующий запрос блокируется, API не вызывается."""
     limiter = RateLimiter(rate_limit_db_path)
     for _ in range(MAX_PER_SESSION):
         limiter.increment("s1")
@@ -170,7 +170,9 @@ def test_sixteenth_call_falls_back_without_api(rate_limit_db_path) -> None:
     final = run_agent_graph(state, client=client, guard=guard)
 
     assert client.calls == 0
-    assert final["decision"].status == "fallback"
+    # DECISIONS #21: лимит при включённой LLM даёт ошибку, а не правила.
+    assert final["decision"].status == "error"
+    assert "Лимит" in (final["decision"].error or "")
     assert "handle_error" in final["trace"]
     assert limiter.check_limit("s1").used_session == MAX_PER_SESSION
 
