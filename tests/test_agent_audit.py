@@ -7,7 +7,7 @@ import json
 from onec_analyst.agent.graph import run_agent_graph
 from onec_analyst.agent.state import initial_state
 from onec_analyst.audit import AuditLog, read_audit
-from onec_analyst.llm_agent import LLMSettings
+from onec_analyst.llm_agent import LLMError, LLMSettings
 
 from tests.agent_support import (
     FakeLLMClient,
@@ -157,6 +157,28 @@ def test_every_event_has_step_and_duration(tmp_path) -> None:
             continue
         assert isinstance(record["duration_ms"], int), record
         assert record["duration_ms"] >= 0, record
+
+
+def test_failed_llm_call_is_counted_in_audit(tmp_path) -> None:
+    """Ошибочный вызов LLM всё равно учитывается в llm_calls (DECISIONS #24)."""
+    audit = AuditLog(tmp_path / "audit.jsonl")
+
+    class Broken:
+        supports_tools = False
+
+        def complete(self, messages, tools=None):
+            raise LLMError("провайдер не ответил за 65 с")
+
+    client = Broken()
+    state = initial_state("Сколько продали за 2024?", client=client, audit=audit)
+    final = run_agent_graph(state, client=client, settings=_settings(), audit=audit)
+
+    assert final["decision"].status == "error"
+    records = read_audit(audit.path)
+    graph_end = [record for record in records if record["event"] == "graph_end"][-1]
+    assert graph_end["llm_calls"] >= 1, "ошибочный вызов должен быть посчитан"
+    decisions = [r for r in records if r["event"] == "agent_decision"]
+    assert decisions and decisions[-1]["llm_calls"] >= 1
 
 
 def test_invalid_response_is_error_without_fallback_event(tmp_path) -> None:

@@ -209,6 +209,9 @@ def resolve_context(state: AgentState) -> dict[str, Any]:
         client = state.get("client")
         guard = state.get("guard")
         if client is not None and guard is not None and guard.before_call():
+            # Попытка вызова учитывается до ответа: ошибка/таймаут — тоже вызов
+            # (DECISIONS #24: наблюдаемость по факту обращения к модели).
+            calls = int(state.get("llm_calls") or 0) + 1
             messages = build_resolve_messages(
                 question,
                 previous_dsl=state.get("previous_dsl"),
@@ -229,8 +232,14 @@ def resolve_context(state: AgentState) -> dict[str, Any]:
                     "inherited": inherited,
                     "trace": trace,
                     "llm_success": True,
-                    "llm_calls": int(state.get("llm_calls") or 0) + 1,
+                    "llm_calls": calls,
                 }
+            return {
+                "resolved_question": resolved,
+                "inherited": inherited,
+                "trace": trace,
+                "llm_calls": calls,
+            }
 
     return {"resolved_question": resolved, "inherited": inherited, "trace": trace}
 
@@ -521,6 +530,7 @@ def agent_decision(state: AgentState) -> dict[str, Any]:
         result_entities=state.get("result_entities"),
         json_tools=not _supports_tools(client),
     )
+    calls = int(state.get("llm_calls") or 0) + 1
     try:
         result = client.complete(messages, tools=tools)
     except LLMError as exc:
@@ -532,11 +542,11 @@ def agent_decision(state: AgentState) -> dict[str, Any]:
             "validation_error": f"LLM недоступна: {exc}",
             "llm_unavailable": True,
             "llm_request": _render_request(messages),
+            "llm_calls": calls,
             "trace": trace,
         }
     if guard is not None:
         guard.after_success()
-    calls = int(state.get("llm_calls") or 0) + 1
     try:
         call = parse_completion(result)
     except ToolCallError as exc:
@@ -626,6 +636,7 @@ def fix_dsl(state: AgentState) -> dict[str, Any]:
         failed_args=dict(decision.params or {}),
         today=state_today(state),
     )
+    calls = int(state.get("llm_calls") or 0) + 1
     try:
         result = client.complete(messages, tools=None) if client is not None else None
     except LLMError as exc:
@@ -637,6 +648,7 @@ def fix_dsl(state: AgentState) -> dict[str, Any]:
             "llm_unavailable": True,
             "llm_request": _render_request(messages),
             "retry_count": retry,
+            "llm_calls": calls,
             "trace": trace,
         }
     if result is None:
@@ -660,7 +672,7 @@ def fix_dsl(state: AgentState) -> dict[str, Any]:
             "decision": decision,
             "retry_count": retry,
             "llm_success": True,
-            "llm_calls": int(state.get("llm_calls") or 0) + 1,
+            "llm_calls": calls,
             "trace": trace,
         }
     normalized = replace(
@@ -674,7 +686,7 @@ def fix_dsl(state: AgentState) -> dict[str, Any]:
         "validation_error": None,
         "retry_count": retry,
         "llm_success": True,
-        "llm_calls": int(state.get("llm_calls") or 0) + 1,
+        "llm_calls": calls,
         "trace": trace,
     }
 

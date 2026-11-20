@@ -74,6 +74,7 @@ class AgentState(TypedDict, total=False):
     profile: dict[str, Any] | None
     inherited: dict[str, Any]
     llm_success: bool
+    #: Число попыток вызова LLM, включая завершившиеся ошибкой (DECISIONS #24).
     llm_calls: int
     #: Вызов LLM не состоялся по технической причине (сеть/таймаут).
     #: Отличается от лимита: лимит по-прежнему уходит в fallback-правила,

@@ -596,6 +596,8 @@ def test_agent_decision_llm_error_is_error() -> None:
 
     assert update["decision"] is None
     assert "LLM недоступна" in update["error"]
+    # Ошибочная попытка тоже считается (DECISIONS #24).
+    assert update["llm_calls"] == 1
     # Для диагностики сохранён ровно тот текст, что ушёл модели.
     assert "===== system =====" in update["llm_request"]
     assert "Сколько мы продали за 2024 год?" in update["llm_request"]
