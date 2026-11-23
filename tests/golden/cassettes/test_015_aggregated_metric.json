@@ -1,0 +1,21 @@
+{
+  "case_id": "test_015_aggregated_metric",
+  "source": "recorded",
+  "recorded_at": "2026-11-18",
+  "provider": "deepseek",
+  "model": "deepseek-chat",
+  "responses": [
+    {
+      "tool_call": {
+        "name": "refuse",
+        "arguments": {
+          "reason": "Средний чек не поддерживается: расчёт средней выручки/чека на строку или заказ недоступен в аналитике. Могу показать общую выручку за 2024 год, динамику по месяцам или топ товаров."
+        }
+      }
+    }
+  ],
+  "recorded_outcome": {
+    "status": "refuse",
+    "intent": null
+  }
+}

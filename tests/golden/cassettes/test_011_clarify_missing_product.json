@@ -1,0 +1,25 @@
+{
+  "case_id": "test_011_clarify_missing_product",
+  "source": "recorded",
+  "recorded_at": "2026-11-18",
+  "provider": "deepseek",
+  "model": "deepseek-chat",
+  "responses": [
+    {
+      "tool_call": {
+        "name": "clarify",
+        "arguments": {
+          "missing": [
+            "period1",
+            "period2"
+          ],
+          "question": "Уточните, пожалуйста, что именно сравнивать: продажи по контрагентам, по товарным группам или топ-товары? И какие периоды брать — например, 2025 год против 2024 года, или январь–октябрь 2026 против января–октября 2025?"
+        }
+      }
+    }
+  ],
+  "recorded_outcome": {
+    "status": "clarify",
+    "intent": "clarification"
+  }
+}

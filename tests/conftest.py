@@ -1,0 +1,187 @@
+"""Общие фикстуры pytest: синтетическая витрина без реальных файлов 1С.
+
+Тесты не зависят от `тест.xlsx`, `1c_export/sales_1c.csv` и от win32com:
+все расчёты проверяются на маленьком DataFrame с предсказуемыми суммами.
+"""
+
+from __future__ import annotations
+
+import os
+import uuid
+from collections.abc import Iterator
+from pathlib import Path
+from typing import Any
+
+import pandas as pd
+import pytest
+
+from onec_analyst import llm_agent
+
+from onec_analyst.analytics import (
+    COUNTERPARTY,
+    DATE,
+    PRODUCT,
+    PRODUCT_GROUP,
+    QUANTITY,
+    REVENUE,
+)
+
+from tests.paths import REPO_ROOT
+
+
+def make_frame(rows: list[tuple[Any, ...]]) -> pd.DataFrame:
+    """Собрать DataFrame витрины из строк ``(date, product, group, counterparty, qty, revenue)``."""
+    frame = pd.DataFrame(
+        rows,
+        columns=[DATE, PRODUCT, PRODUCT_GROUP, COUNTERPARTY, QUANTITY, REVENUE],
+    )
+    frame[DATE] = pd.to_datetime(frame[DATE], errors="coerce")
+    return frame
+
+
+@pytest.fixture()
+def sales_frame() -> pd.DataFrame:
+    """Синтетическая витрина 2023–2024 с проверяемыми вручную суммами.
+
+    Ожидаемые итоги:
+
+    * 2023 — выручка 330, количество 33;
+    * 2024 — выручка 180, количество 37;
+    * контрагенты: ``A`` 100 → 120 (рост), ``B`` 200 → 40 (падение −160),
+      ``C`` 30 → 20 (падение −10);
+    * товарные группы: ``G1`` 100 → 120, ``G2`` 200 → 40, ``G3`` 30 → 20.
+    """
+    return make_frame(
+        [
+            ("2023-01-15", "P1", "G1", "A", 10, 100.0),
+            ("2023-02-20", "P2", "G2", "B", 20, 200.0),
+            ("2023-03-05", "P3", "G3", "C", 3, 30.0),
+            ("2024-02-10", "P1", "G1", "A", 5, 120.0),
+            ("2024-02-10", "P2", "G2", "B", 30, 40.0),
+            ("2024-03-05", "P3", "G3", "C", 2, 20.0),
+        ]
+    )
+
+
+@pytest.fixture()
+def undated_frame(sales_frame: pd.DataFrame) -> pd.DataFrame:
+    """Та же витрина плюс строка без даты — для проверки качества данных."""
+    extra = make_frame([(None, "P4", "G4", "D", 5, 50.0)])
+    return pd.concat([sales_frame, extra], ignore_index=True)
+
+
+# --------------------------------------------------------------------------- #
+# Учёт лимитов LLM: изолированная SQLite-база для каждого теста
+# --------------------------------------------------------------------------- #
+@pytest.fixture()
+def rate_limit_db_path() -> Iterator[Path]:
+    """Путь к временной SQLite-базе лимитов внутри рабочей папки.
+
+    Системный ``%TEMP%`` в песочнице недоступен для SQLite (файл не создаётся),
+    поэтому база кладётся в ``.pytest_tmp/`` проекта и удаляется после теста.
+    """
+    directory = REPO_ROOT / ".pytest_tmp"
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"rate_limit_{uuid.uuid4().hex}.db"
+    yield path
+    for suffix in ("", "-wal", "-shm"):
+        try:
+            path.with_name(path.name + suffix).unlink()
+        except FileNotFoundError:
+            pass
+
+
+@pytest.fixture(autouse=True)
+def _isolated_rate_limit_db(
+    monkeypatch: pytest.MonkeyPatch, rate_limit_db_path: Path
+) -> None:
+    """Все тесты (включая AppTest) используют временную базу лимитов."""
+    monkeypatch.setenv("RATE_LIMIT_DB", str(rate_limit_db_path))
+
+
+@pytest.fixture(autouse=True)
+def _isolated_env_file(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Тесты видят окружение процесса, но **не** реальный ``.env`` проекта.
+
+    ``.env`` — рабочий файл: в нём настоящий ключ GigaChat, scope и путь к
+    локальной базе 1С. Пока тест его читает, провайдер становится «настроенным»
+    по чужим настройкам: ``AppTest`` включает LLM и уходит в реальный API —
+    демо-вопросы улетают в облако, ответы тратят токены, а офлайн-сценарии
+    (правила, уточнения, pills) перестают проверяться.
+
+    Поэтому содержимое файла в тестах игнорируется. Сам :func:`with_dotenv`
+    продолжает работать: он берёт окружение процесса и явные переопределения,
+    то есть `monkeypatch.setenv` в тесте по-прежнему действует.
+    """
+    monkeypatch.setattr(llm_agent, "_environment_with_dotenv", lambda: dict(os.environ))
+
+
+@pytest.fixture(autouse=True)
+def _ollama_disabled_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ollama — opt-in: тесты не зависят от ``OLLAMA_ENABLED`` разработчика.
+
+    ``.env`` в тестах уже изолирован, но переменная окружения процесса видна.
+    Без этой страховки офлайн-тесты (``LLM_PROVIDER=none``) увидели бы
+    доступную Ollama, галочка «Использовать LLM» включилась бы и вопрос ушёл
+    в реальную локальную модель. Тест, которому нужна Ollama, задаёт флаг сам.
+    """
+    monkeypatch.delenv("OLLAMA_ENABLED", raising=False)
+
+
+@pytest.fixture()
+def session_db_path() -> Iterator[Path]:
+    """Путь к временной SQLite-БД журнала сессий (по образцу лимитов LLM)."""
+    directory = REPO_ROOT / ".pytest_tmp"
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"sessions_{uuid.uuid4().hex}.db"
+    yield path
+    for suffix in ("", "-wal", "-shm"):
+        try:
+            path.with_name(path.name + suffix).unlink()
+        except FileNotFoundError:
+            pass
+
+
+@pytest.fixture(autouse=True)
+def _isolated_session_log(
+    monkeypatch: pytest.MonkeyPatch, session_db_path: Path
+) -> None:
+    """Журнал сессий — во временной БД, а не в ``db/sessions.db`` репозитория.
+
+    Иначе каждый ``AppTest`` писал бы строки с текстом вопроса в рабочую БД
+    проекта: файл под ``.gitignore``, но тесты не должны трогать пользовательские
+    данные и оставлять после себя мусор.
+    """
+    monkeypatch.setenv("ONEC_SESSION_DB", str(session_db_path))
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _isolated_audit_log() -> Iterator[Path]:
+    """Все тесты пишут аудит MCP в ``.pytest_tmp``, а не в ``.mcp_state``."""
+    directory = REPO_ROOT / ".pytest_tmp"
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"audit_{uuid.uuid4().hex}.jsonl"
+    previous = os.environ.get("ONEC_MCP_AUDIT_FILE")
+    os.environ["ONEC_MCP_AUDIT_FILE"] = str(path)
+    yield path
+    if previous is None:
+        os.environ.pop("ONEC_MCP_AUDIT_FILE", None)
+    else:
+        os.environ["ONEC_MCP_AUDIT_FILE"] = previous
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _isolated_mcp_state() -> Iterator[Path]:
+    """Служебное состояние MCP (флаг алертов) — тоже в ``.pytest_tmp``."""
+    directory = REPO_ROOT / ".pytest_tmp" / f"mcp_state_{uuid.uuid4().hex}"
+    previous = os.environ.get("ONEC_MCP_STATE_DIR")
+    os.environ["ONEC_MCP_STATE_DIR"] = str(directory)
+    yield directory
+    if previous is None:
+        os.environ.pop("ONEC_MCP_STATE_DIR", None)
+    else:
+        os.environ["ONEC_MCP_STATE_DIR"] = previous

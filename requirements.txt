@@ -1,0 +1,17 @@
+# Runtime-зависимости (Python 3.12+)
+# Установка: pip install -r requirements.txt
+
+pandas>=2.2,<4
+numpy>=2.0
+openpyxl>=3.1
+streamlit>=1.36,<2
+pydantic>=2.6,<3
+langgraph>=0.2,<2
+langchain-gigachat>=0.5,<0.6
+
+# Опционально: прямой экспорт из 1С (только Windows)
+pywin32>=306; sys_platform == "win32"
+
+# Экспорт журнала сессий в Notion (scripts/notion_export.py, вне критического пути)
+notion-client>=3.1,<4
+matplotlib>=3.8

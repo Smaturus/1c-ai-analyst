@@ -1,0 +1,24 @@
+digraph "flow-adhoc" {
+  graph [rankdir="LR", bgcolor="white", pad="0.45", nodesep="0.55", ranksep="0.85", fontname="Segoe UI", fontsize="11", labelloc="t", labeljust="l",
+         label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="2">
+           <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="16"><B>Сценарий: ad-hoc вопрос</B></FONT></TD></TR>
+           <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="10" COLOR="#5A6B7B">Пользователь → агент → MCP-срез → движок → контрактный ответ</FONT></TD></TR>
+           
+         </TABLE>>,
+         dpi="200"];
+  node [shape="box", style="rounded,filled", fontname="Segoe UI", fontsize="11", penwidth="1.2", margin="0.10,0.06"];
+  edge [fontname="Segoe UI", fontsize="9", color="#5A6B7B", fontcolor="#1F2933", arrowsize="0.75", penwidth="1.1"];
+  "dir" [shape="box", fillcolor="#08427B", fontcolor="#FFFFFF", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">person</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#FFFFFF"><B>Пользователь</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#D6E4F0">вопрос</FONT></TD></TR></TABLE>>];
+  "llm" [shape="box", fillcolor="#7D8B99", fontcolor="#FFFFFF", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">external</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#FFFFFF"><B>Hermes Agent</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#D6E4F0">выбор инструмента</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">[LLM]</FONT></TD></TR></TABLE>>];
+  "tool" [shape="box", fillcolor="#438DD5", fontcolor="#FFFFFF", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">container</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#FFFFFF"><B>MCP tool</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#D6E4F0">total / group_dynamics</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">[stdio]</FONT></TD></TR></TABLE>>];
+  "engine" [shape="box", fillcolor="#438DD5", fontcolor="#FFFFFF", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">container</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#FFFFFF"><B>Движок</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#D6E4F0">dispatch_intent</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">[pandas]</FONT></TD></TR></TABLE>>];
+  "store" [shape="box", fillcolor="#2E6DA4", fontcolor="#FFFFFF", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">store</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#FFFFFF"><B>Витрина</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#D6E4F0">CSV + meta</FONT></TD></TR></TABLE>>];
+  "answer" [shape="box", fillcolor="#85BBF0", fontcolor="#1F2933", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#5A6B7B">component</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#1F2933"><B>Контрактный ответ</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#5A6B7B">период, данные, таблица</FONT></TD></TR></TABLE>>];
+  "dir" -> "llm" [style="solid", arrowhead="vee", label="1 · вопрос"];
+  "llm" -> "tool" [style="solid", arrowhead="vee", label="2 · MCP-вызов"];
+  "tool" -> "engine" [style="solid", arrowhead="vee", label="3 · params"];
+  "engine" -> "store" [style="solid", arrowhead="vee", label="4 · чтение"];
+  "engine" -> "answer" [style="solid", arrowhead="vee", label="5 · DataFrame"];
+  "answer" -> "llm" [style="dashed", arrowhead="vee", label="6 · текст"];
+  "llm" -> "dir" [style="dashed", arrowhead="vee", label="7 · ответ в чат"];
+}

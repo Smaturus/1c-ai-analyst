@@ -1,0 +1,25 @@
+{
+  "case_id": "test_010_clarify_missing_dates",
+  "source": "recorded",
+  "recorded_at": "2026-11-18",
+  "provider": "deepseek",
+  "model": "deepseek-chat",
+  "responses": [
+    {
+      "tool_call": {
+        "name": "clarify",
+        "arguments": {
+          "missing": [
+            "start_date",
+            "end_date"
+          ],
+          "question": "За какой период посчитать выручку? Укажите даты начала и окончания (например, «с 1 января по 31 октября 2026»)."
+        }
+      }
+    }
+  ],
+  "recorded_outcome": {
+    "status": "clarify",
+    "intent": "clarification"
+  }
+}

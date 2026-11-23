@@ -1,0 +1,157 @@
+{
+  "provider": "deepseek",
+  "model": "deepseek-chat",
+  "date": "2026-11-19",
+  "yes": 24,
+  "total": 25,
+  "share_yes": 96.0,
+  "groups": {
+    "refuse/clarify": {
+      "yes": 5,
+      "total": 5,
+      "share": 100.0
+    },
+    "ok_numbers": {
+      "yes": 10,
+      "total": 10,
+      "share": 100.0
+    },
+    "ok_faithfulness": {
+      "yes": 9,
+      "total": 10,
+      "share": 90.0
+    }
+  },
+  "cases": [
+    {
+      "case_id": "test_001_top_simple",
+      "status": "ok",
+      "verdicts": {
+        "numbers_contradict_data": false,
+        "contradicts_data": false
+      },
+      "question": "Покажи топ-5 товаров за 2023 год"
+    },
+    {
+      "case_id": "test_003_total",
+      "status": "ok",
+      "verdicts": {
+        "numbers_contradict_data": false,
+        "contradicts_data": false
+      },
+      "question": "Сколько мы заработали за прошлый месяц?"
+    },
+    {
+      "case_id": "test_004_timeseries",
+      "status": "ok",
+      "verdicts": {
+        "numbers_contradict_data": false,
+        "contradicts_data": false
+      },
+      "question": "Покажи динамику продаж по месяцам за 2023 год"
+    },
+    {
+      "case_id": "test_005_negative",
+      "status": "ok",
+      "verdicts": {
+        "numbers_contradict_data": false,
+        "contradicts_data": false
+      },
+      "question": "Покажи товары с отрицательной выручкой за март 2024"
+    },
+    {
+      "case_id": "test_007_counterparty",
+      "status": "ok",
+      "verdicts": {
+        "numbers_contradict_data": false,
+        "contradicts_data": true
+      },
+      "question": "Кто из контрагентов вырос сильнее всего во втором квартале 2024 по сравнению с первым?"
+    },
+    {
+      "case_id": "test_010_clarify_missing_dates",
+      "status": "clarify",
+      "verdicts": {
+        "clarification_matches_missing": true
+      },
+      "question": "Сколько мы заработали?"
+    },
+    {
+      "case_id": "test_012_unknown_greeting",
+      "status": "refuse",
+      "verdicts": {
+        "refusal_explained": true
+      },
+      "question": "Привет, как у тебя дела?"
+    },
+    {
+      "case_id": "test_014_filter_product",
+      "status": "ok",
+      "verdicts": {
+        "numbers_contradict_data": false,
+        "contradicts_data": false
+      },
+      "question": "Покажи динамику продаж Колонки Му за 2023 год"
+    },
+    {
+      "case_id": "test_015_aggregated_metric",
+      "status": "refuse",
+      "verdicts": {
+        "refusal_explained": true
+      },
+      "question": "Какой у нас средний чек за 2024 год?"
+    },
+    {
+      "case_id": "test_025_total_year",
+      "status": "ok",
+      "verdicts": {
+        "numbers_contradict_data": false,
+        "contradicts_data": false
+      },
+      "question": "Общая выручка за 2022"
+    },
+    {
+      "case_id": "test_026_edge_future_date",
+      "status": "refuse",
+      "verdicts": {
+        "refusal_explained": true
+      },
+      "question": "Сколько мы заработаем в 2030 году?"
+    },
+    {
+      "case_id": "test_028_group_specific",
+      "status": "ok",
+      "verdicts": {
+        "numbers_contradict_data": false,
+        "contradicts_data": false
+      },
+      "question": "Сравни продажи группы 'Электроника' за 2023 и 2024"
+    },
+    {
+      "case_id": "test_032_quantity",
+      "status": "ok",
+      "verdicts": {
+        "numbers_contradict_data": false,
+        "contradicts_data": false
+      },
+      "question": "Сколько мы продали штук в октябре 2023?"
+    },
+    {
+      "case_id": "test_042_dangling_pronoun_no_history",
+      "status": "clarify",
+      "verdicts": {
+        "clarification_matches_missing": true
+      },
+      "question": "А как они продаются в этом году?"
+    },
+    {
+      "case_id": "test_049_total_quarter",
+      "status": "ok",
+      "verdicts": {
+        "numbers_contradict_data": false,
+        "contradicts_data": false
+      },
+      "question": "Сколько мы заработали в четвертом квартале 2024?"
+    }
+  ]
+}

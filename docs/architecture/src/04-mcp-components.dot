@@ -1,0 +1,39 @@
+digraph "c4-component" {
+  graph [rankdir="LR", bgcolor="white", pad="0.45", nodesep="0.55", ranksep="0.85", fontname="Segoe UI", fontsize="11", labelloc="t", labeljust="l",
+         label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="2">
+           <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="16"><B>C4 · Уровень 3: компоненты MCP-сервера</B></FONT></TD></TR>
+           <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="10" COLOR="#5A6B7B">Из чего состоит адаптер и где проходит граница с движком</FONT></TD></TR>
+           
+         </TABLE>>,
+         dpi="200"];
+  node [shape="box", style="rounded,filled", fontname="Segoe UI", fontsize="11", penwidth="1.2", margin="0.10,0.06"];
+  edge [fontname="Segoe UI", fontsize="9", color="#5A6B7B", fontcolor="#1F2933", arrowsize="0.75", penwidth="1.1"];
+  subgraph cluster_mcp {
+    label=<<FONT POINT-SIZE="10" COLOR="#5A6B7B"><B>MCP Server (stdio)</B></FONT>>;
+    labeljust="l"; style="rounded,dashed"; color="#9AA7B4"; penwidth="1.1";
+    fontname="Segoe UI"; margin="14";
+  "registry" [shape="box", fillcolor="#85BBF0", fontcolor="#1F2933", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#5A6B7B">component</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#1F2933"><B>Tool Registry</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#5A6B7B">12 прикладных + 4 служебных</FONT></TD></TR></TABLE>>];
+  "contract" [shape="box", fillcolor="#85BBF0", fontcolor="#1F2933", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#5A6B7B">component</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#1F2933"><B>Contract Formatter</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#5A6B7B">период, дата данных, отказ</FONT></TD></TR></TABLE>>];
+  "dataset" [shape="box", fillcolor="#85BBF0", fontcolor="#1F2933", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#5A6B7B">component</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#1F2933"><B>Dataset Store</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#5A6B7B">текущая витрина, allowlist</FONT></TD></TR></TABLE>>];
+  "executor" [shape="box", fillcolor="#85BBF0", fontcolor="#1F2933", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#5A6B7B">component</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#1F2933"><B>Slice Executor</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#5A6B7B">валидация → dispatch_intent</FONT></TD></TR></TABLE>>];
+  "totals" [shape="box", fillcolor="#85BBF0", fontcolor="#1F2933", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#5A6B7B">component</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#1F2933"><B>Derived Totals</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#5A6B7B">суммы/доли/мин/макс</FONT></TD></TR></TABLE>>];
+  "catalog" [shape="box", fillcolor="#85BBF0", fontcolor="#1F2933", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#5A6B7B">component</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#1F2933"><B>Dimension Catalog</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#5A6B7B">группы, контрагенты, товары</FONT></TD></TR></TABLE>>];
+  "alerts" [shape="box", fillcolor="#85BBF0", fontcolor="#1F2933", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#5A6B7B">component</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#1F2933"><B>Alert Engine</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#5A6B7B">окно, порог, калибровка</FONT></TD></TR></TABLE>>];
+  "auditlog" [shape="box", fillcolor="#85BBF0", fontcolor="#1F2933", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#5A6B7B">component</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#1F2933"><B>Audit Journal</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#5A6B7B">slice/error/refusal</FONT></TD></TR></TABLE>>];
+  }
+  "engine" [shape="box", fillcolor="#438DD5", fontcolor="#FFFFFF", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">container</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#FFFFFF"><B>Движок аналитики</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#D6E4F0">analytics.dispatch_intent</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">[pandas]</FONT></TD></TR></TABLE>>];
+  "vitrina" [shape="box", fillcolor="#2E6DA4", fontcolor="#FFFFFF", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">store</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#FFFFFF"><B>Витрина CSV + meta</B></FONT></TD></TR></TABLE>>];
+  "auditfile" [shape="box", fillcolor="#2E6DA4", fontcolor="#FFFFFF", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#D6E4F0">store</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#FFFFFF"><B>audit.jsonl</B></FONT></TD></TR></TABLE>>];
+  "registry" -> "executor" [style="solid", arrowhead="vee", label="вызов"];
+  "registry" -> "alerts" [style="solid", arrowhead="vee", label="вызов"];
+  "registry" -> "catalog" [style="solid", arrowhead="vee", label="вызов"];
+  "dataset" -> "executor" [style="solid", arrowhead="vee", label="витрина"];
+  "executor" -> "engine" [style="solid", arrowhead="vee", label="params"];
+  "executor" -> "totals" [style="solid", arrowhead="vee", label="итоги"];
+  "executor" -> "contract" [style="solid", arrowhead="vee", label="таблица"];
+  "alerts" -> "engine" [style="solid", arrowhead="vee", label="окно"];
+  "engine" -> "vitrina" [style="solid", arrowhead="vee", label="чтение"];
+  "executor" -> "auditlog" [style="solid", arrowhead="vee", label="событие"];
+  "alerts" -> "auditlog" [style="solid", arrowhead="vee", label="событие"];
+  "auditlog" -> "auditfile" [style="solid", arrowhead="vee", label="append"];
+}

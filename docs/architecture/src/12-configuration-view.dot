@@ -1,0 +1,47 @@
+digraph "configuration-view" {
+  graph [rankdir="LR", bgcolor="white", pad="0.45", nodesep="0.55", ranksep="0.85", fontname="Segoe UI", fontsize="11", labelloc="t", labeljust="l",
+         label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="2">
+           <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="16"><B>Конфигурационное представление</B></FONT></TD></TR>
+           <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="10" COLOR="#5A6B7B">Какие настройки Hermes формируют поверхность инструментов и поведение агента</FONT></TD></TR>
+           
+         </TABLE>>,
+         dpi="200"];
+  node [shape="box", style="rounded,filled", fontname="Segoe UI", fontsize="11", penwidth="1.2", margin="0.10,0.06"];
+  edge [fontname="Segoe UI", fontsize="9", color="#5A6B7B", fontcolor="#1F2933", arrowsize="0.75", penwidth="1.1"];
+  subgraph cluster_profile {
+    label=<<FONT POINT-SIZE="10" COLOR="#5A6B7B"><B>Hermes profile · config.yaml</B></FONT>>;
+    labeljust="l"; style="rounded,dashed"; color="#9AA7B4"; penwidth="1.1";
+    fontname="Segoe UI"; margin="14";
+  "mcp_srv" [shape="box", fillcolor="#B5E0F5", fontcolor="#1F2933", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#5A6B7B">app</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#1F2933"><B>mcp_servers.1c-analyst</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#5A6B7B">command / args / cwd / env / timeout</FONT></TD></TR></TABLE>>];
+  "toolsets" [shape="box", fillcolor="#B5E0F5", fontcolor="#1F2933", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#5A6B7B">app</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#1F2933"><B>platform_toolsets</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#5A6B7B">local / desktop</FONT></TD></TR></TABLE>>];
+  "disabled" [shape="box", fillcolor="#B5E0F5", fontcolor="#1F2933", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#5A6B7B">app</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#1F2933"><B>agent.disabled_toolsets</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#5A6B7B">terminal, file, web, search…</FONT></TD></TR></TABLE>>];
+  "search" [shape="box", fillcolor="#B5E0F5", fontcolor="#1F2933", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#5A6B7B">app</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#1F2933"><B>tools.tool_search</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#5A6B7B">off — инструменты видны сразу</FONT></TD></TR></TABLE>>];
+  "cwd" [shape="box", fillcolor="#B5E0F5", fontcolor="#1F2933", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#5A6B7B">app</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#1F2933"><B>terminal.cwd</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#5A6B7B">корень репозитория</FONT></TD></TR></TABLE>>];
+  }
+  subgraph cluster_context {
+    label=<<FONT POINT-SIZE="10" COLOR="#5A6B7B"><B>Контекст проекта</B></FONT>>;
+    labeljust="l"; style="rounded,dashed"; color="#9AA7B4"; penwidth="1.1";
+    fontname="Segoe UI"; margin="14";
+  "rules" [shape="box", fillcolor="#B5E0F5", fontcolor="#1F2933", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#5A6B7B">app</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#1F2933"><B>.hermes.md</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#5A6B7B">правила: числа только из MCP</FONT></TD></TR></TABLE>>];
+  "state" [shape="box", fillcolor="#B5E0F5", fontcolor="#1F2933", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#5A6B7B">app</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#1F2933"><B>ONEC_MCP_STATE_DIR</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#5A6B7B">.mcp_state</FONT></TD></TR></TABLE>>];
+  "audit" [shape="box", fillcolor="#B5E0F5", fontcolor="#1F2933", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#5A6B7B">app</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#1F2933"><B>ONEC_MCP_AUDIT_FILE</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#5A6B7B">audit.jsonl</FONT></TD></TR></TABLE>>];
+  "alerts" [shape="box", fillcolor="#B5E0F5", fontcolor="#1F2933", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#5A6B7B">app</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#1F2933"><B>ONEC_ALERTS_ENABLED</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#5A6B7B">kill switch</FONT></TD></TR></TABLE>>];
+  }
+  subgraph cluster_runtime {
+    label=<<FONT POINT-SIZE="10" COLOR="#5A6B7B"><B>Среда</B></FONT>>;
+    labeljust="l"; style="rounded,dashed"; color="#9AA7B4"; penwidth="1.1";
+    fontname="Segoe UI"; margin="14";
+  "venv" [shape="box", fillcolor="#C9E7B7", fontcolor="#1F2933", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#5A6B7B">tech</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#1F2933"><B>venv Python 3.12+</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#5A6B7B">зависимости mcp/pandas</FONT></TD></TR></TABLE>>];
+  "proc" [shape="box", fillcolor="#C9E7B7", fontcolor="#1F2933", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#5A6B7B">tech</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#1F2933"><B>Процесс MCP</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#5A6B7B">stdio, дочерний у Hermes</FONT></TD></TR></TABLE>>];
+  "surface" [shape="box", fillcolor="#C9E7B7", fontcolor="#1F2933", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="8" COLOR="#5A6B7B">tech</FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT COLOR="#1F2933"><B>Tool surface</B></FONT></TD></TR><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="9" COLOR="#5A6B7B">12 + 4 инструмента</FONT></TD></TR></TABLE>>];
+  }
+  "mcp_srv" -> "proc" [style="dashed", arrowhead="onormal", label="запускает"];
+  "cwd" -> "rules" [style="dashed", arrowhead="onormal", label="обнаруживает"];
+  "toolsets" -> "surface" [style="solid", arrowhead="vee", label="ограничивает"];
+  "disabled" -> "surface" [style="solid", arrowhead="vee", label="вычитает"];
+  "search" -> "surface" [style="solid", arrowhead="vee", label="не откладывает"];
+  "state" -> "audit" [style="dashed", arrowhead="onormal", label="задаёт путь"];
+  "alerts" -> "state" [style="dashed", arrowhead="onormal", label="включает/выключает"];
+  "venv" -> "proc" [style="dashed", arrowhead="onormal", label="среда исполнения"];
+  "rules" -> "surface" [style="dashed", arrowhead="onormal", label="политика использования"];
+}

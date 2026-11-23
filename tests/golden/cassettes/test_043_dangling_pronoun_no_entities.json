@@ -1,0 +1,24 @@
+{
+  "case_id": "test_043_dangling_pronoun_no_entities",
+  "source": "recorded",
+  "recorded_at": "2026-11-18",
+  "provider": "deepseek",
+  "model": "deepseek-chat",
+  "responses": [
+    {
+      "tool_call": {
+        "name": "clarify",
+        "arguments": {
+          "missing": [
+            "product_filter"
+          ],
+          "question": "Уточните, пожалуйста, какие именно товары показать в динамике — название или подстроку названия товара (например, «кабель»)."
+        }
+      }
+    }
+  ],
+  "recorded_outcome": {
+    "status": "clarify",
+    "intent": "clarification"
+  }
+}

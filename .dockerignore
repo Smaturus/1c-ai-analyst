@@ -1,0 +1,54 @@
+# Обязательные исключения: лишние и тяжёлые файлы не попадают в образ
+.venv/
+__pycache__/
+*.pyc
+.git/
+.github/
+tests/
+docs/
+.env
+*.xlsx
+1c_export/
+.pytest_cache/
+
+# Дополнительно: IDE/OS, кеши, локальные базы и секреты
+.gitignore
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
+.mypy_cache/
+.ruff_cache/
+.tools/
+.acl-recovery/
+.browser_profile/
+1c_base/
+<копия базы>/
+*.1CD
+*.cfl
+*.1CL
+.env.*
+!.env.example
+
+# Локальные базы и артефакты: журнал сессий содержит текст вопросов
+db/
+*.db
+exports/
+
+# Служебные документы и Windows-скрипты не нужны в runtime-образе
+progress.md
+CHANGELOG.md
+README.md
+pyproject.toml
+pytest.ini
+start_app.bat
+smoke_test.py
+smoke_llm.py
+promt_1_publishing.md
+promp_2_ci.txt
+Промпт_для_нового_чата.md
+
+# Сам Docker-контекст в образ не копируем
+Dockerfile
+docker-compose.yml
+.dockerignore

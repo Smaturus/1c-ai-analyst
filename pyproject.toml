@@ -1,0 +1,93 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "1c-ai-analyst"
+version = "0.8.0"
+description = "ИИ-ассистент для анализа данных из 1С: вопрос → JSON-DSL → pandas"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "Sergey Matyukhin" }]
+keywords = ["1c", "1c-enterprise", "streamlit", "llm", "pandas", "analytics", "nl2dsl"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Typing :: Typed",
+]
+dependencies = [
+    "pandas>=2.2,<4",
+    "numpy>=2.0",
+    "openpyxl>=3.1",
+    "streamlit>=1.36,<2",
+    "pydantic>=2.6,<3",
+    "langgraph>=0.2,<2",
+    "langchain-gigachat>=0.5,<0.6",
+    "notion-client>=3.1,<4",
+    "matplotlib>=3.8",
+    "pywin32>=306; sys_platform == 'win32'",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.6", "mypy>=1.10"]
+mcp = ["mcp>=1.20,<2"]
+
+[project.urls]
+Homepage = "https://github.com/Smaturus/1c-ai-analyst"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+# Основная конфигурация — в pytest.ini (он имеет приоритет); секция продублирована
+# для инструментов, которые читают настройки только из pyproject.toml.
+testpaths = ["tests"]
+pythonpath = [".", "src"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "C4", "RUF"]
+ignore = [
+    # Классическая защита от циклов: явные noqa расставлены точечно, а не глобально.
+    "BLE001",
+    # Проект русскоязычный: кириллица «с/е/о/а» законно выглядит как латиница,
+    # правило ambiguous-unicode не применимо к тексту на русском.
+    "RUF001",
+    "RUF002",
+    "RUF003",
+    # Длинные строки — это русский текст промптов/сводок и JSON-примеры; перенос
+    # таких литералов ухудшает читаемость и рискует сломать формат.
+    "E501",
+    # PEP 695 (`type X = ...`) и StrEnum — допустимая, но не обязательная
+    # модернизация; str+Enum и TypeAlias читаются яснее в текущем коде.
+    "UP040",
+    "UP042",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Тесты и скрипты допускают assert и широкий except там, где это осмысленно.
+"tests/**" = ["S101", "B011", "BLE001"]
+
+[tool.mypy]
+python_version = "3.12"
+files = [
+    "src/onec_analyst/agent",
+    "src/onec_analyst/llm_agent.py",
+    "src/onec_analyst/dispatcher.py",
+    "src/onec_analyst/pipeline.py",
+]
+ignore_missing_imports = true
+check_untyped_defs = true
+warn_unused_ignores = true
+# Типизируем перечисленные модули; ошибки в импортированных доменных модулях
+# (analytics/summary, метрика Literal vs str) — вне скоупа этапа и не блокируют CI.
+follow_imports = "silent"

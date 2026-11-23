@@ -1,0 +1,22 @@
+{
+  "case_id": "test_037_negative_context",
+  "source": "recorded",
+  "recorded_at": "2026-11-18",
+  "provider": "deepseek",
+  "model": "deepseek-chat",
+  "responses": [
+    {
+      "tool_call": {
+        "name": "total",
+        "arguments": {
+          "start_date": "2023-01-01",
+          "end_date": "2023-12-31"
+        }
+      }
+    }
+  ],
+  "recorded_outcome": {
+    "status": "ok",
+    "intent": "total"
+  }
+}

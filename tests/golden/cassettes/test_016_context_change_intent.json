@@ -1,0 +1,21 @@
+{
+  "case_id": "test_016_context_change_intent",
+  "source": "recorded",
+  "recorded_at": "2026-11-18",
+  "provider": "deepseek",
+  "model": "deepseek-chat",
+  "responses": [
+    {
+      "tool_call": {
+        "name": "refuse",
+        "arguments": {
+          "reason": "Запрос требует разбивки конкретных товаров («Колонка Му», «Клавиатура Lambda») по контрагентам, но инструмент counterparty_dynamics не поддерживает product_filter, а сравнение произвольного набора товаров не поддерживается."
+        }
+      }
+    }
+  ],
+  "recorded_outcome": {
+    "status": "refuse",
+    "intent": null
+  }
+}

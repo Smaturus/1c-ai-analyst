@@ -1,0 +1,21 @@
+{
+  "case_id": "test_030_unknown_thanks",
+  "source": "recorded",
+  "recorded_at": "2026-11-18",
+  "provider": "deepseek",
+  "model": "deepseek-chat",
+  "responses": [
+    {
+      "tool_call": {
+        "name": "refuse",
+        "arguments": {
+          "reason": "Это благодарность, а не запрос по аналитике продаж — анализировать нечего."
+        }
+      }
+    }
+  ],
+  "recorded_outcome": {
+    "status": "refuse",
+    "intent": null
+  }
+}

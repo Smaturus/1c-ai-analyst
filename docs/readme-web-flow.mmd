@@ -1,0 +1,27 @@
+sequenceDiagram
+    autonumber
+    actor U as Пользователь
+
+    box rgb(238,244,255) Web-канал
+        participant UI as Streamlit UI (app.py)
+        participant PL as Планировщик JSON-DSL<br/>LLM или офлайн-правила
+    end
+
+    box rgb(250,245,235) Ядро аналитики — общее
+        participant ENG as dispatch_intent → pandas<br/>7 интентов
+    end
+
+    Note over U,ENG: Легенда: сплошная стрелка — запрос, пунктир — ответ или запись в журнал
+
+    U->>UI: вопрос (браузер, HTTP)
+    UI->>PL: вопрос и профиль данных (Python API)
+    PL->>ENG: JSON-DSL после Pydantic (JSON)
+    Note over ENG: витрина CSV, read-only
+
+    alt срез поддержан
+        ENG-->>UI: таблица, график, JSON-DSL (Python API)
+        UI-->>U: ответ на экране (HTTP)
+    else нет среза или ошибка
+        ENG-->>UI: контракт отказа, событие error в аудите
+        UI-->>U: «не поддерживается», без подмены
+    end

@@ -1,0 +1,22 @@
+{
+  "case_id": "test_032_quantity",
+  "source": "recorded",
+  "recorded_at": "2026-11-18",
+  "provider": "deepseek",
+  "model": "deepseek-chat",
+  "responses": [
+    {
+      "tool_call": {
+        "name": "total",
+        "arguments": {
+          "start_date": "2023-10-01",
+          "end_date": "2023-10-31"
+        }
+      }
+    }
+  ],
+  "recorded_outcome": {
+    "status": "ok",
+    "intent": "total"
+  }
+}

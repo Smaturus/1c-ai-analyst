@@ -1,0 +1,20 @@
+{
+  "case_id": "test_001_top_simple",
+  "source": "synthetic_example",
+  "recorded_at": "2026-11-18",
+  "provider": "example",
+  "model": "example",
+  "response": {
+    "tool_call": {
+      "name": "top_bottom_products",
+      "arguments": {
+        "metric": "revenue",
+        "limit": 5,
+        "ascending": false,
+        "start_date": "2023-01-01",
+        "end_date": "2023-12-31"
+      }
+    }
+  },
+  "notes": "Пример формата, не запись модели; в eval не считается."
+}

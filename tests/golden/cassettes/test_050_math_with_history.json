@@ -1,0 +1,21 @@
+{
+  "case_id": "test_050_math_with_history",
+  "source": "recorded",
+  "recorded_at": "2026-11-18",
+  "provider": "deepseek",
+  "model": "deepseek-chat",
+  "responses": [
+    {
+      "tool_call": {
+        "name": "refuse",
+        "arguments": {
+          "reason": "Вопрос не относится к аналитике продаж: это арифметический пример, а не запрос по данным о продажах."
+        }
+      }
+    }
+  ],
+  "recorded_outcome": {
+    "status": "refuse",
+    "intent": null
+  }
+}

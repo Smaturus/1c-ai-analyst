@@ -1,0 +1,13 @@
+{
+  "_comment": "Не выводятся из sample_data.csv, но допустимы: параметры алгоритмов, а не данные базы.",
+  "allowed": [
+    {
+      "value": 100000,
+      "reason": "порог min_base_revenue в примере вопроса UI_ACCEPTANCE — параметр интента"
+    },
+    {
+      "value": 50000,
+      "reason": "порог алерта returns_alert по умолчанию (alerts.py) — параметр алгоритма"
+    }
+  ]
+}

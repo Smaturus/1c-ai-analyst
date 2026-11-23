@@ -1,0 +1,29 @@
+{
+  "case_id": "test_046_relative_both_periods",
+  "source": "recorded",
+  "recorded_at": "2026-11-18",
+  "provider": "deepseek",
+  "model": "deepseek-chat",
+  "responses": [
+    {
+      "tool_call": {
+        "name": "compare_top_products",
+        "arguments": {
+          "period1": [
+            "2022-01-01",
+            "2022-12-31"
+          ],
+          "period2": [
+            "2023-01-01",
+            "2023-12-31"
+          ],
+          "top_n": 5
+        }
+      }
+    }
+  ],
+  "recorded_outcome": {
+    "status": "ok",
+    "intent": "compare_top_products"
+  }
+}

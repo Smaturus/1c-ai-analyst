@@ -1,0 +1,24 @@
+{
+  "case_id": "test_022_top_limit_10",
+  "source": "recorded",
+  "recorded_at": "2026-11-18",
+  "provider": "deepseek",
+  "model": "deepseek-chat",
+  "responses": [
+    {
+      "tool_call": {
+        "name": "top_bottom_products",
+        "arguments": {
+          "metric": "revenue",
+          "limit": 10,
+          "start_date": "2023-01-01",
+          "end_date": "2023-12-31"
+        }
+      }
+    }
+  ],
+  "recorded_outcome": {
+    "status": "ok",
+    "intent": "top_bottom_products"
+  }
+}
