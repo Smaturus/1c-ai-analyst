@@ -21,11 +21,16 @@
 * ``Название`` — title, «Сессия + дата»;
 * ``Дата`` — date;
 * ``Провайдер`` — select;
+* ``Модель`` — select, сразу после «Провайдер»; у сессий режима правил
+  (``provider="none"``) значение ``rules``;
 * ``Статус`` — select: ``ok`` / ``clarify`` / ``refuse`` / ``error``;
 * ``Verdict`` — checkbox;
 * ``Длительность`` — number (секунды);
 * ``Токены`` — number (сейчас всегда пусто, см. ``session_log``);
-* ``Degraded`` — checkbox.
+* ``Degraded`` — checkbox;
+* ``Ответ модели`` — rich text (компактный JSON DSL);
+* ``ID сессии`` — rich text, служебное: по нему исторические страницы
+  дозаполняются (``--backfill-history``), в интерфейсе его можно скрыть.
 
 В теле страницы — блок «Результат» (текст сводки + таблица) и PNG-график,
 загруженный через File Upload API; локальная копия markdown и PNG остаётся
@@ -40,7 +45,8 @@
     python scripts/notion_export.py --limit 20
     python scripts/notion_export.py --chat <chat_id>
     python scripts/notion_export.py --create-database --parent-page <page_id>
-"""
+    python scripts/notion_export.py --ensure-properties
+    python scripts/notion_export.py --backfill-history [--dry-run]"""
 
 from __future__ import annotations
 
@@ -51,11 +57,12 @@ import os
 import re
 import time
 from collections.abc import Callable, Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from onec_analyst.session_log import (
+    exported_records,
     mark_exported,
     pending_records,
 )
@@ -76,12 +83,19 @@ ENTITY_PLACEHOLDER = "<ENTITY>"
 PROP_TITLE = "Название"
 PROP_DATE = "Дата"
 PROP_PROVIDER = "Провайдер"
+PROP_MODEL = "Модель"
 PROP_STATUS = "Статус"
 PROP_VERDICT = "Verdict"
 PROP_LATENCY = "Длительность"
 PROP_TOKENS = "Токены"
 PROP_DEGRADED = "Degraded"
 PROP_ANSWER = "Ответ модели"
+PROP_SESSION_ID = "ID сессии"
+
+#: Значение «Модель» для сессии, посчитанной детерминированными правилами:
+#: у режима ``LLM_PROVIDER=none`` модели нет, и пустая ячейка выглядела бы
+#: как потеря данных.
+MODEL_RULES = "rules"
 
 #: Значения select «Статус» (совпадают с журналом; ``fallback`` уже свёрнут).
 STATUS_OPTIONS = ("ok", "clarify", "refuse", "error")
@@ -135,6 +149,31 @@ def clip(value: Any, limit: int = 2000) -> str:
     """Обрезать строку до лимита Notion (rich_text ≤ 2000 символов)."""
     text = "" if value is None else str(value)
     return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def session_id_property(row: dict[str, Any]) -> dict[str, Any]:
+    """Свойство «ID сессии» как есть: это наш собственный uuid, не ПДн.
+
+    Через :func:`sanitize_text` пропускать нельзя: у uuid-подобной строки может
+    найтись 12 цифр подряд, и ключ «страница ↔ журнал» превратится в ``<PII>``.
+    """
+    value = clip(str(row.get("session_id") or "").strip(), 100)
+    return {"rich_text": [{"type": "text", "text": {"content": value}}]}
+
+
+def model_value(row: dict[str, Any]) -> str:
+    """Подпись модели для свойства «Модель» (и строки «Модель» в теле).
+
+    Берётся ``model`` из журнала; у сессии режима правил (``provider="none"``)
+    модели нет, поэтому пишется :data:`MODEL_RULES`. Если модель неизвестна, а
+    провайдер работал по-настоящему, значение не выдумывается — возвращается
+    пустая строка и свойство не отправляется.
+    """
+    model = sanitize_text(row.get("model") or "").strip()
+    if model:
+        return clip(model, 100)
+    provider = str(row.get("provider") or "").strip().lower()
+    return MODEL_RULES if provider == "none" else ""
 
 
 #: Колонки таблицы результата, в которых лежат названия, а не метрики.
@@ -338,6 +377,12 @@ def build_properties(row: dict[str, Any]) -> dict[str, Any]:
     }
     if provider:
         properties[PROP_PROVIDER] = {"select": {"name": clip(provider, 100)}}
+    model = model_value(row)
+    if model:
+        properties[PROP_MODEL] = {"select": {"name": model}}
+    session_id = sanitize_text(row.get("session_id") or "").strip()
+    if session_id:
+        properties[PROP_SESSION_ID] = session_id_property(row)
     latency = row.get("latency_sec")
     if latency is not None:
         properties[PROP_LATENCY] = {"number": round(float(latency), 3)}
@@ -402,7 +447,7 @@ def summary_rows(row: dict[str, Any]) -> list[tuple[str, str]]:
         ("Дата", str(row.get("ts") or "—")),
         ("Вопрос", question_placeholder()),
         ("Провайдер", sanitize_text(row.get("provider") or "—")),
-        ("Модель", sanitize_text(row.get("model") or "—")),
+        ("Модель", model_value(row) or "—"),
         ("Статус", str(row.get("status") or "—")),
         ("Verdict", "да" if row.get("verdict") else "нет"),
         ("Длительность, с", _fmt(row.get("latency_sec"))),
@@ -865,6 +910,9 @@ def database_schema() -> dict[str, Any]:
                 ]
             }
         },
+        # Сразу после «Провайдера»: модель — вторая половина ответа на «кто считал».
+        # Опции не перечисляются: Notion создаёт их сам при первой записи.
+        PROP_MODEL: {"select": {}},
         PROP_STATUS: {
             "select": {"options": [{"name": name} for name in STATUS_OPTIONS]}
         },
@@ -873,14 +921,18 @@ def database_schema() -> dict[str, Any]:
         PROP_TOKENS: {"number": {"format": "number"}},
         PROP_DEGRADED: {"checkbox": {}},
         PROP_ANSWER: {"rich_text": {}},
+        # Служебное: ключ для дозаполнения исторических страниц, в витрине
+        # его можно скрыть.
+        PROP_SESSION_ID: {"rich_text": {}},
     }
 
 
 def ensure_properties(client: Any, database_id: str) -> list[str]:
     """Добавить недостающие свойства в уже созданную базу; вернуть их имена.
 
-    Нужно после появления новых полей (например, «Ответ модели»): базы, созданные
-    раньше, не получают их автоматически. Существующие свойства не меняются.
+    Нужно после появления новых полей (например, «Ответ модели», «Модель»,
+    «ID сессии»): базы, созданные раньше, не получают их автоматически.
+    Существующие свойства не меняются.
     """
     parent = resolve_parent(client, database_id)
     data_source_id = parent.get("data_source_id")
@@ -899,6 +951,232 @@ def ensure_properties(client: Any, database_id: str) -> list[str]:
         )
     )
     return sorted(missing)
+
+
+# --------------------------------------------------------------------------- #
+# Дозаполнение исторических страниц (модель + id сессии)
+# --------------------------------------------------------------------------- #
+def _plain_text(rich: Any) -> str:
+    """Текст rich_text/title-значения страницы (``plain_text`` или ``content``)."""
+    if not isinstance(rich, list):
+        return ""
+    parts: list[str] = []
+    for item in rich:
+        if not isinstance(item, dict):
+            continue
+        text = item.get("plain_text")
+        if text is None:
+            text = (item.get("text") or {}).get("content")
+        parts.append(str(text or ""))
+    return "".join(parts)
+
+
+def _page_title(properties: dict[str, Any]) -> str:
+    return _plain_text((properties.get(PROP_TITLE) or {}).get("title"))
+
+
+def _page_rich_text(properties: dict[str, Any], name: str) -> str:
+    return _plain_text((properties.get(name) or {}).get("rich_text")).strip()
+
+
+def _page_date(properties: dict[str, Any]) -> str:
+    date = (properties.get(PROP_DATE) or {}).get("date") or {}
+    return str(date.get("start") or "").strip()
+
+
+def _page_number(properties: dict[str, Any], name: str) -> float | None:
+    value = (properties.get(name) or {}).get("number")
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _minute_key(value: Any) -> str:
+    """Ключ момента в UTC с точностью до минуты.
+
+    Notion хранит дату-время только до минуты (``…:00.000+03:00``), а в журнале
+    секунды настоящие, поэтому сравнивать строки напрямую нельзя.
+    """
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return text
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(UTC)
+    return parsed.replace(second=0, microsecond=0).isoformat()
+
+
+def _page_select(properties: dict[str, Any], name: str) -> str:
+    select = (properties.get(name) or {}).get("select") or {}
+    return str(select.get("name") or "").strip()
+
+
+def _list_pages(
+    client: Any, data_source_id: str, *, page_size: int = 100
+) -> list[dict[str, Any]]:
+    """Прочитать все страницы источника постранично (``has_more``/``next_cursor``)."""
+    pages: list[dict[str, Any]] = []
+    cursor: str | None = None
+    while True:
+        kwargs: dict[str, Any] = {
+            "data_source_id": data_source_id,
+            "page_size": page_size,
+        }
+        if cursor:
+            kwargs["start_cursor"] = cursor
+
+        def query_page(
+            payload: dict[str, Any] = kwargs,
+        ) -> dict[str, Any]:
+            return client.data_sources.query(**payload)
+
+        response = call_with_backoff(query_page)
+        pages.extend(response.get("results") or [])
+        cursor = response.get("next_cursor")
+        if not response.get("has_more") or not cursor:
+            return pages
+
+
+def _pick_journal_row(
+    candidates: list[dict[str, Any]],
+    *,
+    provider: str,
+    title: str,
+    latency: float | None = None,
+) -> dict[str, Any] | None:
+    """Выбрать запись журнала для страницы: провайдер → статус → длительность.
+
+    Момент сессии — основной ключ (Notion хранит его до минуты), поэтому в
+    пределах одной минуты бывают несколько сессий; провайдер, статус из
+    заголовка и «Длительность» разделяют их.
+    """
+    if not candidates:
+        return None
+    matching = [
+        row
+        for row in candidates
+        if not provider or str(row.get("provider") or "").strip() == provider
+    ]
+    if not matching:
+        # Провайдер на странице противоречит журналу: это не повод брать чужую
+        # запись. Лучше оставить страницу без пары, чем подписать неверной моделью.
+        return None
+    if len(matching) > 1:
+        titled = [
+            row
+            for row in matching
+            if str(row.get("status") or "").strip()
+            and f"· {row['status']}" in title
+        ]
+        if titled:
+            matching = titled
+    if len(matching) > 1 and latency is not None:
+        same_latency = [
+            row
+            for row in matching
+            if abs(round(float(row.get("latency_sec") or 0.0), 3) - latency) < 0.0005
+        ]
+        if same_latency:
+            matching = same_latency
+    return matching[0]
+
+
+def backfill_history(
+    *,
+    client: Any,
+    database_id: str,
+    db_path: str | os.PathLike[str] | None = None,
+    dry_run: bool = False,
+    page_size: int = 100,
+) -> dict[str, Any]:
+    """Дозаполнить «Модель» и «ID сессии» на уже выгруженных страницах.
+
+    Страницы ищутся по «Дате» до минуты (Notion не хранит секунды), затем по
+    провайдеру, статусу в заголовке и «Длительности». Страница с заполненным
+    «ID сессии» пропускается — повторный запуск ничего не меняет (идемпотентно).
+    ``dry_run=True`` считает план, но не вызывает ``pages.update``.
+
+    Raises
+    ------
+    ValueError
+        Если база старого формата (нет data source) — перечислить страницы нечем.
+    """
+    parent = resolve_parent(client, database_id)
+    data_source_id = parent.get("data_source_id")
+    if not data_source_id:
+        raise ValueError(
+            "База старого формата без data source: дозаполнение недоступно"
+        )
+
+    rows = exported_records(db_path)
+    stats: dict[str, Any] = {
+        "pages": 0,
+        "updated": 0,
+        "skipped": 0,
+        "unmatched": 0,
+    }
+    if not rows:
+        return stats
+
+    by_ts: dict[str, list[dict[str, Any]]] = {}
+    by_session: dict[str, dict[str, Any]] = {}
+    for journal_row in rows:
+        ts = _minute_key(journal_row.get("ts"))
+        if ts:
+            by_ts.setdefault(ts, []).append(journal_row)
+        session_id = str(journal_row.get("session_id") or "").strip()
+        if session_id:
+            by_session[session_id] = journal_row
+
+    used: set[int] = set()
+    for page in _list_pages(client, data_source_id, page_size=page_size):
+        stats["pages"] += 1
+        properties = page.get("properties") or {}
+        page_id = str(page.get("id") or "")
+        session_id = _page_rich_text(properties, PROP_SESSION_ID)
+        known = by_session.get(session_id) if session_id else None
+        if known is not None:
+            used.add(int(known["id"]))
+            stats["skipped"] += 1
+            continue
+
+        ts = _minute_key(_page_date(properties))
+        candidates = [
+            journal_row
+            for journal_row in by_ts.get(ts, [])
+            if int(journal_row["id"]) not in used
+        ]
+        matched = _pick_journal_row(
+            candidates,
+            provider=_page_select(properties, PROP_PROVIDER),
+            title=_page_title(properties),
+            latency=_page_number(properties, PROP_LATENCY),
+        )
+        if matched is None:
+            stats["unmatched"] += 1
+            continue
+
+        used.add(int(matched["id"]))
+        patch: dict[str, Any] = {PROP_SESSION_ID: session_id_property(matched)}
+        model = model_value(matched)
+        if model:
+            patch[PROP_MODEL] = {"select": {"name": model}}
+        if not dry_run:
+
+            def update_page(
+                current_id: str = page_id, payload: dict[str, Any] = patch
+            ) -> Any:
+                return client.pages.update(page_id=current_id, properties=payload)
+
+            call_with_backoff(update_page)
+        stats["updated"] += 1
+    return stats
 
 
 #: Статусы беклога (свойство select).
@@ -1281,6 +1559,11 @@ def main(argv: list[str] | None = None) -> int:
         help="добавить недостающие свойства в существующую базу",
     )
     parser.add_argument(
+        "--backfill-history",
+        action="store_true",
+        help="дозаполнить «Модель» и «ID сессии» на уже выгруженных страницах",
+    )
+    parser.add_argument(
         "--create-backlog",
         action="store_true",
         help="создать базу беклога под страницей (вместе с --parent-page)",
@@ -1310,7 +1593,9 @@ def main(argv: list[str] | None = None) -> int:
         format="%(asctime)s %(levelname)s %(message)s",
     )
 
-    if args.dry_run and not (args.create_database or args.create_backlog):
+    if args.dry_run and not (
+        args.create_database or args.create_backlog or args.backfill_history
+    ):
         stats = export_pending(
             client=None,
             database_id="dry-run",
@@ -1396,6 +1681,20 @@ def main(argv: list[str] | None = None) -> int:
     if not database_id:
         logger.error("Не задан NOTION_DATABASE_ID — укажи id базы (создать: --create-database)")
         return 2
+
+    if args.backfill_history:
+        try:
+            stats = backfill_history(
+                client=client,
+                database_id=database_id,
+                db_path=args.db,
+                dry_run=args.dry_run,
+            )
+        except ValueError as exc:
+            logger.error("%s", exc)
+            return 2
+        print(json.dumps(stats, ensure_ascii=False))
+        return 0
 
     if args.ensure_properties:
         added = ensure_properties(client, database_id)

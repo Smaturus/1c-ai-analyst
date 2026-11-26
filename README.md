@@ -303,6 +303,19 @@ python -m onec_analyst.mcp_server
 JSON DSL в поле «Ответ модели». Локальные пути в страницу не отправляются.
 429 повторяется с exponential backoff по `Retry-After`.
 
+Свойство «Модель» (select, сразу после «Провайдер») заполняется значением `model`
+из журнала; у сессий режима правил (`LLM_PROVIDER=none`) пишется `rules`.
+Служебное свойство «ID сессии» даёт устойчивый ключ «страница ↔ запись журнала»:
+
+```
+python scripts/notion_export.py --ensure-properties    # добавить «Модель» и «ID сессии» в готовую базу
+python scripts/notion_export.py --backfill-history     # дозаполнить уже выгруженные страницы
+python scripts/notion_export.py --backfill-history --dry-run   # только посчитать план
+```
+
+Дозаполнение идемпотентно: страница с заполненным «ID сессии» пропускается, а
+страницы без пары в журнале не меняются и попадают в счётчик `unmatched`.
+
 ## Выгрузка 1С в SQLite (архив и SQL-слой)
 
 Кроме CSV, выгрузку можно положить в отдельную БД `db/analytics.db` — для SQL-запросов
@@ -348,7 +361,7 @@ python scripts/load_testing_to_sqlite.py --stats
 
 ## Инженерные решения
 
-- **1214 pytest-тестов** в `tests/` (2 xfail strict на golden 008/033; при прогоне — 1212 passed) и CI на GitHub Actions (Python 3.12): расчёты, планировщик, LangGraph-агент, UI через `AppTest`, лимиты LLM, журнал сессий, кнопка «Выгрузить» и экспорт в Notion, беклог задач, архив 1С и тестовых артефактов в SQLite, eval (GoldSet/кассеты/replay); плюс `ruff` и `mypy`.
+- **1238 pytest-тестов** в `tests/` (2 xfail strict на golden 008/033; при прогоне — 1236 passed) и CI на GitHub Actions (Python 3.12): расчёты, планировщик, LangGraph-агент, UI через `AppTest`, лимиты LLM, журнал сессий, кнопка «Выгрузить» и экспорт в Notion, беклог задач, архив 1С и тестовых артефактов в SQLite, eval (GoldSet/кассеты/replay); плюс `ruff` и `mypy`.
 - **Защита от галлюцинаций LLM:** жёсткий JSON-DSL, Pydantic-модели с `extra="forbid"`, `dispatch_intent`, никаких чисел или SQL от модели.
 - **Журнал решений:** каждая архитектурная правка документируется в [docs/DECISIONS.md](docs/DECISIONS.md) и [docs/adr/](docs/adr/) с контекстом, отклонёнными альтернативами и причиной выбора — мотив любого решения можно восстановить постфактум.
 - **Измеримое качество моделей:** бенчмарк на программе из 57 кейсов (2 пропущено как xfail; `mock_today` для относительных дат). `deepseek-v4-flash` — 53/55 (96,4 %, p50 1,6 с, 0 ошибок); исторический базлайн `deepseek-chat` — 52/55 (94,5 %, 2 ошибки); локальная `qwen3-4b-instruct-2507` — 38/55 (69,1 %); `gemma3:4b` — 18/55 (32,7 %). GoldSet эталонов **не правится под модель**: регрессирует модель — чиним модель или промпт, не эталон.
@@ -394,7 +407,7 @@ python scripts/load_testing_to_sqlite.py --stats
 ## Проверки
 
 ```
-python -m pytest -q          # 1212 passed, 2 xfailed (strict)
+python -m pytest -q          # 1236 passed, 2 xfailed (strict)
 python smoke_test.py         # SMOKE TEST PASSED
 python smoke_llm.py          # SMOKE LLM PASSED: 95 проверок
 ruff check src               # линтер

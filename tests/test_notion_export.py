@@ -15,18 +15,25 @@ from types import SimpleNamespace
 import pytest
 
 from onec_analyst import notion_export
-from onec_analyst.session_log import SessionLog, SessionRecord, pending_records
+from onec_analyst.session_log import (
+    SessionLog,
+    SessionRecord,
+    mark_exported,
+    pending_records,
+)
 
 REQUIRED_PROPERTIES = {
     "Название",
     "Дата",
     "Провайдер",
+    "Модель",
     "Статус",
     "Verdict",
     "Длительность",
     "Токены",
     "Degraded",
     "Ответ модели",
+    "ID сессии",
 }
 
 
@@ -49,6 +56,8 @@ class FakeNotion:
         ds_list: list[dict] | None = None,
         retrieve_error: Exception | None = None,
         backlog_titles: list[str] | None = None,
+        ds_pages: list[dict] | None = None,
+        existing_properties: dict | None = None,
     ) -> None:
         self.calls: list[tuple[str, dict]] = []
         self.fail_pages = fail_pages
@@ -56,12 +65,16 @@ class FakeNotion:
         self.ds_list = [{"id": "ds-1"}] if ds_list is None else ds_list
         self.retrieve_error = retrieve_error
         self.backlog_titles = list(backlog_titles or [])
+        self.ds_pages = ds_pages
+        self.existing_properties = existing_properties
         self.file_uploads = SimpleNamespace(
             create=self._upload_create,
             send=self._upload_send,
             complete=self._upload_complete,
         )
-        self.pages = SimpleNamespace(create=self._page_create)
+        self.pages = SimpleNamespace(
+            create=self._page_create, update=self._page_update
+        )
         self.databases = SimpleNamespace(
             create=self._database_create, retrieve=self._database_retrieve
         )
@@ -71,11 +84,14 @@ class FakeNotion:
 
     def _query(self, **kwargs):
         self._record("data_sources.query", kwargs)
+        if self.ds_pages is not None:
+            return {"results": self.ds_pages, "has_more": False, "next_cursor": None}
         return self.query_backlog(self.backlog_titles)
 
     def _retrieve(self, **kwargs):
         self._record("data_sources.retrieve", kwargs)
-        return {"properties": {"Название": {"title": {}}}}
+        properties = self.existing_properties
+        return {"properties": properties or {"Название": {"title": {}}}}
 
     def _update_data_source(self, **kwargs):
         self._record("data_sources.update", kwargs)
@@ -102,6 +118,10 @@ class FakeNotion:
         self._record("pages.create", kwargs)
         self.page_counter += 1
         return {"id": f"page-{self.page_counter}"}
+
+    def _page_update(self, **kwargs):
+        self._record("pages.update", kwargs)
+        return {"id": kwargs.get("page_id")}
 
     def _database_create(self, **kwargs):
         self._record("databases.create", kwargs)
@@ -692,6 +712,281 @@ def test_create_database_returns_ids_and_initial_schema() -> None:
     call = client.calls[-1][1]
     assert call["parent"] == {"type": "page_id", "page_id": "page-parent"}
     assert set(call["initial_data_source"]["properties"]) == REQUIRED_PROPERTIES
+
+
+# --------------------------------------------------------------------------- #
+# Свойство «Модель» (TASK-17) и дозаполнение истории
+# --------------------------------------------------------------------------- #
+def test_model_property_is_next_to_provider_in_schema() -> None:
+    """«Модель» — select сразу после «Провайдер»; «ID сессии» — служебный rich_text."""
+    schema = notion_export.database_schema()
+    names = list(schema)
+
+    assert names.index("Модель") == names.index("Провайдер") + 1
+    assert schema["Модель"] == {"select": {}}
+    assert schema["ID сессии"] == {"rich_text": {}}
+
+
+def test_model_property_uses_journal_model(seeded: Path) -> None:
+    """Значение берётся из ``model`` журнала, а не из настроек окружения."""
+    row = pending_records(seeded)[0]
+    assert notion_export.build_properties(row)["Модель"] == {
+        "select": {"name": "deepseek-v4-flash"}
+    }
+
+
+def test_model_property_marks_rules_mode(session_db_path: Path) -> None:
+    """У сессии режима правил модели нет — в свойстве ``rules``, а не пусто."""
+    assert SessionLog(session_db_path).record(
+        SessionRecord(session_id="r1", provider="none", model="", status="ok")
+    )
+    row = pending_records(session_db_path)[0]
+    assert notion_export.build_properties(row)["Модель"] == {"select": {"name": "rules"}}
+
+
+def test_model_property_absent_when_model_unknown(session_db_path: Path) -> None:
+    """Настоящий провайдер без записанной модели — значение не выдумывается."""
+    assert SessionLog(session_db_path).record(
+        SessionRecord(session_id="u1", provider="deepseek", model=None, status="ok")
+    )
+    row = pending_records(session_db_path)[0]
+    assert "Модель" not in notion_export.build_properties(row)
+
+
+def test_session_id_property_is_exported(seeded: Path) -> None:
+    """«ID сессии» уходит на страницу: по нему потом сопоставляется история."""
+    row = pending_records(seeded)[0]
+    value = notion_export.build_properties(row)["ID сессии"]
+    assert value["rich_text"][0]["text"]["content"] == "sess-1"
+
+
+def test_session_id_with_digit_run_is_not_masked(session_db_path: Path) -> None:
+    """12 цифр подряд внутри uuid — не повод подменить ключ на ``<PII>``."""
+    session_id = "111122223333444455556666777788889999"
+    assert SessionLog(session_db_path).record(
+        SessionRecord(
+            session_id=session_id,
+            provider="deepseek",
+            model="deepseek-v4-flash",
+            status="ok",
+        )
+    )
+    row = pending_records(session_db_path)[0]
+    value = notion_export.build_properties(row)["ID сессии"]
+
+    assert value["rich_text"][0]["text"]["content"] == session_id
+
+
+def test_ensure_properties_adds_model_and_session_id() -> None:
+    """--ensure-properties доливает только отсутствующие свойства."""
+    existing = {
+        name: schema
+        for name, schema in notion_export.database_schema().items()
+        if name not in {"Модель", "ID сессии"}
+    }
+    client = FakeNotion(existing_properties=existing)
+
+    added = notion_export.ensure_properties(client, "db-1")
+
+    assert added == ["ID сессии", "Модель"]
+    update = next(payload for name, payload in client.calls if name == "data_sources.update")
+    assert set(update["properties"]) == {"Модель", "ID сессии"}
+
+
+def _exported_row(
+    db: Path,
+    *,
+    ts: str = "2026-11-22T10:00:05+03:00",
+    session_id: str = "sess-42",
+    provider: str = "deepseek",
+    model: str = "deepseek-v4-flash",
+    status: str = "ok",
+    latency_sec: float = 2.5,
+) -> dict:
+    """Записать сессию и отметить её выгруженной (как после прошлого экспорта)."""
+    assert SessionLog(db).record(
+        SessionRecord(
+            session_id=session_id,
+            ts=ts,
+            provider=provider,
+            model=model,
+            status=status,
+            latency_sec=latency_sec,
+        )
+    )
+    row = pending_records(db)[0]
+    mark_exported(db, int(row["id"]), f"page-{session_id}")
+    return row
+
+
+def _notion_page(
+    *,
+    page_id: str,
+    ts: str = "2026-11-22T10:00:00.000+03:00",
+    provider: str = "deepseek",
+    status: str = "ok",
+    session_id: str | None = None,
+    latency: float | None = 2.5,
+) -> dict:
+    """Страница, какой её отдаёт ``data_sources.query`` (свойства, без блоков).
+
+    ``Дата`` намеренно в формате Notion: время до минуты и миллисекунды.
+    """
+    properties: dict = {
+        "Название": {"title": [{"plain_text": f"Сессия {ts[:10]} · {status}"}]},
+        "Дата": {"date": {"start": ts}},
+        "Провайдер": {"select": {"name": provider}},
+        "Статус": {"select": {"name": status}},
+        "Длительность": {"number": latency},
+    }
+    if session_id is not None:
+        properties["ID сессии"] = {"rich_text": [{"plain_text": session_id}]}
+    return {"id": page_id, "properties": properties}
+
+
+def test_backfill_history_fills_model_and_session_id(session_db_path: Path) -> None:
+    """Историческая страница получает «Модель» и «ID сессии» по журналу."""
+    _exported_row(session_db_path)
+    client = FakeNotion(
+        ds_pages=[_notion_page(page_id="page-old", ts="2026-11-22T10:00:00+03:00")]
+    )
+
+    stats = notion_export.backfill_history(
+        client=client, database_id="db-1", db_path=session_db_path
+    )
+
+    assert stats == {"pages": 1, "updated": 1, "skipped": 0, "unmatched": 0}
+    update = next(payload for name, payload in client.calls if name == "pages.update")
+    assert update["page_id"] == "page-old"
+    assert update["properties"]["Модель"] == {"select": {"name": "deepseek-v4-flash"}}
+    assert update["properties"]["ID сессии"]["rich_text"][0]["text"]["content"] == "sess-42"
+
+
+def test_backfill_history_skips_page_with_session_id(session_db_path: Path) -> None:
+    """Страница с уже заполненным «ID сессии» не обновляется (идемпотентность)."""
+    _exported_row(session_db_path)
+    client = FakeNotion(
+        ds_pages=[
+            _notion_page(
+                page_id="page-done",
+                ts="2026-11-22T10:00:00+03:00",
+                session_id="sess-42",
+            )
+        ]
+    )
+
+    stats = notion_export.backfill_history(
+        client=client, database_id="db-1", db_path=session_db_path
+    )
+
+    assert stats == {"pages": 1, "updated": 0, "skipped": 1, "unmatched": 0}
+    assert not any(name == "pages.update" for name, _ in client.calls)
+
+
+def test_backfill_history_leaves_unmatched_page_alone(session_db_path: Path) -> None:
+    """Страница без пары в журнале только считается: её не трогают."""
+    _exported_row(session_db_path)
+    client = FakeNotion(
+        ds_pages=[_notion_page(page_id="page-x", ts="2025-01-01T00:00:00+03:00")]
+    )
+
+    stats = notion_export.backfill_history(
+        client=client, database_id="db-1", db_path=session_db_path
+    )
+
+    assert stats == {"pages": 1, "updated": 0, "skipped": 0, "unmatched": 1}
+    assert not any(name == "pages.update" for name, _ in client.calls)
+
+
+def test_backfill_history_disambiguates_same_minute_by_latency(
+    session_db_path: Path,
+) -> None:
+    """Две сессии в одну минуту: пара выбирается по «Длительности»."""
+    _exported_row(
+        session_db_path,
+        ts="2026-11-22T10:00:05+03:00",
+        session_id="sess-a",
+        latency_sec=1.25,
+    )
+    _exported_row(
+        session_db_path,
+        ts="2026-11-22T10:00:40+03:00",
+        session_id="sess-b",
+        latency_sec=7.5,
+    )
+    client = FakeNotion(
+        ds_pages=[
+            _notion_page(
+                page_id="page-b",
+                ts="2026-11-22T10:00:00.000+03:00",
+                latency=7.5,
+            )
+        ]
+    )
+
+    stats = notion_export.backfill_history(
+        client=client, database_id="db-1", db_path=session_db_path
+    )
+
+    assert stats["updated"] == 1
+    update = next(payload for name, payload in client.calls if name == "pages.update")
+    assert update["properties"]["ID сессии"]["rich_text"][0]["text"]["content"] == "sess-b"
+
+
+def test_backfill_history_does_not_borrow_other_provider_row(
+    session_db_path: Path,
+) -> None:
+    """Провайдер страницы не совпал с журналом — страница остаётся без пары."""
+    _exported_row(session_db_path, provider="deepseek", session_id="sess-ds")
+    client = FakeNotion(
+        ds_pages=[
+            _notion_page(
+                page_id="page-none",
+                ts="2026-11-22T10:00:00.000+03:00",
+                provider="none",
+            )
+        ]
+    )
+
+    stats = notion_export.backfill_history(
+        client=client, database_id="db-1", db_path=session_db_path
+    )
+
+    assert stats == {"pages": 1, "updated": 0, "skipped": 0, "unmatched": 1}
+    assert not any(name == "pages.update" for name, _ in client.calls)
+
+
+def test_minute_key_ignores_seconds_and_tz_offset() -> None:
+    """Ключ момента: секунды и формат Notion (``.000``) не мешают сопоставлению."""
+    key = notion_export._minute_key
+
+    assert key("2026-11-22T10:00:05+03:00") == key("2026-11-22T10:00:00.000+03:00")
+    assert key("2026-11-22T07:00:05+00:00") == key("2026-11-22T10:00:05+03:00")
+    assert key("2026-11-22T10:01:00+03:00") != key("2026-11-22T10:00:00+03:00")
+    assert key("") == "" and key(None) == ""
+    assert key("не дата") == "не дата"
+
+
+def test_backfill_history_dry_run_writes_nothing(session_db_path: Path) -> None:
+    """``--dry-run`` считает план и не вызывает ``pages.update``."""
+    _exported_row(session_db_path)
+    client = FakeNotion(
+        ds_pages=[_notion_page(page_id="page-old", ts="2026-11-22T10:00:00+03:00")]
+    )
+
+    stats = notion_export.backfill_history(
+        client=client, database_id="db-1", db_path=session_db_path, dry_run=True
+    )
+
+    assert stats["updated"] == 1
+    assert not any(name == "pages.update" for name, _ in client.calls)
+
+
+def test_backfill_history_requires_data_source() -> None:
+    """База старого формата: перечислять страницы нечем — понятная ошибка."""
+    client = FakeNotion(ds_list=[])
+    with pytest.raises(ValueError, match="data source"):
+        notion_export.backfill_history(client=client, database_id="legacy-db")
 
 
 def test_legacy_database_without_data_sources_uses_database_parent() -> None:

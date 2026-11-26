@@ -31,6 +31,7 @@ import logging
 import os
 import sqlite3
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -50,6 +51,7 @@ __all__ = [
     "clip_answer",
     "clip_raw_response",
     "default_db_path",
+    "exported_records",
     "is_degraded",
     "journal_status",
     "mark_exported",
@@ -545,21 +547,38 @@ def _connect_readonly(target: Path) -> sqlite3.Connection:
     return sqlite3.connect(target, timeout=5.0)
 
 
-def pending_records(
-    db_path: str | os.PathLike[str] | None = None,
+def _has_column(target: Path, name: str) -> bool:
+    """Есть ли колонка в таблице ``sessions`` (старые базы без миграции)."""
+    if not target.exists():
+        return False
+    try:
+        connection = _connect_readonly(target)
+    except sqlite3.Error:
+        return False
+    try:
+        columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(sessions)").fetchall()
+        }
+    except sqlite3.Error:
+        return False
+    finally:
+        connection.close()
+    return name in columns
+
+
+def _read_rows(
+    target: Path,
     *,
-    limit: int = 50,
-    chat_id: str | None = None,
+    where: str,
+    params: Sequence[Any],
+    limit: int | None,
 ) -> list[dict[str, Any]]:
-    """Прочитать записи, ещё не выгруженные в Notion (``exported_at IS NULL``).
+    """Общий SELECT журнала: одни и те же колонки для выгрузки и дозаполнения.
 
-    ``chat_id`` ограничивает выборку одним диалогом (кнопка «Выгрузить» в UI);
-    ``None`` — все невыгруженные строки (CLI-сценарий).
-
+    ``limit=None`` — без ограничения (дозаполнение истории смотрит все строки).
     Отсутствие файла/таблицы — не ошибка: возвращается пустой список, чтобы
     экспортёр на чистой установке завершался штатно.
     """
-    target = Path(db_path) if db_path is not None else resolve_db_path()
     if not target.exists():
         return []
     try:
@@ -577,31 +596,60 @@ def pending_records(
             if "data_source" in columns
             else "'' AS data_source"
         )
-        where = "exported_at IS NULL"
-        params: list[Any] = []
-        if chat_id is not None:
-            if "chat_id" not in columns:
-                return []
-            where += " AND chat_id = ?"
-            params.append(str(chat_id))
-        params.append(max(1, int(limit)))
-        rows = connection.execute(
-            f"""
+        sql = f"""
             SELECT id, ts, session_id, question, provider, model, dsl,
                    {summary_column}, status, verdict, latency_sec,
                    prompt_tokens, output_tokens, degraded, {source_column}
             FROM sessions
             WHERE {where}
             ORDER BY id
-            LIMIT ?
-            """,
-            tuple(params),
-        ).fetchall()
+        """
+        arguments: list[Any] = list(params)
+        if limit is not None:
+            sql += " LIMIT ?"
+            arguments.append(max(1, int(limit)))
+        rows = connection.execute(sql, tuple(arguments)).fetchall()
     except sqlite3.Error:
         return []
     finally:
         connection.close()
     return [dict(row) for row in rows]
+
+
+def pending_records(
+    db_path: str | os.PathLike[str] | None = None,
+    *,
+    limit: int = 50,
+    chat_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """Прочитать записи, ещё не выгруженные в Notion (``exported_at IS NULL``).
+
+    ``chat_id`` ограничивает выборку одним диалогом (кнопка «Выгрузить» в UI);
+    ``None`` — все невыгруженные строки (CLI-сценарий).
+    """
+    target = Path(db_path) if db_path is not None else resolve_db_path()
+    where = "exported_at IS NULL"
+    params: list[Any] = []
+    if chat_id is not None:
+        if not _has_column(target, "chat_id"):
+            return []
+        where += " AND chat_id = ?"
+        params.append(str(chat_id))
+    return _read_rows(target, where=where, params=params, limit=limit)
+
+
+def exported_records(
+    db_path: str | os.PathLike[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Прочитать уже выгруженные записи (``exported_at IS NOT NULL``).
+
+    Нужно дозаполнению истории: страницы в Notion уже есть, а свойства,
+    появившиеся позже (модель, id сессии), надо проставить по журналу.
+    """
+    target = Path(db_path) if db_path is not None else resolve_db_path()
+    return _read_rows(
+        target, where="exported_at IS NOT NULL", params=[], limit=None
+    )
 
 
 def mark_exported(
