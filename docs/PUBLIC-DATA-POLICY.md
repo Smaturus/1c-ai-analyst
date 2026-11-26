@@ -1,8 +1,10 @@
 # Политика публичных данных
 
 Принцип (`docs/ARCHITECTURE-SOLUTION.md`): публичные артефакты не содержат
-данных заказчика и бизнес-цифр. Проверяется в CI:
-`tests/test_public_figures.py`.
+данных заказчика и бизнес-цифр. В CI: `tools/sanitize_public_artifacts.py --check`
+и `tests/test_public_figures.py` / `tests/test_no_local_paths.py` (суммы из
+синтетики и шаблоны путей). Сверка фингерпринтов с локальным
+`.private_markers.json` — в pre-push на машине разработчика, не в публичном CI.
 
 ## Что публикуется
 

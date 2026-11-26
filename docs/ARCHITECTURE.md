@@ -139,7 +139,7 @@ flowchart TB
 ### 3.4. LLM-путь
 
 1. UI собирает вопрос, историю и профиль данных.
-2. При включённой LLM — проверка `rate_limiter`; при исчерпании — офлайн-правила.
+2. При включённой LLM — проверка `rate_limiter`; при исчерпании — блокировка запроса с `error`, без подмены правилами (DECISIONS #21).
 3. Ответ модели → нативный tool call (OpenAI/DeepSeek/Ollama/GigaChat) или JSON-адаптер; при ошибке — одна «починка».
 4. `guard_decision` не даёт подменить запрос про возвраты антитопом.
 5. `to_dispatch_params` → `dispatch_intent` → DataFrame → таблица / Altair / сводка.

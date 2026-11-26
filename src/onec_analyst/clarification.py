@@ -180,6 +180,21 @@ def classify_with_llm(
     return _parse_self_sufficient(raw)
 
 
+def clarification_limit_banner(question: str) -> str:
+    """Жёлтая плашка ADR 0007 при принудительной интерпретации правилами."""
+    text = (question or "").strip()
+    return f"Уточнения исчерпаны — показываю как понял: «{text}»"
+
+
+CLARIFICATION_LIMIT_FAILURE_HINT = (
+    "Не удалось однозначно разобрать вопрос даже после уточнений. "
+    "Задайте, пожалуйста, один показатель и один период."
+)
+CLARIFICATION_LIMIT_ERROR = (
+    "Не удалось однозначно разобрать вопрос даже после уточнений"
+)
+
+
 def force_interpretation(
     question: str,
     *,
@@ -255,10 +270,13 @@ __all__ = [
     "SOURCE_ANSWER",
     "SOURCE_LLM",
     "SOURCE_MERGED",
+    "CLARIFICATION_LIMIT_ERROR",
+    "CLARIFICATION_LIMIT_FAILURE_HINT",
     "ClarifiedText",
     "answer_is_self_sufficient",
     "choose_clarified_text",
     "classify_with_llm",
+    "clarification_limit_banner",
     "force_interpretation",
     "merge_clarification",
 ]

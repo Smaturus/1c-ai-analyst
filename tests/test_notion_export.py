@@ -248,6 +248,142 @@ def test_sanitizer_masks_pii_but_keeps_dates(raw: str, expected: str) -> None:
     assert notion_export.sanitize_text(raw) == expected
 
 
+PRODUCT_NAME = "Мука пшеничная"
+PARTY_NAME = "ООО Ромашка"
+GROUP_NAME = "Бакалея"
+MONEY_TEXT = "150 000,50"
+MONEY_RAW = "150000.5"
+MONEY_THRESHOLD = "250000"
+
+
+def _sensitive_summary() -> dict:
+    """Сводка с названием, контрагентом и суммой — как у реальной сессии 1С."""
+    return {
+        "text": (
+            f"Лидер «{PRODUCT_NAME}» — {MONEY_TEXT} ₽ (12,50 % от суммы). "
+            f"Контрагент {PARTY_NAME}."
+        ),
+        "intent": "top_bottom_products",
+        "values": [
+            {
+                "item": PRODUCT_NAME,
+                "metric": "revenue",
+                "period": "2024",
+                "value": 150000.5,
+            }
+        ],
+        "periods": ["2024"],
+        "entities": [PRODUCT_NAME, PARTY_NAME],
+        "table": {
+            "columns": ["rank", "product", "counterparty", "revenue", "share_pct"],
+            "rows": [[1, PRODUCT_NAME, PARTY_NAME, 150000.5, 12.5]],
+        },
+    }
+
+
+def _sensitive_dsl() -> dict:
+    """DSL с фильтром-названием, порогом суммы и почтой в тексте."""
+    return {
+        "intent": "counterparty_dynamics",
+        "question": f"почта ivanov@example.com, товар {PRODUCT_NAME}",
+        "params": {
+            "metric": "revenue",
+            "product_filter": PRODUCT_NAME,
+            "group_filter": GROUP_NAME,
+            "min_base_revenue": 250000,
+            "limit": 5,
+            "start_date": "2024-01-01",
+        },
+    }
+
+
+def _seed_source(path: Path, data_source: str) -> None:
+    """Одна сессия с заданной подписью источника."""
+    assert SessionLog(path).record(
+        SessionRecord(
+            session_id="sess-src",
+            question="секретный вопрос",
+            provider="rules",
+            model="rules",
+            dsl=_sensitive_dsl(),
+            summary=_sensitive_summary(),
+            status="ok",
+            verdict=True,
+            latency_sec=1.25,
+            data_source=data_source,
+        )
+    )
+
+
+def _page_payload(path: Path, tmp_path: Path) -> str:
+    """Текст payload ``pages.create`` — то, что уходит в Notion."""
+    client = FakeNotion()
+    stats = notion_export.export_pending(
+        client=client,
+        database_id="db-1",
+        db_path=path,
+        out_dir=tmp_path,
+    )
+    assert stats == {"pending": 1, "exported": 1, "failed": 0}
+    page = next(payload for name, payload in client.calls if name == "pages.create")
+    return _payload_text(page)
+
+
+def test_1c_source_payload_has_no_names_or_amounts(tmp_path: Path) -> None:
+    """Сессия с источником 1С → в payload нет названий и сумм."""
+    db_path = tmp_path / "sessions.db"
+    _seed_source(db_path, "1C")
+    row = pending_records(db_path)[0]
+    assert row["data_source"] == "1C"
+    assert notion_export._chart_pairs(row) == []
+
+    text = _page_payload(db_path, tmp_path / "out")
+    for secret in (PRODUCT_NAME, PARTY_NAME, GROUP_NAME, MONEY_TEXT, MONEY_RAW, MONEY_THRESHOLD):
+        assert secret not in text
+    assert "150000,50" not in text
+    assert "150 000" not in text
+    assert notion_export.ENTITY_PLACEHOLDER in text
+    assert "<AMOUNT>" not in text
+    assert "<SUM>" not in text
+    assert "ivanov@example.com" not in text
+    assert notion_export.PII_PLACEHOLDER in text
+    assert "12,50" in text
+    assert "2024-01-01" in text
+
+
+@pytest.mark.parametrize("data_source", ["", "демо-данные", "sales.xlsx"])
+def test_other_sources_keep_entity_names(
+    tmp_path: Path, data_source: str
+) -> None:
+    """Демо, файл и пустой источник отдают названия и суммы как раньше."""
+    db_path = tmp_path / "sessions.db"
+    _seed_source(db_path, data_source)
+    text = _page_payload(db_path, tmp_path / "out")
+    assert PRODUCT_NAME in text
+    assert PARTY_NAME in text
+    assert GROUP_NAME in text
+    assert MONEY_TEXT in text
+    assert MONEY_THRESHOLD in text
+    assert notion_export.ENTITY_PLACEHOLDER not in text
+    assert "ivanov@example.com" not in text
+    assert notion_export.PII_PLACEHOLDER in text
+
+
+def test_model_answer_json_sanitizes_filter_text() -> None:
+    """DSL с фильтром проходит ``sanitize_text``, даже без источника 1С."""
+    dsl = {
+        "intent": "total",
+        "params": {"product_filter": "ivanov@example.com", "limit": 5},
+    }
+    rendered = notion_export.model_answer_json(
+        {"dsl": json.dumps(dsl, ensure_ascii=False), "data_source": "демо-данные"}
+    )
+    assert rendered is not None
+    assert "ivanov@example.com" not in rendered
+    assert notion_export.PII_PLACEHOLDER in rendered
+    assert json.loads(rendered)["params"]["limit"] == 5
+
+
 def test_summary_rows_have_no_entity_names(seeded: Path) -> None:
     """В таблице только метаданные: ни вопроса, ни контрагентов, ни товаров."""
     row = pending_records(seeded)[0]

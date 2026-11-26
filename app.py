@@ -65,9 +65,10 @@ from onec_analyst.analytics import (
     get_data_quality,
 )
 from onec_analyst.clarification import (
+    CLARIFICATION_LIMIT_FAILURE_HINT,
     SOURCE_LLM,
     choose_clarified_text,
-    force_interpretation,
+    clarification_limit_banner,
 )
 from onec_analyst.data_loader import load_and_clean_1c_report
 from onec_analyst.dispatcher import (
@@ -97,7 +98,6 @@ from onec_analyst.llm_agent import (
     with_dotenv,
 )
 from onec_analyst.onec_source import load_sample_vitrina, load_vitrina
-from onec_analyst.pipeline import execute, extract_entities
 from onec_analyst.agent.state import CallBudgetGuard, CompositeGuard
 from onec_analyst.rate_limiter import (
     MAX_GLOBAL,
@@ -1947,61 +1947,24 @@ def main() -> None:
 
             if decision.intent == "clarification":
                 rounds = int(st.session_state.get("clarification_rounds", 0))
-                if rounds >= MAX_CLARIFICATIONS:
-                    # Лимит уточнений исчерпан: вместо нового круга — детерминированная
-                    # ближайшая интерпретация, чтобы пользователь гарантированно получил
-                    # ответ (составной запрос сводится к одному показателю/периоду).
-                    forced = force_interpretation(question, data_profile=profile)
-                    st.session_state["clarification_rounds"] = 0
-                    conversation.clarification_rounds = 0
-                    st.session_state.pop("clarification_base", None)
-                    if forced is not None:
-                        if forced.intent == "compare_top_products":
-                            st.info(
-                                "Сравниваю два периода: показываю, кто вошёл в топ, "
-                                "кто выпал и как изменились места."
-                            )
-                        else:
-                            st.warning(
-                                "Два отдельных рейтинга в одном ответе я пока не строю. "
-                                "Показываю один рейтинг за запрошенный период. "
-                                "Чтобы сравнить годы, задайте вопрос отдельно."
-                            )
-                        decision = forced
-                        outcome = None
-                    else:
-                        st.warning(
-                            "Не удалось однозначно разобрать вопрос даже после уточнений. "
-                            "Задайте, пожалуйста, один показатель и один период."
-                        )
-                        with _answer_area(answer_slot, caption_text):
-                            render_error(decision, model=settings.model)
-                        remember_answer(
-                            kind="error",
-                            caption=caption_text,
-                            decision=decision,
-                        )
-                        answer_text = decision.error or ""
-                        decision = None
-                else:
-                    st.session_state["clarification_rounds"] = rounds + 1
-                    conversation.clarification_rounds = rounds + 1
-                    # Запоминаем исходный вопрос: выбранный вариант уточнения будет
-                    # склеен с ним, чтобы в поле и в запросе не терялась первая часть.
-                    st.session_state["clarification_base"] = question
-                    answer_text = (
-                        decision.clarification.question
-                        if decision.clarification is not None
-                        else ""
-                    )
-                    with _answer_area(answer_slot, caption_text):
-                        render_clarification(decision)
-                    remember_answer(
-                        kind="clarify",
-                        caption=caption_text,
-                        decision=decision,
-                    )
-                    decision = None
+                st.session_state["clarification_rounds"] = rounds + 1
+                conversation.clarification_rounds = rounds + 1
+                # Запоминаем исходный вопрос: выбранный вариант уточнения будет
+                # склеен с ним, чтобы в поле и в запросе не терялась первая часть.
+                st.session_state["clarification_base"] = question
+                answer_text = (
+                    decision.clarification.question
+                    if decision.clarification is not None
+                    else ""
+                )
+                with _answer_area(answer_slot, caption_text):
+                    render_clarification(decision)
+                remember_answer(
+                    kind="clarify",
+                    caption=caption_text,
+                    decision=decision,
+                )
+                decision = None
 
             if (
                 decision is not None
@@ -2024,6 +1987,8 @@ def main() -> None:
                 decision = None
 
             if decision is not None and not decision.ok:
+                if outcome.clarification_limit_applied:
+                    st.warning(CLARIFICATION_LIMIT_FAILURE_HINT)
                 answer_text = decision.error or ""
                 with _answer_area(answer_slot, caption_text):
                     render_error(decision, model=settings.model)
@@ -2041,32 +2006,10 @@ def main() -> None:
                     result = outcome.result
                     summary = outcome.summary
                     executed_params = dict(outcome.executed_params or {})
-                else:
-                    # Принудительная интерпретация после лимита уточнений:
-                    # считаем её тем же ядром, что и обычный запрос.
-                    try:
-                        execution = execute(decision, dataset, profile)
-                    except (ValueError, TypeError, KeyError) as exc:
-                        with _answer_area(answer_slot, caption_text):
-                            render_dispatch_error(decision, exc)
-                        remember_answer(
-                            kind="dispatch",
-                            caption=caption_text,
-                            decision=decision,
-                            exc=exc,
-                        )
-                        result = None
-                    else:
-                        result = execution.result
-                        summary = execution.summary
-                        summary_payload = summary_to_json(execution.summary_payload)
-                        executed_params = dict(execution.decision.params or {})
-                        conversation.record_result(
-                            decision, extract_entities(decision, result)
-                        )
-
                 if result is not None:
                     answer_text = summary
+                    if outcome is not None and outcome.clarification_limit_applied:
+                        st.warning(clarification_limit_banner(question))
                     with _answer_area(answer_slot, caption_text):
                         render_result(
                             decision,
@@ -2104,6 +2047,7 @@ def main() -> None:
             if outcome is not None
             else (decision.status if decision is not None else "error")
         )
+        journal_degraded = bool(outcome.degraded) if outcome is not None else False
         journal_summary = summary_payload
         if journal_summary is not None and result is not None:
             # Таблица результата — ровно та, что показана пользователю.
@@ -2119,6 +2063,7 @@ def main() -> None:
                 else (decision.dsl if decision is not None else None)
             ),
             status=journal_status,
+            degraded=journal_degraded,
             verdict=bool(result is not None and journal_status == "ok"),
             summary=journal_summary,
             raw_response=(
@@ -2130,6 +2075,7 @@ def main() -> None:
             turn=turn,
             answer=answer_text,
             latency_sec=round(time.monotonic() - request_started, 3),
+            data_source=source_label,
         )
     else:
         # Любое взаимодействие (например, «Выгрузить») перезапускает скрипт:

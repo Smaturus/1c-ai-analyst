@@ -17,7 +17,9 @@ from typing import Any
 
 import pandas as pd
 
+from onec_analyst.agent.state import MAX_CLARIFICATIONS
 from onec_analyst.analytics import PRODUCT, PRODUCT_GROUP
+from onec_analyst.clarification import CLARIFICATION_LIMIT_ERROR, force_interpretation
 from onec_analyst.llm_agent import (
     AgentDecision,
     ClarificationPlan,
@@ -95,6 +97,10 @@ class AssistantResult:
         (:func:`onec_analyst.pipeline.execute`). Нужны только для диагностики
         в «Технических деталях»: ``params``/``dsl`` остаются тем, что вернула
         модель.
+    degraded:
+        Ответ на правилах после лимита уточнений при ``status="ok"`` (ADR 0007).
+    clarification_limit_applied:
+        Сработал путь лимита уточнений (успех или честный отказ уровня 3).
     """
 
     ok: bool
@@ -114,6 +120,8 @@ class AssistantResult:
     status: str = "ok"
     refusal_reason: str | None = None
     executed_params: dict[str, Any] = field(default_factory=dict)
+    degraded: bool = False
+    clarification_limit_applied: bool = False
 
     def as_decision(self) -> AgentDecision:
         """Восстановить :class:`AgentDecision` для отрисовки результата."""
@@ -129,7 +137,32 @@ class AssistantResult:
             source=self.source,
             status=self.status,
             refusal_reason=self.refusal_reason,
+            degraded=self.degraded,
         )
+
+
+def _offline_clarification_limit_decision(
+    question: str,
+    decision: AgentDecision,
+    *,
+    profile: dict[str, Any] | None,
+    rounds: int,
+) -> tuple[AgentDecision | None, bool]:
+    """Принудительная интерпретация в офлайн-пути, когда лимит уточнений исчерпан.
+
+    Returns
+    -------
+    tuple[AgentDecision | None, bool]
+        Решение (или ``None`` при отказе уровня 3) и признак сработавшего лимита.
+    """
+    if rounds < MAX_CLARIFICATIONS:
+        return decision, False
+    if not decision.ok or decision.intent != "clarification":
+        return decision, False
+    forced = force_interpretation(question, data_profile=profile)
+    if forced is None:
+        return None, True
+    return replace(forced, status="ok", source="rules", degraded=True), True
 
 
 def select_planner(
@@ -232,6 +265,7 @@ def process_request(
     steps: list[str] = []
     planner = select_planner(use_llm, settings)
     use_graph = use_llm and isinstance(planner, LLMPlanner)
+    clarification_limit_applied = False
 
     if use_graph:  # агентный путь: один запуск графа на запрос
         from onec_analyst.agent.graph import run_agent_graph
@@ -260,6 +294,7 @@ def process_request(
         for step in steps:
             session.record_trace(step)
         llm_success = bool(final_state.get("llm_success"))
+        clarification_limit_applied = bool(decision.degraded)
     else:
         if isinstance(planner, RuleBasedPlanner):
             decision = planner.plan(question, history, profile, today=today)
@@ -267,12 +302,32 @@ def process_request(
             decision = planner.plan(question, history, profile)
         _mark(session, steps, "plan")
         llm_success = decision.source == "llm" and decision.ok
+        decision, limit_applied = _offline_clarification_limit_decision(
+            question,
+            decision,
+            profile=profile,
+            rounds=session.clarification_rounds,
+        )
+        if limit_applied and decision is None:
+            return AssistantResult(
+                ok=False,
+                intent=None,
+                error=CLARIFICATION_LIMIT_ERROR,
+                status="error",
+                trace=tuple(steps),
+                source="rules",
+                llm_success=False,
+                clarification_limit_applied=True,
+            )
+        clarification_limit_applied = limit_applied
 
     # Лимит LLM считается по факту успешного вызова, ещё до защиты от подмены.
     # В агентном пути защита нужна только для исполнимого решения: отказ и
     # уточнение не подменяются правилами.
     if not use_graph or decision.status in ("ok", "fallback"):
-        decision = guard_decision(decision, question, today=today)
+        decision = guard_decision(
+            decision, question, today=today, data_profile=profile
+        )
     # Метрика не подменяется планировщиком: правило одно для обоих путей —
     # «по количеству» только при явной просьбе о штуках (см. guard_metric).
     decision = guard_metric(decision, question)
@@ -301,6 +356,8 @@ def process_request(
         llm_success=llm_success,
         status=decision.status,
         refusal_reason=decision.refusal_reason,
+        degraded=bool(decision.degraded),
+        clarification_limit_applied=clarification_limit_applied,
     )
 
     if (
@@ -338,4 +395,6 @@ def process_request(
         status=decision.status,
         refusal_reason=decision.refusal_reason,
         executed_params=dict(execution.decision.params or {}),
+        degraded=bool(decision.degraded),
+        clarification_limit_applied=clarification_limit_applied,
     )

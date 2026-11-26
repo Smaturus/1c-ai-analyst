@@ -163,6 +163,17 @@ def test_result_survives_export_click(
     assert "Итог за период" in [subheader.value for subheader in at.subheader]
 
 
+def test_journal_records_demo_source(offline: None, session_db_path: Path) -> None:
+    """Журнал пишет подпись источника из загрузки, для демо — «демо-данные»."""
+    at = AppTest.from_file(APP_FILE, default_timeout=TIMEOUT).run()
+    assert "Выгрузить" in [button.label for button in at.button]
+    _ask(at, "Итог за 2024")
+
+    rows = _rows(session_db_path)
+    assert rows
+    assert {row["data_source"] for row in rows} == {"демо-данные"}
+
+
 def test_result_survives_widget_rerun(offline: None) -> None:
     """Любое взаимодействие (смена виджета) не стирает последний ответ."""
     at = AppTest.from_file(APP_FILE, default_timeout=TIMEOUT).run()

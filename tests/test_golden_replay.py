@@ -32,6 +32,19 @@ CASSETTE_DIR = Path(__file__).resolve().parent / "golden" / "cassettes"
 
 CASES = load_cases()
 
+_CASE_PARAMS = [
+    pytest.param(
+        case,
+        marks=pytest.mark.xfail(
+            strict=True,
+            reason=case.get("xfail_reason") or "xfail",
+        ),
+    )
+    if case.get("xfail")
+    else case
+    for case in CASES
+]
+
 
 def _initial_state_for(case: dict) -> dict:
     """Тот же ``initial_state``, что строил ``tools/record_cassettes.py``."""
@@ -59,7 +72,7 @@ def profile(golden_frame: pd.DataFrame) -> dict[str, str]:
     }
 
 
-@pytest.mark.parametrize("case", CASES, ids=[case["id"] for case in CASES])
+@pytest.mark.parametrize("case", _CASE_PARAMS, ids=[case["id"] for case in CASES])
 def test_replay_reproduces_recorded_outcome(
     case: dict,
     golden_frame: pd.DataFrame,
@@ -67,8 +80,6 @@ def test_replay_reproduces_recorded_outcome(
     tmp_path: Path,
 ) -> None:
     case_id = case["id"]
-    if case.get("xfail"):
-        pytest.skip(case.get("xfail_reason") or "xfail")
 
     path = CASSETTE_DIR / f"{case_id}.json"
     if not path.is_file():

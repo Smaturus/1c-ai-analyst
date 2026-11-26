@@ -289,6 +289,7 @@ def test_clarify_after_limit_forces_interpretation() -> None:
 
     assert update["decision"].status == "ok"
     assert update["decision"].intent == "total"
+    assert update["decision"].degraded is True
 
 
 def test_clarify_after_limit_without_rules_is_error() -> None:

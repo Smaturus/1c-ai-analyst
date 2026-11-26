@@ -11,7 +11,10 @@
   длительность, токены, деградация) и сводка результата;
 * текст вопроса **никогда** не отправляется — вместо него плейсхолдер
   ``<PROMPT>``. Строки, похожие на ПДн (e-mail, телефон, ИНН), заменяются на
-  ``<PII>``.
+  ``<PII>``;
+* для сессии с записанным источником ``1C`` названия сущностей в сводке,
+  таблице и DSL уходят как ``<ENTITY>``, а суммы в payload не попадают.
+  Для ``демо-данные``, файла и пустого источника сущности остаются как есть.
 
 Свойства Notion-базы (создаются через ``--create-database``):
 
@@ -65,6 +68,9 @@ logger = logging.getLogger("notion_export")
 #: Плейсхолдеры санитизации: наружу уходит только их текст.
 PROMPT_PLACEHOLDER = "<PROMPT>"
 PII_PLACEHOLDER = "<PII>"
+#: Подпись источника 1С из ``app.load_dataframe`` (не пункт радио и не путь).
+REAL_1C_SOURCE = "1C"
+ENTITY_PLACEHOLDER = "<ENTITY>"
 
 #: Имена свойств базы — один контракт для ``--create-database`` и экспорта.
 PROP_TITLE = "Название"
@@ -129,6 +135,123 @@ def clip(value: Any, limit: int = 2000) -> str:
     """Обрезать строку до лимита Notion (rich_text ≤ 2000 символов)."""
     text = "" if value is None else str(value)
     return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+#: Колонки таблицы результата, в которых лежат названия, а не метрики.
+_ENTITY_COLUMNS = frozenset(
+    {"product", "counterparty", "product_group", "name", "item"}
+)
+#: Колонки величин результата: в payload источника 1С их нет (не плейсхолдер).
+_AMOUNT_COLUMNS = frozenset(
+    {
+        "revenue",
+        "quantity",
+        "delta",
+        "delta_abs",
+        "value",
+        "period1_value",
+        "period2_value",
+    }
+)
+#: Поля DSL, значение которых — название товара или группы.
+_DSL_ENTITY_KEYS = frozenset({"product_filter", "group_filter"})
+#: Поля DSL, значение которых — денежный порог. Ключ целиком не отправляется.
+_DSL_AMOUNT_KEYS = frozenset({"min_base_revenue"})
+#: Название в кавычках-ёлочках сводки («товар», «контрагент», «фильтр»).
+_QUOTED_NAME = re.compile(r"«[^»]*»")
+#: Деньги в тексте: разряды или дробная часть. Проценты («12,50 %») не трогаем.
+_RESULT_AMOUNT_RE = re.compile(
+    r"(?<!\d)-?(?:"
+    r"\d{1,3}(?:[ \u00a0]\d{3})+(?:[.,]\d+)?"
+    r"|\d+[.,]\d+"
+    r")(?!\s*%)(?:\s*(?:₽|руб\.?))?"
+)
+
+
+def _is_1c_source(row: dict[str, Any]) -> bool:
+    """Маскировать только записанную подпись ``1C``, не файл и не демо."""
+    return str(row.get("data_source") or "").strip() == REAL_1C_SOURCE
+
+
+def _parsed_dsl(row: dict[str, Any]) -> dict[str, Any]:
+    """DSL строки журнала как dict; битый JSON — пустой dict."""
+    raw = row.get("dsl")
+    if not raw:
+        return {}
+    try:
+        payload = json.loads(raw) if isinstance(raw, str) else dict(raw)
+    except (ValueError, TypeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _walk_filter_values(node: Any, key: str | None, found: list[str]) -> None:
+    """Собрать строки фильтров DSL (``product_filter`` / ``group_filter``)."""
+    if isinstance(node, dict):
+        for child_key, child in node.items():
+            _walk_filter_values(child, str(child_key), found)
+        return
+    if isinstance(node, list):
+        for item in node:
+            _walk_filter_values(item, key, found)
+        return
+    if isinstance(node, str) and key in _DSL_ENTITY_KEYS and node.strip():
+        found.append(node.strip())
+
+
+def _entity_names(row: dict[str, Any], summary: dict[str, Any] | None = None) -> list[str]:
+    """Названия из сводки и фильтров DSL, длинные раньше коротких."""
+    payload = _summary(row) if summary is None else summary
+    found: list[str] = []
+    for item in payload.get("entities") or ():
+        if isinstance(item, str):
+            found.append(item)
+    table = payload.get("table") or {}
+    columns = [str(column) for column in (table.get("columns") or [])]
+    for record in table.get("rows") or ():
+        if not isinstance(record, (list, tuple)):
+            continue
+        for index, column in enumerate(columns):
+            if column not in _ENTITY_COLUMNS or index >= len(record):
+                continue
+            if record[index] is not None:
+                found.append(str(record[index]))
+    for value in payload.get("values") or ():
+        if isinstance(value, dict) and value.get("item") is not None:
+            found.append(str(value.get("item")))
+    _walk_filter_values(_parsed_dsl(row), None, found)
+    unique = {
+        name.strip()
+        for name in found
+        if name.strip() and name.strip() != ENTITY_PLACEHOLDER
+    }
+    return sorted(unique, key=len, reverse=True)
+
+
+def _mask_1c_text(text: str, names: list[str]) -> str:
+    """Заменить названия на ``<ENTITY>`` и убрать денежные величины из текста."""
+    masked = _QUOTED_NAME.sub(f"«{ENTITY_PLACEHOLDER}»", text)
+    for name in names:
+        masked = masked.replace(name, ENTITY_PLACEHOLDER)
+    return _RESULT_AMOUNT_RE.sub("", masked)
+
+
+def _mask_dsl_node(node: Any, names: list[str], key: str | None = None) -> Any:
+    """Убрать суммы из DSL и заменить названия фильтров на ``<ENTITY>``."""
+    if isinstance(node, dict):
+        masked: dict[str, Any] = {}
+        for child_key, child in node.items():
+            if child_key in _DSL_AMOUNT_KEYS:
+                continue
+            masked[child_key] = _mask_dsl_node(child, names, str(child_key))
+        return masked
+    if isinstance(node, list):
+        return [_mask_dsl_node(item, names, key) for item in node]
+    if isinstance(node, str):
+        if key in _DSL_ENTITY_KEYS:
+            return ENTITY_PLACEHOLDER if node.strip() else node
+        return _mask_1c_text(node, names)
+    return node
 
 
 # --------------------------------------------------------------------------- #
@@ -245,7 +368,12 @@ def model_answer_json(row: dict[str, Any]) -> str | None:
     if not isinstance(payload, dict) or not payload:
         return None
     payload = {key: value for key, value in payload.items() if key != "suggestions"}
-    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"), default=str)
+    if _is_1c_source(row):
+        payload = _mask_dsl_node(payload, _entity_names(row))
+    rendered = json.dumps(
+        payload, ensure_ascii=False, separators=(",", ":"), default=str
+    )
+    return sanitize_text(rendered)
 
 
 def _chart_needed(row: dict[str, Any]) -> bool:
@@ -394,33 +522,77 @@ def result_rows(row: dict[str, Any]) -> tuple[str, list[tuple[str, ...]]]:
     summary = _summary(row)
     if not summary:
         return "", []
-    text = sanitize_text(summary.get("text") or "")
+    mask = _is_1c_source(row)
+    raw_text = str(summary.get("text") or "")
+    if mask:
+        raw_text = _mask_1c_text(raw_text, _entity_names(row, summary))
+    text = sanitize_text(raw_text)
     table = summary.get("table") or {}
     columns = [str(column) for column in (table.get("columns") or [])]
     rows = table.get("rows") or []
     if columns and rows:
-        header = tuple(_RESULT_COLUMN_LABELS.get(column, column) for column in columns)
-        body = [tuple(_cell(value) for value in record) for record in rows]
+        kept = [
+            index
+            for index, column in enumerate(columns)
+            if not (mask and column in _AMOUNT_COLUMNS)
+        ]
+        if not kept:
+            return text, []
+        header = tuple(
+            _RESULT_COLUMN_LABELS.get(columns[index], columns[index]) for index in kept
+        )
+        body: list[tuple[str, ...]] = []
+        for record in rows:
+            cells: list[str] = []
+            for index in kept:
+                value = record[index] if index < len(record) else None
+                column = columns[index]
+                if mask and column in _ENTITY_COLUMNS:
+                    cells.append(_entity_cell(value))
+                else:
+                    cells.append(_cell(value))
+            body.append(tuple(cells))
         return text, [header, *body]
     values: list[tuple[str, ...]] = []
     for value in summary.get("values") or ():
         if not isinstance(value, dict):
             continue
-        values.append(
-            (
-                sanitize_text(value.get("item") or "—"),
-                sanitize_text(value.get("period") or "—"),
-                sanitize_text(value.get("metric") or "—"),
-                _cell(value.get("value")),
-            )
-        )
+        item = value.get("item") or "—"
+        item_text = _entity_cell(item) if mask else sanitize_text(item)
+        period = sanitize_text(value.get("period") or "—")
+        metric = sanitize_text(value.get("metric") or "—")
+        if mask:
+            values.append((item_text, period, metric))
+        else:
+            values.append((item_text, period, metric, _cell(value.get("value"))))
     if not values:
         return text, []
-    return text, [("Показатель", "Период", "Метрика", "Значение"), *values]
+    header_row = (
+        ("Показатель", "Период", "Метрика")
+        if mask
+        else ("Показатель", "Период", "Метрика", "Значение")
+    )
+    return text, [header_row, *values]
+
+
+def _entity_cell(value: Any) -> str:
+    """Ячейка названия для источника 1С: непустое значение → ``<ENTITY>``."""
+    if value is None:
+        return "—"
+    text = str(value).strip()
+    if not text or text == "—":
+        return "—"
+    return ENTITY_PLACEHOLDER
 
 
 def _chart_pairs(row: dict[str, Any]) -> list[tuple[str, float]]:
-    """Пары «подпись → значение» для графика: сначала результат, потом метрики."""
+    """Пары «подпись → значение» для графика: сначала результат, потом метрики.
+
+    Для источника ``1C`` пары не строятся: иначе PNG унёс бы названия и суммы.
+    График сессии тогда остаётся графиком длительности, без величин результата.
+    """
+    if _is_1c_source(row):
+        return []
     summary = _summary(row)
     values = [
         value

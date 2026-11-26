@@ -230,9 +230,9 @@ def run_agent_graph(
     settings:
         Настройки LLM (используются, когда ``client`` не передан).
     guard:
-        Объект с ``before_call``/``after_success``. По умолчанию — бюджет
-        :class:`~onec_analyst.agent.state.CallBudgetGuard` на три вызова: даже
-        без лимитера UI один запрос не сделает больше трёх вызовов LLM.
+        Объект с ``before_call``/``after_success``. По умолчанию —
+        :class:`~onec_analyst.agent.state.UnlimitedGuard` (без потолка на запрос);
+        в UI передаётся ``CompositeGuard`` с ``CallBudgetGuard(3)``.
     on_llm_call:
         Колбэк после каждого успешного вызова LLM.
     recursion_limit:

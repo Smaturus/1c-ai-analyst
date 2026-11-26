@@ -498,6 +498,8 @@ class AgentDecision:
         поддерживается. Для остальных статусов — ``None``.
     trace:
         Шаги графа, выполненные при получении решения (только имена шагов).
+    degraded:
+        Путь лимита уточнений (ADR 0007): ответ правилами при ``status="ok"``.
     """
 
     ok: bool
@@ -512,6 +514,7 @@ class AgentDecision:
     status: str = "ok"
     refusal_reason: str | None = None
     trace: tuple[str, ...] = ()
+    degraded: bool = False
 
 
 @dataclass(frozen=True)
@@ -637,7 +640,7 @@ SYSTEM_PROMPT: Final[str] = f"""Ты — переводчик вопросов �
 11. Если просят отфильтровать по базовой выручке («у кого выручка/база была
     больше 100к»), передай число в min_base_revenue (только counterparty_dynamics).
 12. Средний чек, средняя выручка и средний оборот НЕ поддерживаются: верни
-    intent="clarification" с вопросом «Расчёт среднего чека не поддерживается.
+    intent="refuse" с причиной «Расчёт среднего чека не поддерживается.
     Доступны только суммарная выручка и количество.» Не подменяй такой запрос
     топом, итогом или динамикой.
 13. metric="quantity" — ТОЛЬКО если пользователь явно просит штуки («в штуках»,
@@ -2068,7 +2071,7 @@ def _short_error(error: BaseException) -> str:
     return str(error)[:300]
 
 
-_LIMIT_DEFAULT: Final[int] = 10
+_LIMIT_DEFAULT: Final[int] = 5
 _LIMIT_MAX: Final[int] = 1000
 
 _LIMIT_EXPLICIT_RE: Final[re.Pattern[str]] = re.compile(
@@ -2106,7 +2109,7 @@ def _extract_limit(text: str) -> int:
     Числа внутри дат (``21.09.2023``) и годов (``2024``) игнорируются: без
     границ слова регулярка ``\\d{1,3}`` выхватывала ``202`` из ``2024`` и
     возвращала «топ-202». Явные указания («топ 5», «5 товаров») имеют
-    приоритет; если количество не указано — 10.
+    приоритет; если количество не указано — 5.
 
     Examples
     --------
@@ -2115,7 +2118,7 @@ def _extract_limit(text: str) -> int:
     >>> _extract_limit("какие товары продаются хуже за 2024 год, топ 5?")
     5
     >>> _extract_limit("какие товары продаются хуже за 2024 год?")
-    10
+    5
     """
     for pattern in (_LIMIT_EXPLICIT_RE, _LIMIT_BEFORE_NOUN_RE, _LIMIT_STANDALONE_RE):
         match = pattern.search(text)
@@ -2328,16 +2331,10 @@ class RuleBasedPlanner:
                 "Доступны только суммарная выручка и количество."
             )
             return AgentDecision(
-                ok=True,
-                intent="clarification",
-                clarification=ClarificationPlan(
-                    question=message,
-                    missing=["intent"],
-                    suggestions=[],
-                ),
-                dsl={"intent": "clarification", "question": message},
+                ok=False,
+                status="refuse",
+                refusal_reason=message,
                 source="rules",
-                status="clarify",
             )
         metric: MetricName = "quantity" if re.search(r"штук|количеств|единиц", lowered) else "revenue"
         periods = self._extract_periods(lowered, data_profile, today=today)
@@ -2664,6 +2661,7 @@ def guard_decision(
     question: str,
     *,
     today: date | None = None,
+    data_profile: dict[str, Any] | None = None,
 ) -> AgentDecision:
     """Не дать планировщику подменить запрос про отрицательную выручку антитопом.
 
@@ -2674,7 +2672,9 @@ def guard_decision(
     """
     if decision.intent == "negative_revenue" or not is_negative_revenue_question(question):
         return decision
-    fallback = RuleBasedPlanner().plan(question, today=today)
+    fallback = RuleBasedPlanner().plan(
+        question, data_profile=data_profile, today=today
+    )
     if fallback.ok and fallback.intent == "negative_revenue":
         return fallback
     return decision

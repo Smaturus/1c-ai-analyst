@@ -5,6 +5,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
+from onec_analyst.clarification import CLARIFICATION_LIMIT_ERROR
 from onec_analyst.dispatcher import (
     AssistantResult,
     DispatchError,
@@ -110,6 +111,53 @@ def test_process_request_clarification_does_not_calculate(
     assert outcome.payload is None
     assert outcome.trace == ("plan", "guard")
     assert session.previous_dsl is None
+
+
+def test_process_request_offline_force_after_clarification_limit(
+    monkeypatch: pytest.MonkeyPatch, sales_frame: pd.DataFrame
+) -> None:
+    """OFF: после лимита уточнений — force_interpretation через process_request."""
+    clarification = AgentDecision(
+        ok=True,
+        intent="clarification",
+        clarification=None,
+        status="clarify",
+    )
+    _install(monkeypatch, clarification)
+
+    def fake_force(question: str, **kwargs):  # type: ignore[no-untyped-def]
+        return RuleBasedPlanner().plan("Итог за 2024", data_profile=PROFILE)
+
+    monkeypatch.setattr("onec_analyst.dispatcher.force_interpretation", fake_force)
+    session = ConversationState()
+    session.clarification_rounds = 2
+
+    outcome = process_request("продажи", False, session, sales_frame, PROFILE)
+
+    assert outcome.ok is True
+    assert outcome.status == "ok"
+    assert outcome.intent == "total"
+    assert outcome.result is not None
+    assert outcome.degraded is True
+    assert outcome.clarification_limit_applied is True
+
+
+def test_process_request_offline_clarification_limit_honest_refusal(
+    sales_frame: pd.DataFrame,
+) -> None:
+    """OFF: лимит исчерпан, правила не выбрали интент — уровень 3 ADR 0007."""
+    session = ConversationState()
+    session.clarification_rounds = 2
+
+    outcome = process_request(
+        "Покажи что-нибудь интересное", False, session, sales_frame, PROFILE
+    )
+
+    assert outcome.ok is False
+    assert outcome.status == "error"
+    assert outcome.error == CLARIFICATION_LIMIT_ERROR
+    assert outcome.clarification_limit_applied is True
+    assert outcome.result is None
 
 
 def test_process_request_error_returns_without_calculation(

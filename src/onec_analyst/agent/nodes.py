@@ -803,7 +803,13 @@ def clarify(state: AgentState) -> dict[str, Any]:
         )
         if forced is not None:
             return {
-                "decision": replace(forced, status="ok", trace=tuple(trace)),
+                "decision": replace(
+                    forced,
+                    status="ok",
+                    source="rules",
+                    degraded=True,
+                    trace=tuple(trace),
+                ),
                 "trace": trace,
             }
         return {
@@ -857,13 +863,12 @@ def refuse(state: AgentState) -> dict[str, Any]:
 
 
 def handle_error(state: AgentState) -> dict[str, Any]:
-    """Техническая ошибка/лимит/сеть: fallback в правила или честная ошибка.
+    """Техническая ошибка/лимит/сеть: честный ``error`` или остаточный fallback.
 
-    Лимит и разбор вопроса остаются как были: при исчерпанном лимите и при
-    непонятом вопросе приложение отдаёт детерминированный ответ правилами
-    (ТЗ 6.4 §4.2). А вот **недоступность самого LLM** (таймаут/сеть) правилами
-    не подменяется: пользователь включил LLM, значит ответ должен быть её —
-    либо честная ошибка с просьбой выбрать другого провайдера (DECISIONS #20).
+    При включённой LLM исчерпанный лимит, сбой сети и невалидный ответ модели
+    возвращают ``status="error"`` без подмены офлайн-правилами (DECISIONS
+    #20–22). Остаточный fallback правилами — только для прочих сбоев графа, с
+    ``data_profile`` из состояния.
     """
     trace = mark_step(state, "handle_error")
     decision = state.get("decision")
@@ -919,7 +924,11 @@ def handle_error(state: AgentState) -> dict[str, Any]:
     planner = state.get("planner") or RuleBasedPlanner()
     question = str(state.get("resolved_question") or state.get("question") or "")
     try:
-        fallback = planner.plan(question, today=state_today(state))
+        fallback = planner.plan(
+            question,
+            data_profile=state.get("profile"),
+            today=state_today(state),
+        )
     except (ValueError, TypeError):
         fallback = None
     if fallback is not None and fallback.ok and fallback.intent not in (None, "clarification"):

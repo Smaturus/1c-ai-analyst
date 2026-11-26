@@ -21,6 +21,7 @@ from onec_analyst.session_log import (
     journal_status,
     mark_exported,
     pending_records,
+    record_request,
     summary_to_json,
 )
 from tests.paths import REPO_ROOT
@@ -112,6 +113,25 @@ def test_fallback_is_ok_with_degraded_flag(session_db_path: Path) -> None:
     """``fallback`` → ``ok`` + ``degraded=1`` (select Notion остаётся четырёхзначным)."""
     assert SessionLog(session_db_path).record(
         SessionRecord(session_id="s", question="q", status="fallback", verdict=False)
+    )
+    row = _rows(session_db_path)[0]
+    assert row["status"] == "ok"
+    assert row["degraded"] == 1
+
+
+def test_clarification_limit_ok_with_explicit_degraded(session_db_path: Path) -> None:
+    """Лимит уточнений: ``status=ok`` + явный ``degraded`` (ADR 0007)."""
+    from onec_analyst.session_log import record_request
+
+    assert record_request(
+        session_id="s",
+        question="топ товаров",
+        provider=None,
+        model=None,
+        dsl={"intent": "top_bottom_products"},
+        status="ok",
+        verdict=True,
+        degraded=True,
     )
     row = _rows(session_db_path)[0]
     assert row["status"] == "ok"
@@ -494,6 +514,75 @@ def test_old_database_gets_dialog_columns(session_db_path: Path) -> None:
     columns = _columns(session_db_path)
     for name in ("chat_id", "turn", "answer"):
         assert name in columns
+
+
+def test_data_source_roundtrip(session_db_path: Path) -> None:
+    """Подпись источника пишется как есть; без подписи колонка пустая."""
+    assert record_request(
+        session_id="demo",
+        question="q",
+        provider=None,
+        model=None,
+        dsl=None,
+        status="ok",
+        verdict=False,
+        data_source="демо-данные",
+        db_path=session_db_path,
+    )
+    assert SessionLog(session_db_path).record(
+        SessionRecord(session_id="blank", question="q2")
+    )
+    stored = {row["session_id"]: row["data_source"] for row in _rows(session_db_path)}
+    assert stored["demo"] == "демо-данные"
+    assert stored["blank"] == ""
+
+
+def test_legacy_rows_keep_blank_data_source(session_db_path: Path) -> None:
+    """Старая база читается, а пустой источник не становится 1С или демо."""
+    connection = sqlite3.connect(session_db_path)
+    try:
+        connection.execute(
+            """
+            CREATE TABLE sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                question TEXT NOT NULL DEFAULT '',
+                provider TEXT,
+                model TEXT,
+                dsl TEXT,
+                status TEXT NOT NULL,
+                verdict INTEGER NOT NULL DEFAULT 0,
+                latency_sec REAL,
+                prompt_tokens INTEGER,
+                output_tokens INTEGER,
+                degraded INTEGER NOT NULL DEFAULT 0,
+                notion_page_id TEXT,
+                exported_at TEXT
+            )
+            """
+        )
+        connection.execute(
+            "INSERT INTO sessions (ts, session_id, question, status) "
+            "VALUES ('2026-01-01T00:00:00+03:00', 'old', 'секрет', 'ok')"
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    assert "data_source" not in _columns(session_db_path)
+    legacy = pending_records(session_db_path)[0]
+    assert legacy["session_id"] == "old"
+    assert legacy["question"] == "секрет"
+    assert legacy["data_source"] == ""
+
+    assert SessionLog(session_db_path).record(
+        SessionRecord(session_id="new", question="q", data_source="1C")
+    )
+    assert "data_source" in _columns(session_db_path)
+    stored = {row["session_id"]: row["data_source"] for row in _rows(session_db_path)}
+    assert stored["old"] == ""
+    assert stored["new"] == "1C"
 
 
 def test_pending_filter_by_chat(session_db_path: Path) -> None:

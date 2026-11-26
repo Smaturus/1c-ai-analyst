@@ -12,10 +12,13 @@
 from __future__ import annotations
 
 import json
+import sqlite3
+from pathlib import Path
 
 import pytest
 from streamlit.testing.v1 import AppTest
 
+from onec_analyst.clarification import clarification_limit_banner
 from onec_analyst.llm_agent import INTENT_EXAMPLES, INTENT_NAMES
 from tests.paths import APP_FILE
 
@@ -254,3 +257,99 @@ def test_clarification_limit_stops_loop(offline: None) -> None:
     assert at.session_state["clarification_rounds"] == 0
     # Правила тоже не смогли выбрать интент — показываем понятную ошибку и примеры.
     assert any("Не удалось разобрать вопрос" in error.value for error in at.error)
+
+
+def _journal_rows(path: Path) -> list[sqlite3.Row]:
+    if not path.exists():
+        return []
+    connection = sqlite3.connect(path)
+    connection.row_factory = sqlite3.Row
+    try:
+        return connection.execute("SELECT * FROM sessions ORDER BY id").fetchall()
+    finally:
+        connection.close()
+
+
+def _assert_clarification_limit_success_ui(
+    at: AppTest,
+    *,
+    question: str,
+    session_db_path: Path,
+) -> None:
+    """Общие проверки успешной принудительной интерпретации (ADR 0007)."""
+    banner = clarification_limit_banner(question)
+    assert len(at.exception) == 0
+    assert any(banner in warning.value for warning in at.warning)
+    assert len(at.pills) == 0
+    assert at.session_state["clarification_rounds"] == 0
+    assert "Два отдельных рейтинга" not in " ".join(
+        warning.value for warning in at.warning
+    )
+    rows = _journal_rows(session_db_path)
+    assert len(rows) == 1
+    assert rows[0]["status"] == "ok"
+    assert rows[0]["degraded"] == 1
+    assert rows[0]["verdict"] == 1
+
+
+def test_clarification_limit_shows_adr_banner_offline(
+    offline: None,
+    monkeypatch: pytest.MonkeyPatch,
+    session_db_path: Path,
+) -> None:
+    """OFF: после двух уточнений — плашка ADR 0007 и ``degraded=1`` в журнале."""
+    from onec_analyst.llm_agent import RuleBasedPlanner
+
+    def fake_force(question: str, **kwargs):  # type: ignore[no-untyped-def]
+        return RuleBasedPlanner().plan("Итог за 2024", data_profile=kwargs.get("data_profile"))
+
+    monkeypatch.setattr("onec_analyst.dispatcher.force_interpretation", fake_force)
+
+    at = AppTest.from_file(APP_FILE, default_timeout=TIMEOUT).run()
+    at.session_state["clarification_rounds"] = 2
+    _ask(at, CLARIFICATION_QUESTION)
+    _assert_clarification_limit_success_ui(
+        at, question=CLARIFICATION_QUESTION, session_db_path=session_db_path
+    )
+
+
+def test_clarification_limit_shows_adr_banner_online(
+    monkeypatch: pytest.MonkeyPatch, session_db_path: Path
+) -> None:
+    """ON: граф отдал принудительную интерпретацию — та же плашка, что в OFF."""
+    pytest.importorskip("langgraph")
+    from dataclasses import replace
+
+    from onec_analyst.clarification import force_interpretation
+
+    monkeypatch.setenv("LLM_PROVIDER", "deepseek")
+    monkeypatch.setenv("LLM_API_KEY", "test-key")
+
+    def fake_run_agent_graph(state: dict, **kwargs):  # type: ignore[no-untyped-def]
+        forced = force_interpretation(
+            str(state.get("question") or ""),
+            data_profile=state.get("profile"),
+        )
+        assert forced is not None
+        decision = replace(forced, status="ok", source="rules", degraded=True)
+        return {
+            **state,
+            "decision": decision,
+            "llm_success": True,
+            "trace": (*state.get("trace", ()), "clarify"),
+        }
+
+    monkeypatch.setattr(
+        "onec_analyst.agent.graph.run_agent_graph",
+        fake_run_agent_graph,
+    )
+
+    at = AppTest.from_file(APP_FILE, default_timeout=TIMEOUT).run()
+    assert at.sidebar.toggle[0].value is True
+    at.session_state["clarification_rounds"] = 2
+    _ask(at, "Сколько мы продали за 2024 год?")
+    _assert_clarification_limit_success_ui(
+        at,
+        question="Сколько мы продали за 2024 год?",
+        session_db_path=session_db_path,
+    )

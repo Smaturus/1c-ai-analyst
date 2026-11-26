@@ -64,11 +64,11 @@ def test_limit_does_not_capture_year_with_explicit_top() -> None:
 
 
 def test_year_alone_does_not_set_limit() -> None:
-    """Год без явного количества не превращается в лимит: default 10."""
+    """Год без явного количества не превращается в лимит: default 5."""
     decision = _plan("Какие товары продаются хуже остальных за 2024 год?")
 
     assert decision.intent == "top_bottom_products", decision.error
-    assert decision.params["limit"] == 10, decision.params
+    assert decision.params["limit"] == 5, decision.params
 
 
 def test_date_with_dots_does_not_set_limit() -> None:
@@ -76,7 +76,7 @@ def test_date_with_dots_does_not_set_limit() -> None:
     decision = _plan("Топ товаров по выручке за 21.09.2023")
 
     assert decision.intent == "top_bottom_products", decision.error
-    assert decision.params["limit"] == 10, decision.params
+    assert decision.params["limit"] == 5, decision.params
 
 
 def test_explicit_top_limit_parsed() -> None:
@@ -89,10 +89,10 @@ def test_explicit_top_limit_parsed() -> None:
 
 
 def test_limit_above_maximum_falls_back_to_default() -> None:
-    """Число больше 1000 откатывается к default 10."""
+    """Число больше 1000 откатывается к default 5."""
     decision = _plan("Топ 5000 товаров по выручке за 2024")
 
-    assert decision.params["limit"] == 10, decision.params
+    assert decision.params["limit"] == 5, decision.params
 
 
 # --------------------------------------------------------------------------- #
@@ -737,13 +737,14 @@ def test_guard_keeps_regular_top_questions() -> None:
         "Покажи средний оборот по месяцам за 2023",
     ],
 )
-def test_average_check_returns_clarification(question: str) -> None:
-    """Средний чек не поддерживается — clarification с объяснением."""
+def test_average_check_returns_refuse(question: str) -> None:
+    """Средний чек не поддерживается — refuse с объяснением."""
     decision = _plan(question)
 
-    assert decision.ok and decision.intent == "clarification", decision.error
-    assert decision.clarification is not None
-    assert "Расчёт среднего чека не поддерживается" in decision.clarification.question
+    assert decision.status == "refuse", decision.error
+    assert not decision.ok
+    assert decision.refusal_reason is not None
+    assert "Расчёт среднего чека не поддерживается" in decision.refusal_reason
 
 
 # --------------------------------------------------------------------------- #

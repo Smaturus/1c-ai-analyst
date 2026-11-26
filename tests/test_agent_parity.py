@@ -14,7 +14,13 @@ from onec_analyst.llm_agent import (
     RuleBasedPlanner,
 )
 
-from tests.agent_support import FakeLLMClient, clarify_response, iso, json_response
+from tests.agent_support import (
+    FakeLLMClient,
+    clarify_response,
+    iso,
+    json_response,
+    refuse_response,
+)
 
 TODAY = date(2026, 11, 18)
 
@@ -30,7 +36,11 @@ QUESTIONS = (
 def _graph_decision(question: str) -> AgentDecision:
     """Прогнать вопрос через граф с моделью, повторяющей решение правил."""
     expected = RuleBasedPlanner().plan(question, today=TODAY)
-    if expected.intent == "clarification":
+    if expected.status == "refuse":
+        response = refuse_response(
+            expected.refusal_reason or "Не поддерживается"
+        )
+    elif expected.intent == "clarification":
         plan = expected.clarification
         missing = list(plan.missing) if plan is not None else []
         response = clarify_response(missing or ["intent"], plan.question if plan else "Уточните запрос")
@@ -94,3 +104,25 @@ def test_graph_does_not_change_contract_params() -> None:
     }
 
     assert set(actual.params).issubset(allowed)
+
+
+def test_default_limit_matches_rules_and_graph() -> None:
+    """Без явного числа в вопросе limit=5 и в правилах, и в графе."""
+    question = "Какие товары продаются хуже остальных за 2024 год?"
+    expected = RuleBasedPlanner().plan(question, today=TODAY)
+    actual = _graph_decision(question)
+
+    assert expected.params["limit"] == 5
+    assert actual.status == "ok"
+    assert actual.params["limit"] == expected.params["limit"] == 5
+
+
+def test_average_check_refuse_parity() -> None:
+    """Средний чек: refuse и в правилах, и в графе."""
+    question = "Какой средний чек за 2024 год?"
+    expected = RuleBasedPlanner().plan(question, today=TODAY)
+    actual = _graph_decision(question)
+
+    assert expected.status == "refuse"
+    assert actual.status == "refuse"
+    assert actual.refusal_reason == expected.refusal_reason

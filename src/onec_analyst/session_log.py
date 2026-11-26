@@ -102,7 +102,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     output_tokens INTEGER,
     degraded INTEGER NOT NULL DEFAULT 0,
     notion_page_id TEXT,
-    exported_at TEXT
+    exported_at TEXT,
+    data_source TEXT NOT NULL DEFAULT ''
 )
 """
 
@@ -207,6 +208,10 @@ class SessionRecord:
         сводка). ``False`` для уточнений/отказов/ошибок.
     latency_sec:
         Длительность обработки запроса в секундах (замер UI).
+    data_source:
+        Подпись источника из UI (``load_dataframe``): ``1C``, ``демо-данные``
+        или имя загруженного файла. Пустая строка — источник неизвестен
+        (строки, записанные до появления колонки). Задним числом не заполняется.
     """
 
     session_id: str
@@ -226,6 +231,7 @@ class SessionRecord:
     output_tokens: int | None = None
     degraded: bool = False
     ts: str | None = None
+    data_source: str = ""
 
     def __post_init__(self) -> None:
         # ``degraded`` считается по исходному статусу: после маппинга
@@ -272,6 +278,7 @@ class SessionRecord:
             self.prompt_tokens,
             self.output_tokens,
             1 if self.degraded else 0,
+            str(self.data_source or "").strip(),
         )
 
 
@@ -293,6 +300,7 @@ _COLUMNS = (
     "prompt_tokens",
     "output_tokens",
     "degraded",
+    "data_source",
 )
 
 
@@ -378,12 +386,15 @@ def record_request(
     latency_sec: float | None = None,
     prompt_tokens: int | None = None,
     output_tokens: int | None = None,
+    data_source: str | None = None,
+    degraded: bool | None = None,
     db_path: str | os.PathLike[str] | None = None,
 ) -> bool:
     """Собрать :class:`SessionRecord` и записать его — без исключений наружу.
 
-    Тонкая обёртка для UI: один вызов на запрос, ``degraded`` выводится из
-    статуса, ошибки записи гасятся внутри :class:`SessionLog`. Возвращаемое
+    Тонкая обёртка для UI: один вызов на запрос. ``degraded`` берётся из
+    статуса ``fallback`` или из явного флага (лимит уточнений ADR 0007).
+    Ошибки записи гасятся внутри :class:`SessionLog`. Возвращаемое
     значение нужно только тестам и логам — ответ пользователю от него не зависит.
     """
     try:
@@ -404,6 +415,8 @@ def record_request(
                 latency_sec=latency_sec,
                 prompt_tokens=prompt_tokens,
                 output_tokens=output_tokens,
+                data_source="" if data_source is None else str(data_source),
+                degraded=bool(degraded),
             )
         )
     except Exception:
@@ -499,7 +512,8 @@ def _ensure_schema(connection: sqlite3.Connection) -> None:
 
     ``summary`` появился позже первой версии журнала: у существующих баз колонки
     нет, поэтому добавляем её через ``ALTER TABLE`` (данные сохраняются, повторный
-    вызов ничего не делает).
+    вызов ничего не делает). ``data_source`` добавляется так же, с пустым
+    default: старые строки не помечаются ни как 1С, ни как демо.
     """
     connection.execute(_SCHEMA)
     columns = {row[1] for row in connection.execute("PRAGMA table_info(sessions)")}
@@ -513,6 +527,10 @@ def _ensure_schema(connection: sqlite3.Connection) -> None:
         connection.execute("ALTER TABLE sessions ADD COLUMN turn INTEGER")
     if "answer" not in columns:
         connection.execute("ALTER TABLE sessions ADD COLUMN answer TEXT")
+    if "data_source" not in columns:
+        connection.execute(
+            "ALTER TABLE sessions ADD COLUMN data_source TEXT NOT NULL DEFAULT ''"
+        )
     connection.execute(
         "CREATE INDEX IF NOT EXISTS idx_sessions_chat ON sessions(chat_id, turn)"
     )
@@ -554,6 +572,11 @@ def pending_records(
             row[1] for row in connection.execute("PRAGMA table_info(sessions)").fetchall()
         }
         summary_column = "summary" if "summary" in columns else "NULL AS summary"
+        source_column = (
+            "COALESCE(data_source, '') AS data_source"
+            if "data_source" in columns
+            else "'' AS data_source"
+        )
         where = "exported_at IS NULL"
         params: list[Any] = []
         if chat_id is not None:
@@ -566,7 +589,7 @@ def pending_records(
             f"""
             SELECT id, ts, session_id, question, provider, model, dsl,
                    {summary_column}, status, verdict, latency_sec,
-                   prompt_tokens, output_tokens, degraded
+                   prompt_tokens, output_tokens, degraded, {source_column}
             FROM sessions
             WHERE {where}
             ORDER BY id
