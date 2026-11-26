@@ -77,7 +77,7 @@ def ollama_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _model_box(at: AppTest) -> object:
-    return next(box for box in at.sidebar.selectbox if box.label == "Модель Ollama")
+    return next(box for box in at.sidebar.selectbox if box.label == "Модель LLM")
 
 
 def test_ollama_model_selector_lists_models(
@@ -165,6 +165,6 @@ def test_no_selector_when_ollama_unreachable(
 
     assert len(at.exception) == 0
     labels = [box.label for box in at.sidebar.selectbox]
-    assert "Модель Ollama" not in labels, labels
+    assert "Модель LLM" not in labels, labels
     captions = " ".join(caption.value for caption in at.sidebar.caption)
     assert "ollama" in captions, captions

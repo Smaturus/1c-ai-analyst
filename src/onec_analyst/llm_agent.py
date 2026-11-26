@@ -888,6 +888,9 @@ _DEFAULT_MODELS: Final[dict[str, str]] = {
     "ollama": "qwen3:4b",
     "gigachat": "GigaChat-2-Pro",
     "mistral": "ministral-14b-2512",
+    # Groq — OpenAI-совместимый эндпоинт, но отдельное имя провайдера: ключ и
+    # модель не должны делить переменные с настоящим OpenAI (LLM_*_OPENAI).
+    "groq": "openai/gpt-oss-120b",
 }
 _DEFAULT_BASE_URLS: Final[dict[str, str]] = {
     "openai": "https://api.openai.com/v1",
@@ -895,11 +898,18 @@ _DEFAULT_BASE_URLS: Final[dict[str, str]] = {
     "ollama": "http://localhost:11434/v1",
     "gigachat": "https://api.giga.chat/v1",
     "mistral": "https://api.mistral.ai/v1",
+    "groq": "https://api.groq.com/openai/v1",
 }
 #: Эндпоинты OAuth-токена (для провайдеров с двухшаговой авторизацией).
 _DEFAULT_AUTH_URLS: Final[dict[str, str]] = {
     "gigachat": "https://ngw.devices.sberbank.ru:9443/api/v2/oauth",
 }
+
+#: User-Agent клиента для HTTP-вызовов LLM.
+#: Стандартный ``Python-urllib/3.x`` отбивается Cloudflare перед Groq:
+#: ``HTTP 403: error code: 1010``. Явное имя клиента — то же, что делают
+#: официальные SDK, и единственное, что отличает рабочий запрос от 403.
+_HTTP_USER_AGENT: Final[str] = "onec-analyst/1.0"
 
 #: Настройки, которые принадлежат провайдеру из ``LLM_PROVIDER``: общее имя
 #: (``LLM_MODEL``/``LLM_BASE_URL``/``LLM_KEEP_ALIVE``) для них — сокращение для
@@ -1022,10 +1032,10 @@ def settings_from_env(
     values = env if env is not None else _environment_with_dotenv()
     env_provider = (values.get("LLM_PROVIDER") or "none").strip().lower()
     provider = (provider or env_provider).strip().lower()
-    if provider not in ("none", "openai", "deepseek", "ollama", "gigachat", "mistral"):
+    if provider not in ("none", "openai", "deepseek", "ollama", "gigachat", "mistral", "groq"):
         raise ValueError(
             "Неизвестный LLM_PROVIDER="
-            f"{provider!r}; допустимо: none, openai, deepseek, ollama, gigachat, mistral"
+            f"{provider!r}; допустимо: none, openai, deepseek, ollama, gigachat, mistral, groq"
         )
 
     def pick(name: str) -> str:
@@ -1121,6 +1131,7 @@ def settings_from_env(
 CHOOSABLE_PROVIDERS: Final[tuple[str, ...]] = (
     "deepseek",
     "gigachat",
+    "groq",
     "openai",
     "mistral",
     "ollama",
@@ -1330,7 +1341,10 @@ class LLMClient:
 
     def _headers(self) -> dict[str, str]:
         """Заголовки запроса (ключ не попадает в сообщения об ошибках)."""
-        headers = {"Content-Type": "application/json"}
+        headers = {
+            "Content-Type": "application/json",
+            "User-Agent": _HTTP_USER_AGENT,
+        }
         if self._settings.api_key:
             headers["Authorization"] = f"Bearer {self._settings.api_key}"
         return headers
@@ -1436,6 +1450,7 @@ class LLMClient:
             url,
             headers={
                 "Accept": "application/json",
+                "User-Agent": _HTTP_USER_AGENT,
                 "Authorization": f"Bearer {self._settings.api_key}",
             },
             method="GET",
@@ -2595,6 +2610,20 @@ class RuleBasedPlanner:
         for year in years:
             if year not in unique_years:
                 unique_years.append(year)
+
+        # Месяц с годом («в октябре 2023») проверяем ДО голого года: иначе
+        # найденный «2023» уводил в период «весь год», и месяц терялся
+        # («сколько продали в октябре 2023» считалось за 2023 год).
+        month_match = re.search(
+            r"\b(январ|феврал|март|апрел|ма[йяе]|июн|июл|август|сентябр|октябр|ноябр|декабр)\w*\s+(20\d{2})",
+            lowered,
+        )
+        month_number = _month_number(month_match.group(1)) if month_match else None
+        if month_match is not None and month_number is not None and len(unique_years) == 1:
+            year = int(month_match.group(2))
+            last_day = _last_day_of_month(year, month_number)
+            return [(date(year, month_number, 1), last_day)]
+
         if len(unique_years) >= 2:
             return [
                 (date(unique_years[0], 1, 1), date(unique_years[0], 12, 31)),
@@ -2602,16 +2631,6 @@ class RuleBasedPlanner:
             ]
         if len(unique_years) == 1:
             return [(date(unique_years[0], 1, 1), date(unique_years[0], 12, 31))]
-
-        month_match = re.search(
-            r"\b(январ|феврал|март|апрел|ма[йя]|июн|июл|август|сентябр|октябр|ноябр|декабр)\w*\s+(20\d{2})",
-            lowered,
-        )
-        if month_match:
-            month = _MONTHS[month_match.group(1)]
-            year = int(month_match.group(2))
-            last_day = _last_day_of_month(year, month)
-            return [(date(year, month, 1), last_day)]
 
         relative_month = _relative_month_period(lowered, current_date)
         if relative_month is not None:
@@ -2628,12 +2647,17 @@ class RuleBasedPlanner:
 
         relative_year = _relative_year(lowered, current_date)
         month_name = re.search(
-            r"\b(январ|феврал|март|апрел|ма[йя]|июн|июл|август|сентябр|октябр|ноябр|декабр)\w*",
+            r"\b(январ|феврал|март|апрел|ма[йяе]|июн|июл|август|сентябр|октябр|ноябр|декабр)\w*",
             lowered,
         )
-        if month_name is not None and relative_year is not None:
-            month = _MONTHS[month_name.group(1)]
-            return [(date(relative_year, month, 1), _last_day_of_month(relative_year, month))]
+        month_in_name = _month_number(month_name.group(1)) if month_name else None
+        if month_in_name is not None and relative_year is not None:
+            return [
+                (
+                    date(relative_year, month_in_name, 1),
+                    _last_day_of_month(relative_year, month_in_name),
+                )
+            ]
         if relative_year is not None:
             return [(date(relative_year, 1, 1), date(relative_year, 12, 31))]
 

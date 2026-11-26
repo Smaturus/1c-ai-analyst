@@ -30,12 +30,13 @@ import json
 import os
 import sys
 import tempfile
+import threading
 import time
 import uuid
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Callable, Final
 
 # Локальный запуск без ``pip install -e .``: пакет лежит в src/.
 _SRC = Path(__file__).resolve().parent / "src"
@@ -1218,6 +1219,7 @@ _PROVIDER_TITLES = {
     "ollama": "Ollama",
     "gigachat": "GigaChat",
     "mistral": "Mistral",
+    "groq": "Groq",
 }
 
 
@@ -1398,6 +1400,82 @@ def choose_mistral_model(settings: LLMSettings) -> LLMSettings:
     return dataclasses.replace(settings, model=selected)
 
 
+#: Модели Groq, годные для планировщика: чат + tool calling.
+#: Пары ``(id, подпись)``: Groq не выпускает свои модели, а исполняет открытые
+#: веса сторонних вендоров, поэтому в списке — имя модели без префикса вендора
+#: (``qwen3.8-27b``), а заголовок нейтральный («Модель LLM»), в отличие от
+#: «Модель Mistral»/«Модель GigaChat»: там вендор и есть модель.
+#: Отфильтровано из ``GET /v1/models`` (11 записей): аудио (whisper, orpheus),
+#: классификаторы prompt-guard и ``gpt-oss-safeguard-20b``, а также
+#: ``allam-2-7b`` (арабская линейка) в проверке возвращали пустой план вместо
+#: JSON-DSL — в селектор они не входят. Порядок — от лучшей по качеству.
+GROQ_MODELS: Final[tuple[tuple[str, str], ...]] = (
+    ("openai/gpt-oss-120b", "gpt-oss-120b"),
+    ("qwen/qwen3.8-27b", "qwen3.8-27b"),
+    ("openai/gpt-oss-20b", "gpt-oss-20b"),
+)
+
+
+def groq_model_labels() -> dict[str, str]:
+    """Подписи селектора Groq: ``"qwen3.8-27b"`` → id модели.
+
+    Словарь, а не список: Streamlit отдаёт обратно выбранную подпись, а
+    планировщику нужен id модели — обратное преобразование должно быть точным.
+    """
+    return {label: model_id for model_id, label in GROQ_MODELS}
+
+
+def choose_groq_model(settings: LLMSettings) -> LLMSettings:
+    """Выбрать модель Groq в сайдбаре; вернуть настройки с выбором на сессию.
+
+    Аналог :func:`choose_mistral_model`: список статический (проверенный
+    каталог, а не ответ API, где есть аудио и классификаторы), выбор живёт в
+    ``st.session_state`` и **не** пишется в ``.env`` — приложение не редактирует
+    файл с секретами.
+
+    В списке — имя модели без префикса вендора (``qwen3.8-27b``), заголовок
+    нейтральный («Модель LLM»): Groq лишь исполняет чужие веса. Модель из
+    ``.env`` не подменяется на первую из каталога, даже если её там нет: молча
+    отправить запрос не тем именем, чем просили, — хуже, чем показать
+    непривычное имя первым в списке.
+
+    Parameters
+    ----------
+    settings:
+        Настройки выбранного провайдера.
+
+    Returns
+    -------
+    LLMSettings
+        Те же настройки, но с моделью, выбранной в списке (для Groq).
+    """
+    if settings.provider != "groq":
+        return settings
+    by_label = groq_model_labels()
+    known = {model_id for model_id, _ in GROQ_MODELS}
+    labels = list(by_label)
+    if settings.model and settings.model not in known:
+        labels.insert(0, settings.model)
+    current = next(
+        (label for label, model_id in by_label.items() if model_id == settings.model),
+        settings.model,
+    )
+    selected = st.sidebar.selectbox(
+        "Модель LLM",
+        options=labels,
+        index=labels.index(current),
+        help=(
+            "Модели сторонних вендоров, размещённые на Groq. Выбор действует в "
+            "текущей сессии и не записывается в .env; модель по умолчанию — "
+            "LLM_MODEL_GROQ."
+        ),
+    )
+    model_id = by_label.get(selected, selected)
+    if model_id == settings.model:
+        return settings
+    return dataclasses.replace(settings, model=model_id)
+
+
 # --------------------------------------------------------------------------- #
 # Боковая панель
 # --------------------------------------------------------------------------- #
@@ -1456,12 +1534,14 @@ def choose_ollama_model(settings: LLMSettings) -> LLMSettings:
     elif settings.model not in models:
         models.insert(0, settings.model)
     selected = st.sidebar.selectbox(
-        "Модель Ollama",
+        "Модель LLM",
         options=models,
         index=models.index(settings.model),
         help=(
-            "Какая локальная модель отвечает. Список — из запущенного Ollama; "
-            "модель по умолчанию задаётся OLLAMA_MODEL."
+            "Какая локальная модель отвечает. Список — из запущенного Ollama, "
+            "модель по умолчанию задаётся OLLAMA_MODEL. Заголовок нейтральный: "
+            "Ollama, как и Groq, исполняет чужие веса (qwen, gemma), а не "
+            "выпускает свои модели."
         ),
     )
     if selected == settings.model:
@@ -1631,6 +1711,8 @@ def render_sidebar(
                         )
         elif chosen_settings.provider == "mistral":
             chosen_settings = choose_mistral_model(chosen_settings)
+        elif chosen_settings.provider == "groq":
+            chosen_settings = choose_groq_model(chosen_settings)
         else:
             chosen_settings = choose_gigachat_model(chosen_settings)
         st.sidebar.caption(f"LLM: `{chosen_settings.provider}` / `{chosen_settings.model}`")
@@ -1678,6 +1760,64 @@ def render_sidebar(
         ask_blocked,
         ask_blocked_reason,
     )
+
+
+#: Шаг ожидания фонового расчёта в UI-потоке, секунды.
+#: Небольшой: пока ждём, Streamlit успевает отреагировать на новое нажатие.
+_JOB_WAIT_CHUNK = 0.5
+
+
+class QuestionJob:
+    """Расчёт вопроса в фоновом потоке, переживающий перерисовку страницы.
+
+    Streamlit останавливает текущий прогон скрипта, когда приходит новое
+    взаимодействие (например, нажатие «Выгрузить» во время долгого ответа
+    локальной модели). Если вызов LLM держать в UI-потоке, результат терялся:
+    прогон обрывался, а расчёт приходилось начинать заново.
+
+    Поэтому работа идёт в отдельном потоке, а UI-поток только ждёт готовности.
+    Сам job лежит в ``st.session_state``: следующий прогон находит его и
+    продолжает ждать тот же расчёт, а не запускает новый.
+
+    Поток **не** обращается к Streamlit: результат складывается в поля объекта,
+    UI-поток читает их после :meth:`wait`. Исключение переносится в UI-поток
+    без изменений (``DispatchError`` разбирается вызывающим кодом).
+    """
+
+    def __init__(self, meta: dict[str, Any], work: Callable[[], Any]) -> None:
+        #: Метаданные запроса (вопрос, подпись, id журнала) — неизменны.
+        self.meta = meta
+        #: Результат работы (``AssistantResult``) либо ``None``.
+        self.result: Any = None
+        #: Исключение из потока (в UI-потоке поднимается заново).
+        self.error: BaseException | None = None
+        self._work = work
+        self._done = threading.Event()
+        self._thread = threading.Thread(
+            target=self._run, name="llm-question", daemon=True
+        )
+
+    def _run(self) -> None:
+        """Тело потока: выполнить работу и запомнить итог/ошибку."""
+        try:
+            self.result = self._work()
+        except BaseException as exc:  # noqa: BLE001 — переносим в UI-поток как есть
+            self.error = exc
+        finally:
+            self._done.set()
+
+    def start(self) -> None:
+        """Запустить поток (ровно один раз на job)."""
+        self._thread.start()
+
+    @property
+    def done(self) -> bool:
+        """Готов ли расчёт."""
+        return self._done.is_set()
+
+    def wait(self, timeout: float | None = None) -> bool:
+        """Ждать готовности ``timeout`` секунд; ``True`` — расчёт завершён."""
+        return self._done.wait(timeout)
 
 
 # --------------------------------------------------------------------------- #
@@ -1853,87 +1993,138 @@ def main() -> None:
         st.session_state.pop("clarification_base", None)
         submitted = True
 
-    if submitted:
-        if ask_blocked:
+    job: QuestionJob | None = st.session_state.get("question_job")
+    if submitted and job is not None and not job.done:
+        # Повторный «Спросить», пока идёт расчёт: второй поток не нужен —
+        # продолжаем ждать уже запущенный.
+        st.info("Расчёт уже идёт — дождитесь ответа.")
+    if submitted or job is not None:
+        if submitted and ask_blocked:
             # Enter в поле отправляет форму даже при заблокированной кнопке —
             # не даём уйти в расчёт без провайдера.
             st.warning(ask_blocked_reason)
             st.stop()
-        if not question.strip():
+        if submitted and not question.strip():
             st.warning("Введите вопрос.")
             st.stop()
 
-        # Подпись привязывает результат к вопросу и живёт в том же слоте, что и
-        # ответ, — над ним, а не под ним.
-        caption_text = f"Расчёт по вопросу: «{question.strip()}»"
+        if job is None:
+            # Первый прогон: готовим метаданные и запускаем фоновый расчёт.
+            # Подпись привязывает результат к вопросу и живёт в том же слоте,
+            # что и ответ, — над ним, а не под ним.
+            caption_text = f"Расчёт по вопросу: «{question.strip()}»"
 
-        # Журнал сессий: свой id на запрос (одна строка = одна сессия), замер
-        # длительности и итог пишутся в finally-стиле в конце блока — даже если
-        # решение оказалось отказом/ошибкой. Запись fail-safe (см. session_log).
-        request_started = time.monotonic()
-        request_id = str(uuid.uuid4())
-        turn = int(st.session_state.get("journal_turn", 0)) + 1
-        st.session_state["journal_turn"] = turn
+            # Журнал сессий: свой id на запрос (одна строка = одна сессия), замер
+            # длительности и итог пишутся в finally-стиле в конце блока — даже
+            # если решение оказалось отказом/ошибкой. Запись fail-safe.
+            request_started = time.monotonic()
+            request_id = str(uuid.uuid4())
+            turn = int(st.session_state.get("journal_turn", 0)) + 1
+            st.session_state["journal_turn"] = turn
+
+            # Память диалога — отдельно от истории сообщений. Счётчик уточнений
+            # остаётся один: живёт в st.session_state и синхронизируется с ядром.
+            conversation = st.session_state.setdefault(
+                "conversation_state", ConversationState()
+            )
+            conversation.clarification_rounds = int(
+                st.session_state.get("clarification_rounds", 0)
+            )
+
+            # Композитный guard: потолок 3 вызова на запрос + лимит сессии/дня
+            # (15/100). Каждый вызов графа резервирует слот атомарно; при
+            # сетевом сбое резерв возвращается. Локальная модель внешних
+            # токенов не тратит: для неё остаётся только потолок на запрос.
+            if local_llm:
+                llm_guard: Any = CallBudgetGuard(3)
+            else:
+                llm_guard = CompositeGuard(
+                    CallBudgetGuard(3),
+                    RateLimiterGuard(limiter, llm_session_id),
+                )
+
+            # История передаётся снимком: поток не должен обращаться к
+            # ``st.session_state`` (там нет ScriptRunContext) и не должен менять
+            # объект, который UI-поток читает.
+            history_snapshot = list(st.session_state["history"])
+            job = QuestionJob(
+                meta={
+                    "question": question,
+                    "caption": caption_text,
+                    "started": request_started,
+                    "request_id": request_id,
+                    "turn": turn,
+                    "profile": profile,
+                    "settings": settings,
+                    "source_label": source_label,
+                },
+                work=lambda: process_request(
+                    question,
+                    llm_allowed,
+                    conversation,
+                    dataset,
+                    profile,
+                    settings=settings,
+                    history=history_snapshot,
+                    llm_guard=llm_guard,
+                ),
+            )
+            st.session_state["question_job"] = job
+            job.start()
+        else:
+            # Прогон после перерисовки (например, нажали «Выгрузить» во время
+            # расчёта): подхватываем тот же job и берём метаданные из него.
+            caption_text = str(job.meta["caption"])
+            question = str(job.meta["question"])
+            request_started = float(job.meta["started"])
+            request_id = str(job.meta["request_id"])
+            turn = int(job.meta["turn"])
+            profile = job.meta["profile"]
+            settings = job.meta["settings"]
+            source_label = str(job.meta["source_label"])
+
         answer_text = ""
         decision: AgentDecision | None = None
         result: pd.DataFrame | None = None
         summary_payload: dict[str, Any] | None = None
-
-        # Память диалога — отдельно от истории сообщений. Счётчик уточнений
-        # остаётся один: живёт в st.session_state и синхронизируется с ядром.
         conversation = st.session_state.setdefault(
             "conversation_state", ConversationState()
         )
-        conversation.clarification_rounds = int(
-            st.session_state.get("clarification_rounds", 0)
-        )
-
         outcome: AssistantResult | None = None
-        # Композитный guard: потолок 3 вызова на запрос + лимит сессии/дня (15/100).
-        # Каждый вызов графа (resolve_context/agent_decision/fix_dsl) резервирует
-        # слот атомарно; при сетевом сбое резерв возвращается.
-        # Локальная модель (ollama) внешних токенов не тратит: для неё остаётся
-        # только потолок вызовов на запрос, квота облачных API не расходуется.
-        if local_llm:
-            llm_guard: Any = CallBudgetGuard(3)
+
+        # Спиннер рисуется ВНУТРИ верхнего слота. Если оставить
+        # ``with st.spinner(...)`` в основном потоке, Streamlit создаёт его
+        # после контейнера ответа — плашка «Разбираю вопрос…» оказывается под
+        # уже показанной таблицей и уходит за пределы экрана.
+        with notice_slot:
+            with st.spinner("Разбираю вопрос…"):
+                st.caption(LONG_RUN_NOTICE)
+                # Ждём chunks: так Streamlit не копит «немой» кадр и новое
+                # нажатие обрывает только ожидание, а не сам расчёт.
+                while not job.wait(_JOB_WAIT_CHUNK):
+                    pass
+        # Плашка живёт только на время вызова: после ответа она не должна
+        # оставаться на экране.
+        notice_slot.empty()
+        st.session_state.pop("question_job", None)
+
+        if job.error is not None:
+            if isinstance(job.error, DispatchError):
+                exc = job.error
+                answer_text = str(exc.original)
+                with _answer_area(answer_slot, caption_text):
+                    render_dispatch_error(exc.decision, exc.original)
+                remember_answer(
+                    kind="dispatch",
+                    caption=caption_text,
+                    decision=exc.decision,
+                    exc=exc.original,
+                )
+                outcome = None
+            else:
+                raise job.error
         else:
-            llm_guard = CompositeGuard(
-                CallBudgetGuard(3),
-                RateLimiterGuard(limiter, llm_session_id),
-            )
-        try:
-            # Спиннер рисуется ВНУТРИ верхнего слота. Если оставить
-            # ``with st.spinner(...)`` в основном потоке, Streamlit создаёт его
-            # после контейнера ответа — плашка «Разбираю вопрос…» оказывается
-            # под уже показанной таблицей и уходит за пределы экрана.
-            with notice_slot:
-                with st.spinner("Разбираю вопрос…"):
-                    st.caption(LONG_RUN_NOTICE)
-                    outcome = process_request(
-                        question,
-                        llm_allowed,
-                        conversation,
-                        dataset,
-                        profile,
-                        settings=settings,
-                        history=st.session_state["history"],
-                        llm_guard=llm_guard,
-                    )
-        except DispatchError as exc:
-            answer_text = str(exc.original)
-            with _answer_area(answer_slot, caption_text):
-                render_dispatch_error(exc.decision, exc.original)
-            remember_answer(
-                kind="dispatch",
-                caption=caption_text,
-                decision=exc.decision,
-                exc=exc.original,
-            )
-            outcome = None
-        finally:
-            # Плашка живёт только на время вызова: после ответа она не должна
-            # оставаться на экране.
-            notice_slot.empty()
+            outcome = job.result
 
         if outcome is not None:
             decision = outcome.as_decision()

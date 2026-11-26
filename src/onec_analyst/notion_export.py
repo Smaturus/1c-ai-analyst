@@ -861,7 +861,7 @@ def database_schema() -> dict[str, Any]:
             "select": {
                 "options": [
                     {"name": name}
-                    for name in ("deepseek", "gigachat", "mistral", "ollama", "rules")
+                    for name in ("deepseek", "gigachat", "mistral", "groq", "ollama", "rules")
                 ]
             }
         },

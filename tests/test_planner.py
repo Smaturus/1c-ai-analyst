@@ -233,6 +233,59 @@ def test_last_month_uses_data_profile() -> None:
     assert decision.params["start_date"] == date(2024, 11, 27)
 
 
+def test_month_with_year_is_month_not_whole_year() -> None:
+    """«в октябре 2023» — октябрь, а не весь 2023 (регрессия).
+
+    Раньше найденный год срабатывал раньше месяца, и вопрос «сколько продали
+    штук в октябре 2023» считался за весь год: и период, и суммы были чужими.
+    """
+    decision = _plan("Сколько мы продали штук в октябре 2023?")
+
+    assert decision.intent == "total", decision.error
+    assert decision.params["start_date"] == date(2023, 10, 1)
+    assert decision.params["end_date"] == date(2023, 10, 31)
+
+
+def test_month_with_year_keeps_top_intent() -> None:
+    """Топ товаров за месяц с годом тоже берёт месяц, а не год."""
+    decision = _plan("Топ-5 товаров за октябрь 2023")
+
+    assert decision.intent == "top_bottom_products", decision.error
+    assert decision.params["start_date"] == date(2023, 10, 1)
+    assert decision.params["end_date"] == date(2023, 10, 31)
+
+
+def test_year_without_month_is_still_whole_year() -> None:
+    """Год без месяца не задет правкой: «за 2023 год» — весь год."""
+    decision = _plan("Сколько продали за 2023 год")
+
+    assert decision.intent == "total", decision.error
+    assert decision.params["start_date"] == date(2023, 1, 1)
+    assert decision.params["end_date"] == date(2023, 12, 31)
+
+
+def test_may_with_year_is_parsed() -> None:
+    """«май» и «мае» — тот же месяц, без KeyError (регрессия).
+
+    В словаре месяцев ключ — корень «ма», поэтому прямое обращение по
+    «май»/«мая» падало, а «в мае» не распознавалось вовсе (уходило в год).
+    """
+    decision = _plan("Сколько продали в мае 2023?")
+
+    assert decision.intent == "total", decision.error
+    assert decision.params["start_date"] == date(2023, 5, 1)
+    assert decision.params["end_date"] == date(2023, 5, 31)
+
+
+def test_may_with_year_does_not_crash_for_top() -> None:
+    """«за май 2023» больше не роняет планировщик."""
+    decision = _plan("Топ-3 товара за май 2023")
+
+    assert decision.intent == "top_bottom_products", decision.error
+    assert decision.params["start_date"] == date(2023, 5, 1)
+    assert decision.params["end_date"] == date(2023, 5, 31)
+
+
 def test_clarification_for_ambiguous_question() -> None:
     """Неоднозначный вопрос → clarification с вариантами примеров."""
     decision = _plan("Покажи что-нибудь интересное")
