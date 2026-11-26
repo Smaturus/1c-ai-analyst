@@ -7,12 +7,9 @@ services:
     container_name: 1c-ai-analyst
     ports:
       - "8501:8501"
-    volumes:
-      # Хост → /app/data (НЕ перекрывает /app): демо-витрина остаётся
-      # /app/sample_data.csv из образа. Свой файл — через «Загрузить» в UI.
-      # Снимок 1С (раскомментировать при наличии ./1c_export):
-      # - ./1c_export:/app/1c_export:ro
-      - ./:/app/data
+    # Снимок 1С не смонтирован. Чтобы подключить каталог, верните ключ volumes
+    # и раскомментируйте строку (при наличии ./1c_export):
+    # - ./1c_export:/app/1c_export:ro
     environment:
       # values are taken from the shell or from .env (docker compose reads it
       # for interpolation); без ключа приложение работает в офлайн-режиме.

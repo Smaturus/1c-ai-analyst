@@ -884,12 +884,14 @@ _DEFAULT_MODELS: Final[dict[str, str]] = {
     # Источник: `ollama pull qwen3:4b`; имя — ровно как в Ollama, без алиасов.
     "ollama": "qwen3:4b",
     "gigachat": "GigaChat-2-Pro",
+    "mistral": "ministral-14b-2512",
 }
 _DEFAULT_BASE_URLS: Final[dict[str, str]] = {
     "openai": "https://api.openai.com/v1",
     "deepseek": "https://api.deepseek.com/v1",
     "ollama": "http://localhost:11434/v1",
     "gigachat": "https://api.giga.chat/v1",
+    "mistral": "https://api.mistral.ai/v1",
 }
 #: Эндпоинты OAuth-токена (для провайдеров с двухшаговой авторизацией).
 _DEFAULT_AUTH_URLS: Final[dict[str, str]] = {
@@ -1017,10 +1019,10 @@ def settings_from_env(
     values = env if env is not None else _environment_with_dotenv()
     env_provider = (values.get("LLM_PROVIDER") or "none").strip().lower()
     provider = (provider or env_provider).strip().lower()
-    if provider not in ("none", "openai", "deepseek", "ollama", "gigachat"):
+    if provider not in ("none", "openai", "deepseek", "ollama", "gigachat", "mistral"):
         raise ValueError(
             "Неизвестный LLM_PROVIDER="
-            f"{provider!r}; допустимо: none, openai, deepseek, ollama, gigachat"
+            f"{provider!r}; допустимо: none, openai, deepseek, ollama, gigachat, mistral"
         )
 
     def pick(name: str) -> str:
@@ -1117,6 +1119,7 @@ CHOOSABLE_PROVIDERS: Final[tuple[str, ...]] = (
     "deepseek",
     "gigachat",
     "openai",
+    "mistral",
     "ollama",
 )
 

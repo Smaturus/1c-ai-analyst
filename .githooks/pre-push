@@ -2,18 +2,17 @@
 # Проверки перед push.
 #
 # 1) Ветка AI-Entertaiment на GitHub не публикуется — правило пользователя.
-# 2) Файлы со словом Mistral не публикуются — правило проекта. .gitignore
-#    сравнивает только пути и не действует на уже отслеживаемые файлы,
-#    поэтому содержимое проверяется здесь.
-# 3) ruff + pytest: не отправлять заведомо красный коммит, иначе бейдж CI в
+# 2) ruff + pytest: не отправлять заведомо красный коммит, иначе бейдж CI в
 #    README становится красным до следующей правки.
+# Правило «файлы со словом Mistral не публикуются» отменено
+# (docs/DECISIONS.md, решение 38): содержимое коммита на это слово не смотрится.
 #
 # Установка (один раз на клоне): git config core.hooksPath .githooks
 # Обход через git push --no-verify запрещён правилами проекта.
 
 set -e
 
-# stdin читаем один раз: git передаёт список ссылок, и оба стража смотрят его же.
+# stdin читаем один раз: git передаёт список ссылок, страж ветки смотрит его же.
 PUSH_INPUT=$(cat)
 
 # --- 1. Ветка AI-Entertaiment на GitHub не публикуется ------------------------
@@ -34,33 +33,7 @@ if [ -n "$BLOCKED_REF" ]; then
     exit 1
 fi
 
-# --- 2. Файлы со словом Mistral не публикуются -------------------------------
-# Исключения — инфраструктура правила: .gitignore и сами хуки.
-MISTRAL_HITS=""
-while read -r local_ref local_sha remote_ref remote_sha; do
-    case "$local_sha" in
-        0000000000*) continue ;;
-    esac
-    hits=$(git grep -Iil "mistral" "$local_sha" -- . \
-        ':(exclude).gitignore' \
-        ':(exclude).githooks/pre-commit' \
-        ':(exclude).githooks/pre-push' 2>/dev/null || true)
-    if [ -n "$hits" ]; then
-        MISTRAL_HITS="${MISTRAL_HITS}${hits}
-"
-    fi
-done <<EOF
-$PUSH_INPUT
-EOF
-
-if [ -n "$MISTRAL_HITS" ]; then
-    echo "[pre-push] ОТКАЗ: в отправляемых коммитах есть файлы со словом Mistral:" >&2
-    printf '%s' "$MISTRAL_HITS" | sort -u | sed 's/^/  - /' >&2
-    echo "[pre-push] Правило проекта: такие файлы не публикуются." >&2
-    exit 1
-fi
-
-# --- 3. Линтер и тесты -------------------------------------------------------
+# --- 2. Линтер и тесты -------------------------------------------------------
 ROOT=$(git rev-parse --show-toplevel)
 PY="$ROOT/.venv/Scripts/python.exe"
 if [ ! -x "$PY" ]; then

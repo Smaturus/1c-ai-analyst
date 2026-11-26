@@ -110,10 +110,3 @@ QWEN_AUDIT/
 
 # Локальные фингерпринты для tests/test_public_figures.py и санитайзера
 .private_markers.json
-
-# Правило проекта: файлы со словом Mistral не публикуются. Path-правил здесь
-# недостаточно (.gitignore сравнивает пути, а не содержимое), поэтому содержание
-# стерегут хуки .githooks/pre-commit и .githooks/pre-push; эти маски закрывают
-# файлы, где слово есть в самом имени.
-*mistral*
-*Mistral*

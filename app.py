@@ -35,7 +35,7 @@ import uuid
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 # Локальный запуск без ``pip install -e .``: пакет лежит в src/.
 _SRC = Path(__file__).resolve().parent / "src"
@@ -1217,6 +1217,7 @@ _PROVIDER_TITLES = {
     "deepseek": "DeepSeek",
     "ollama": "Ollama",
     "gigachat": "GigaChat",
+    "mistral": "Mistral",
 }
 
 
@@ -1257,9 +1258,9 @@ def choose_llm_provider(
     провайдера нельзя.
 
     В подписи — **только провайдер**, без модели: модель показывается отдельно
-    (для GigaChat — селектором «Модель GigaChat», для остальных — подписью
-    ``LLM: …``). Иначе в переключателе застывала бы модель из ``.env`` и
-    противоречила бы фактически выбранной.
+    (для GigaChat и Mistral — селектором «Модель GigaChat» / «Модель Mistral»,
+    для остальных — подписью ``LLM: …``). Иначе в переключателе застывала бы
+    модель из ``.env`` и противоречила бы фактически выбранной.
     """
     if not options:
         return ProviderOption(settings=LLMSettings(), configured=False)
@@ -1337,6 +1338,60 @@ def choose_gigachat_model(settings: LLMSettings) -> LLMSettings:
         models.insert(0, settings.model)
     selected = st.sidebar.selectbox(
         "Модель GigaChat", options=models, index=models.index(settings.model)
+    )
+    if selected == settings.model:
+        return settings
+    return dataclasses.replace(settings, model=selected)
+
+
+#: Модели Mistral бесплатного тарифа — список для селектора в сайдбаре.
+#: Он статический, а не из ``GET /v1/models``: API отдаёт и платные модели, и
+#: служебные (эмбеддинги, OCR, аудио), а тариф в ответе не размечен. Поэтому
+#: «бесплатность» — свойство каталога, а не факт API. Если модель из ``.env``
+#: не входит в список, она показывается первой (см. :func:`choose_mistral_model`).
+MISTRAL_FREE_MODELS: Final[tuple[str, ...]] = (
+    "ministral-3b-latest",
+    "ministral-8b-latest",
+    "ministral-14b-latest",
+    "mistral-small-latest",
+)
+
+
+def choose_mistral_model(settings: LLMSettings) -> LLMSettings:
+    """Выбрать модель Mistral в сайдбаре; вернуть настройки с выбором на сессию.
+
+    Аналог :func:`choose_gigachat_model`, но список — каталог моделей
+    бесплатного тарифа, а не ответ API. Выбор живёт в ``st.session_state`` и
+    **не** пишется в ``.env``: приложение не редактирует файл с секретами.
+
+    Модель из ``.env`` не подменяется на первую из каталога, даже если её там
+    нет: молча отправить запрос не тем именем, чем просили, — хуже, чем
+    показать непривычное имя первым в списке.
+
+    Parameters
+    ----------
+    settings:
+        Настройки выбранного провайдера.
+
+    Returns
+    -------
+    LLMSettings
+        Те же настройки, но с моделью, выбранной в списке (для Mistral).
+    """
+    if settings.provider != "mistral":
+        return settings
+    models = list(MISTRAL_FREE_MODELS)
+    if settings.model and settings.model not in models:
+        models.insert(0, settings.model)
+    selected = st.sidebar.selectbox(
+        "Модель Mistral",
+        options=models,
+        index=models.index(settings.model) if settings.model in models else 0,
+        help=(
+            "Модель бесплатного тарифа Mistral. Выбор действует в текущей "
+            "сессии и не записывается в .env; модель по умолчанию — "
+            "LLM_MODEL_MISTRAL."
+        ),
     )
     if selected == settings.model:
         return settings
@@ -1574,6 +1629,8 @@ def render_sidebar(
                             label="Прогрев не удался — модель загрузится при первом вопросе",
                             state="complete",
                         )
+        elif chosen_settings.provider == "mistral":
+            chosen_settings = choose_mistral_model(chosen_settings)
         else:
             chosen_settings = choose_gigachat_model(chosen_settings)
         st.sidebar.caption(f"LLM: `{chosen_settings.provider}` / `{chosen_settings.model}`")

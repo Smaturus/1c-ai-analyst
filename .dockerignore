@@ -38,8 +38,6 @@ exports/
 # Служебные документы и Windows-скрипты не нужны в runtime-образе
 progress.md
 CHANGELOG.md
-README.md
-pyproject.toml
 pytest.ini
 start_app.bat
 smoke_test.py
@@ -52,3 +50,12 @@ promp_2_ci.txt
 Dockerfile
 docker-compose.yml
 .dockerignore
+
+# Локальные фингерпринты, аудит и каталоги вне runtime
+.private_markers.json
+QWEN_AUDIT/
+app_local.py
+.local_paths.txt
+.dsh-bundles/
+Semantic_layer/
+Hermes/
