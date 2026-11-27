@@ -110,3 +110,6 @@ QWEN_AUDIT/
 
 # Локальные фингерпринты для tests/test_public_figures.py и санитайзера
 .private_markers.json
+
+# GoldSet: производная от GoldenSet.py — локально / не публикуется
+tests/golden/cases.json
