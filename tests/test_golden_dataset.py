@@ -110,12 +110,10 @@ def test_context_cases_have_history_or_entities() -> None:
         assert case.get("history_dsl") or case.get("result_entities"), case["id"]
 
 
-def test_xfail_cases_are_008_and_033() -> None:
-    """Xfail: 008 (products у compare) и 033 (revenue_vat) — DECISIONS.md#4."""
+def test_no_xfail_cases_remain() -> None:
+    """008/033 — честный refuse без xfail; иначе XPASS(strict) в replay."""
     xfail = {case["id"] for case in CASES if case.get("xfail")}
-    assert xfail == {"test_008_memory_pronoun", "test_033_vat"}
-    assert CASES_BY_ID["test_033_vat"]["xfail_reason"]
-    assert CASES_BY_ID["test_008_memory_pronoun"]["xfail_reason"]
+    assert xfail == set()
 
 
 def test_reclassified_cases_match_adr() -> None:

@@ -209,8 +209,6 @@
       "question": "А как они соотносятся с прошлым кварталом?",
       "expected_status": "refuse",
       "expected_intent": "UNKNOWN",
-      "xfail": true,
-      "xfail_reason": "products у compare_top_products вне MVP (D4); ADR на расширение — в бэклоге (DECISIONS.md#4)",
       "expected_dsl": null,
       "expected_facts": [
         {
@@ -816,9 +814,7 @@
       ],
       "history_dsl": null,
       "result_entities": null,
-      "xfail": true,
-      "xfail_reason": "revenue_vat — расширение контракта, отдельный ADR в бэклоге",
-      "notes": "revenue_vat вне MVP (D4); кейс оставлен как xfail-памятка"
+      "notes": "revenue_vat вне MVP (D4); честный refuse вместо xfail"
     },
     {
       "id": "test_034_group_filter_top",

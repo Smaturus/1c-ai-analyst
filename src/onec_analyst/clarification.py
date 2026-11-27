@@ -267,16 +267,16 @@ def choose_clarified_text(
 
 
 __all__ = [
+    "CLARIFICATION_LIMIT_ERROR",
+    "CLARIFICATION_LIMIT_FAILURE_HINT",
     "SOURCE_ANSWER",
     "SOURCE_LLM",
     "SOURCE_MERGED",
-    "CLARIFICATION_LIMIT_ERROR",
-    "CLARIFICATION_LIMIT_FAILURE_HINT",
     "ClarifiedText",
     "answer_is_self_sufficient",
     "choose_clarified_text",
-    "classify_with_llm",
     "clarification_limit_banner",
+    "classify_with_llm",
     "force_interpretation",
     "merge_clarification",
 ]
