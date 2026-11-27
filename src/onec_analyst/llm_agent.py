@@ -840,7 +840,9 @@ class LLMSettings:
     timeout:
         Таймаут запроса в секундах.
     temperature:
-        Температура генерации (0 — детерминированно).
+        Температура генерации (0 — детерминированно). У провайдеров из
+        :data:`_LOCKED_TEMPERATURE` значение фиксирует API: Kimi K3 принимает
+        только ``1``, поэтому общий ``LLM_TEMPERATURE`` туда не применяется.
     json_mode:
         Запрашивать ли у провайдера ``response_format={"type":"json_object"}``.
     """
@@ -891,6 +893,10 @@ _DEFAULT_MODELS: Final[dict[str, str]] = {
     # Groq — OpenAI-совместимый эндпоинт, но отдельное имя провайдера: ключ и
     # модель не должны делить переменные с настоящим OpenAI (LLM_*_OPENAI).
     "groq": "openai/gpt-oss-120b",
+    # Kimi (Moonshot AI) — тоже OpenAI-совместимый протокол и тоже своё имя.
+    # Семейство K2 закрыто для новых пользователей с 31.10.2026 и снимается до
+    # конца 2026, поэтому по умолчанию — живой K3 (tool calling и JSON есть).
+    "kimi": "kimi-k3",
 }
 _DEFAULT_BASE_URLS: Final[dict[str, str]] = {
     "openai": "https://api.openai.com/v1",
@@ -899,11 +905,23 @@ _DEFAULT_BASE_URLS: Final[dict[str, str]] = {
     "gigachat": "https://api.giga.chat/v1",
     "mistral": "https://api.mistral.ai/v1",
     "groq": "https://api.groq.com/openai/v1",
+    # Глобальная площадка Moonshot. Ключи регионального кабинета .cn сюда не
+    # подходят: их эндпоинт — https://api.moonshot.cn/v1 (задаётся в .env).
+    "kimi": "https://api.moonshot.ai/v1",
 }
 #: Эндпоинты OAuth-токена (для провайдеров с двухшаговой авторизацией).
 _DEFAULT_AUTH_URLS: Final[dict[str, str]] = {
     "gigachat": "https://ngw.devices.sberbank.ru:9443/api/v2/oauth",
 }
+
+#: Провайдеры, у которых API фиксирует ``temperature``, — значение по умолчанию.
+#: Kimi K3 — thinking-модель: она принимает только ``temperature=1`` и отвечает
+#: ``HTTP 400 "invalid temperature: only 1 is allowed for this model"`` на любое
+#: другое. Общий ``LLM_TEMPERATURE`` (по умолчанию 0) провайдеру по умолчанию не
+#: подходит, поэтому для таких провайдеров действует значение из этой карты;
+#: явный ``LLM_TEMPERATURE_<PROVIDER>`` её перекрывает — это нужно семейству K2,
+#: где температура не зафиксирована.
+_LOCKED_TEMPERATURE: Final[dict[str, float]] = {"kimi": 1.0}
 
 #: User-Agent клиента для HTTP-вызовов LLM.
 #: Стандартный ``Python-urllib/3.x`` отбивается Cloudflare перед Groq:
@@ -1032,10 +1050,20 @@ def settings_from_env(
     values = env if env is not None else _environment_with_dotenv()
     env_provider = (values.get("LLM_PROVIDER") or "none").strip().lower()
     provider = (provider or env_provider).strip().lower()
-    if provider not in ("none", "openai", "deepseek", "ollama", "gigachat", "mistral", "groq"):
+    if provider not in (
+        "none",
+        "openai",
+        "deepseek",
+        "ollama",
+        "gigachat",
+        "mistral",
+        "groq",
+        "kimi",
+    ):
         raise ValueError(
             "Неизвестный LLM_PROVIDER="
-            f"{provider!r}; допустимо: none, openai, deepseek, ollama, gigachat, mistral, groq"
+            f"{provider!r}; допустимо: none, openai, deepseek, ollama, gigachat, "
+            "mistral, groq, kimi"
         )
 
     def pick(name: str) -> str:
@@ -1101,11 +1129,18 @@ def settings_from_env(
     # пустую провайдерную строку как «задано», и общий таймаут был бы потерян.
     generic_timeout = (values.get("LLM_TIMEOUT") or "").strip()
     provider_timeout = (values.get(f"LLM_TIMEOUT_{provider.upper()}") or "").strip()
+    provider_temperature = (values.get(f"LLM_TEMPERATURE_{provider.upper()}") or "").strip()
     try:
         timeout = float(provider_timeout or generic_timeout or "60")
         temperature = float(pick("LLM_TEMPERATURE") or "0")
     except ValueError as exc:  # pragma: no cover - защита от кривого env
         raise ValueError(f"LLM_TIMEOUT/LLM_TEMPERATURE должны быть числами: {exc}") from exc
+    # Провайдер с зафиксированной API температурой (Kimi K3): общий
+    # ``LLM_TEMPERATURE`` ему не подходит — запрос падает 400 ещё до генерации.
+    # Своя переменная ``LLM_TEMPERATURE_<PROVIDER>`` остаётся главнее.
+    locked_temperature = _LOCKED_TEMPERATURE.get(provider)
+    if locked_temperature is not None and not provider_temperature:
+        temperature = locked_temperature
     return LLMSettings(
         provider=provider,
         model=model,
@@ -1132,6 +1167,7 @@ CHOOSABLE_PROVIDERS: Final[tuple[str, ...]] = (
     "deepseek",
     "gigachat",
     "groq",
+    "kimi",
     "openai",
     "mistral",
     "ollama",

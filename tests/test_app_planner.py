@@ -383,7 +383,7 @@ def test_gigachat_model_selector_lists_api_models(
     _select_gigachat(at)
 
     assert len(at.exception) == 0
-    boxes = [box for box in at.sidebar.selectbox if box.label == "Модель GigaChat"]
+    boxes = [box for box in at.sidebar.selectbox if box.label == "Модель LLM"]
     assert boxes, [box.label for box in at.sidebar.selectbox]
     options = list(boxes[0].options)
     for name in _API_MODELS:
@@ -399,7 +399,7 @@ def test_gigachat_model_selection_switches_model(
     at = AppTest.from_file(APP_FILE, default_timeout=TIMEOUT).run()
     _select_gigachat(at)
 
-    box = next(box for box in at.sidebar.selectbox if box.label == "Модель GigaChat")
+    box = next(box for box in at.sidebar.selectbox if box.label == "Модель LLM")
     box.set_value("GigaChat Max").run()
 
     assert len(at.exception) == 0
@@ -435,6 +435,6 @@ def test_gigachat_model_selector_empty_on_api_failure(
 
     assert len(at.exception) == 0
     labels = [box.label for box in at.sidebar.selectbox]
-    assert "Модель GigaChat" not in labels, labels
+    assert "Модель LLM" not in labels, labels
     captions = " ".join(caption.value for caption in at.sidebar.caption)
     assert "gigachat" in captions, "остальная панель должна работать"

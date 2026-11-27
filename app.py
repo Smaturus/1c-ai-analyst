@@ -1220,6 +1220,7 @@ _PROVIDER_TITLES = {
     "gigachat": "GigaChat",
     "mistral": "Mistral",
     "groq": "Groq",
+    "kimi": "Kimi",
 }
 
 
@@ -1259,10 +1260,10 @@ def choose_llm_provider(
     ``disabled=True`` — «LLM выключена галочкой»: список виден, но выбрать
     провайдера нельзя.
 
-    В подписи — **только провайдер**, без модели: модель показывается отдельно
-    (для GigaChat и Mistral — селектором «Модель GigaChat» / «Модель Mistral»,
-    для остальных — подписью ``LLM: …``). Иначе в переключателе застывала бы
-    модель из ``.env`` и противоречила бы фактически выбранной.
+    В подписи — **только провайдер**, без модели: модель показывается отдельно,
+    общим для всех провайдеров селектором «Модель LLM» (плюс подпись
+    ``LLM: провайдер / модель``). Иначе в переключателе застывала бы модель из
+    ``.env`` и противоречила бы фактически выбранной.
     """
     if not options:
         return ProviderOption(settings=LLMSettings(), configured=False)
@@ -1339,7 +1340,7 @@ def choose_gigachat_model(settings: LLMSettings) -> LLMSettings:
     if settings.model not in models:
         models.insert(0, settings.model)
     selected = st.sidebar.selectbox(
-        "Модель GigaChat", options=models, index=models.index(settings.model)
+        "Модель LLM", options=models, index=models.index(settings.model)
     )
     if selected == settings.model:
         return settings
@@ -1386,7 +1387,7 @@ def choose_mistral_model(settings: LLMSettings) -> LLMSettings:
     if settings.model and settings.model not in models:
         models.insert(0, settings.model)
     selected = st.sidebar.selectbox(
-        "Модель Mistral",
+        "Модель LLM",
         options=models,
         index=models.index(settings.model) if settings.model in models else 0,
         help=(
@@ -1403,8 +1404,8 @@ def choose_mistral_model(settings: LLMSettings) -> LLMSettings:
 #: Модели Groq, годные для планировщика: чат + tool calling.
 #: Пары ``(id, подпись)``: Groq не выпускает свои модели, а исполняет открытые
 #: веса сторонних вендоров, поэтому в списке — имя модели без префикса вендора
-#: (``qwen3.8-27b``), а заголовок нейтральный («Модель LLM»), в отличие от
-#: «Модель Mistral»/«Модель GigaChat»: там вендор и есть модель.
+#: (``qwen3.8-27b``). Селектор при этом общий для всех провайдеров —
+#: «Модель LLM».
 #: Отфильтровано из ``GET /v1/models`` (11 записей): аудио (whisper, orpheus),
 #: классификаторы prompt-guard и ``gpt-oss-safeguard-20b``, а также
 #: ``allam-2-7b`` (арабская линейка) в проверке возвращали пустой план вместо
@@ -1433,8 +1434,8 @@ def choose_groq_model(settings: LLMSettings) -> LLMSettings:
     ``st.session_state`` и **не** пишется в ``.env`` — приложение не редактирует
     файл с секретами.
 
-    В списке — имя модели без префикса вендора (``qwen3.8-27b``), заголовок
-    нейтральный («Модель LLM»): Groq лишь исполняет чужие веса. Модель из
+    В списке — имя модели без префикса вендора (``qwen3.8-27b``): Groq лишь
+    исполняет чужие веса. Модель из
     ``.env`` не подменяется на первую из каталога, даже если её там нет: молча
     отправить запрос не тем именем, чем просили, — хуже, чем показать
     непривычное имя первым в списке.
@@ -1474,6 +1475,60 @@ def choose_groq_model(settings: LLMSettings) -> LLMSettings:
     if model_id == settings.model:
         return settings
     return dataclasses.replace(settings, model=model_id)
+
+
+#: Модели Kimi (Moonshot AI), годные для планировщика: чат + tool calling.
+#: Список статический, а не из ``GET /v1/models``: ответ API не говорит, какие
+#: модели умеют tools, а планировщику это обязательно. В каталоге только живые
+#: модели K3: семейство K2 закрыто для новых пользователей (31.10.2026) и
+#: снимается до конца 2026, поэтому по умолчанию ``kimi-k3``. Если модель из
+#: ``.env`` не входит в список (например, оставшийся у аккаунта K2), она
+#: показывается первой (см. :func:`choose_kimi_model`).
+KIMI_MODELS: Final[tuple[str, ...]] = (
+    "kimi-k3",
+    "kimi-k3.1-pro",
+)
+
+
+def choose_kimi_model(settings: LLMSettings) -> LLMSettings:
+    """Выбрать модель Kimi в сайдбаре; вернуть настройки с выбором на сессию.
+
+    Аналог :func:`choose_mistral_model`: список — каталог моделей, а не ответ
+    API. Выбор живёт в ``st.session_state`` и **не** пишется в ``.env``:
+    приложение не редактирует файл с секретами.
+
+    Модель из ``.env`` не подменяется на первую из каталога, даже если её там
+    нет: молча отправить запрос не тем именем, чем просили, — хуже, чем
+    показать непривычное имя первым в списке.
+
+    Parameters
+    ----------
+    settings:
+        Настройки выбранного провайдера.
+
+    Returns
+    -------
+    LLMSettings
+        Те же настройки, но с моделью, выбранной в списке (для Kimi).
+    """
+    if settings.provider != "kimi":
+        return settings
+    models = list(KIMI_MODELS)
+    if settings.model and settings.model not in models:
+        models.insert(0, settings.model)
+    selected = st.sidebar.selectbox(
+        "Модель LLM",
+        options=models,
+        index=models.index(settings.model) if settings.model in models else 0,
+        help=(
+            "Модели Moonshot AI с поддержкой tool calling. Выбор действует в "
+            "текущей сессии и не записывается в .env; модель по умолчанию — "
+            "LLM_MODEL_KIMI."
+        ),
+    )
+    if selected == settings.model:
+        return settings
+    return dataclasses.replace(settings, model=selected)
 
 
 # --------------------------------------------------------------------------- #
@@ -1713,6 +1768,8 @@ def render_sidebar(
             chosen_settings = choose_mistral_model(chosen_settings)
         elif chosen_settings.provider == "groq":
             chosen_settings = choose_groq_model(chosen_settings)
+        elif chosen_settings.provider == "kimi":
+            chosen_settings = choose_kimi_model(chosen_settings)
         else:
             chosen_settings = choose_gigachat_model(chosen_settings)
         st.sidebar.caption(f"LLM: `{chosen_settings.provider}` / `{chosen_settings.model}`")
